@@ -3,7 +3,7 @@
    v3.3: Network-First for Code & Cache-First for Heavy Assets
    ========================================================== */
 
-const CACHE_NAME = 'lords-abyss-v4.8.5';
+const CACHE_NAME = 'lords-abyss-v4.8.6';
 
 // Полный набор ядра и ключевой графики для автономной работы в оффлайне
 const STATIC_ASSETS = [

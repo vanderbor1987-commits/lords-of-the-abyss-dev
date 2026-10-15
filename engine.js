@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.5';
+const BUILD_VERSION = '4.8.6';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -6107,10 +6107,20 @@ function renderArena() {
 
     if (cacheFresh && liveCache.length > 0) {
         const myAtkCP = calculateCP(gState.attackFormation, null, false);
-        const maxToMerge = Math.min(liveCache.length, rivalsData.length - 1); // оставляем минимум 1 бота для разнообразия
+        const myTrophies = Math.floor(gState.trophies || 150);
+        const maxToMerge = Math.min(liveCache.length, rivalsData.length - 1);
+        // B5: показываем живого только если разница кубков ≤30. Иначе оставляем
+        // бота в ячейке — фарм слабых/сильных экономически бессмыслен, а в UI
+        // это выглядело как баг («#2 BalTaZaR 310 кубков» при моих 782).
+        const TROPHY_GAP_LIMIT = 30;
         for (let i = 0; i < maxToMerge; i++) {
             const lp = liveCache[i];
             if (!lp || !lp.uid || lp.uid === myUid) continue;
+            const theirTrophies = Math.floor(lp.trophies || 150);
+            if (Math.abs(theirTrophies - myTrophies) > TROPHY_GAP_LIMIT) {
+                if (DEV_MODE_CHECK()) devLog('[LiveArena] skip ' + lp.name + ' (gap=' + Math.abs(theirTrophies - myTrophies) + '>30)');
+                continue;
+            }
 
             const bot = rivalsData[i];
             // B3: разбираем defenseSquad двух форматов (строки или объекты).
@@ -6137,7 +6147,7 @@ function renderArena() {
             rivalsData[i] = {
                 isReal: true,
                 uid: lp.uid,
-                rank: bot.rank,
+                rank: (typeof lp.rank === 'number' && lp.rank > 0) ? lp.rank : null,
                 name: lp.name || 'Неизвестный',
                 trophies: Math.floor(lp.trophies || 150),
                 cp: Math.floor(lp.cp || 1000),
@@ -6185,12 +6195,13 @@ function renderArena() {
             ? '<span class="live-online-badge">● ' + (currentLang === 'RU' ? 'ОНЛАЙН' : 'ONLINE') + '</span>'
             : '';
 
+        const _rankLabel = lord.rank ? `#${lord.rank}` : '—';
         div.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <div>
                         <span class="arena-rival-title" onclick="inspectArenaRival(${index})">
-                            #${lord.rank} ${lord.name} ${liveBadge}
+                            ${_rankLabel} ${lord.name} ${liveBadge}
                         </span>
                     </div>
                     <div style="font-size:11px; color:var(--text-muted); margin-top:3px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">

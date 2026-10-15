@@ -385,12 +385,17 @@ async function handleArenaRivals(request, env) {
     const top = candidates.slice(0, count);
 
     // Догружаем полный профиль (с defenseSquad)
+    // B5: добавляем rank из sorted-массива, чтобы клиент показывал
+    // честное место живого игрока, а не от бота.
     const rivals = [];
     for (const p of top) {
         const fullRaw = await env.LOTA_LADDER.get(`player:${p.uid}`);
         if (!fullRaw) continue;
         try {
-            rivals.push(JSON.parse(fullRaw));
+            const profile = JSON.parse(fullRaw);
+            const rankIdx = sorted.findIndex(s => s.uid === p.uid);
+            profile.rank = rankIdx >= 0 ? rankIdx + 1 : null;
+            rivals.push(profile);
         } catch (e) {}
     }
 
