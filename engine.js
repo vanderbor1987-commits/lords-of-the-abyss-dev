@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.6';
+const BUILD_VERSION = '4.7.7';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -1167,6 +1167,25 @@ function redeemPromoCode(source = 'modal') {
     if (promo.tickets) {
         gState.tickets += promo.tickets;
         lootParts.push(`+${promo.tickets} ${tI}`);
+    }
+    // PROMO-HERO: выдача конкретного героя. Если он уже есть — +1★,
+    // если MAX 10★ — компенсация кристаллами. Защита от повторной выдачи
+    // обеспечивается массивом gState.usedPromoCodes ниже (один код = одна выдача).
+    if (promo.hero && typeof HEROES_CATALOG !== 'undefined' && HEROES_CATALOG[promo.hero]) {
+        const hid = promo.hero;
+        const heroDef = HEROES_CATALOG[hid];
+        const heroName = heroDef.name[currentLang] || heroDef.name['EN'];
+        if (!gState.deck[hid]) {
+            gState.deck[hid] = { stars: 1, lvl: 1 };
+            lootParts.push(`[${heroDef.tier}] ${heroName}`);
+        } else if ((gState.deck[hid].stars || 1) < 10) {
+            gState.deck[hid].stars = (gState.deck[hid].stars || 1) + 1;
+            lootParts.push(`★+1 [${heroDef.tier}] ${heroName}`);
+        } else {
+            const promoHeroCompensation = 1500;
+            gState.crystals += promoHeroCompensation;
+            lootParts.push(`+${promoHeroCompensation} ${cI} (MAX 10)`);
+        }
     }
 
     gState.usedPromoCodes.push(rawCode);

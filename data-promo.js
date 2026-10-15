@@ -58,6 +58,15 @@ const PROMO_CODES = {
         crystals: 500,
         tickets: 10,
         title: { RU: 'Тыквенный дар', EN: 'Halloween Gift' }
+    },
+
+    // PROMO-HERO: расширенная система — выдаёт КОНКРЕТНОГО героя напрямую.
+    // Поле hero: id из HEROES_CATALOG. Если герой уже есть — +1★ (до 10);
+    // если MAX 10★ — выдаётся компенсация 1500 кристаллов.
+    // Идеально для целевых компенсаций (слёт сохранения между устройствами).
+    'SERAPHIM_SS': {
+        hero: 'ss_lig_c',
+        title: { RU: 'Компенсация: Серафим Созидания', EN: 'Compensation: Creation Seraph' }
     }
 };
 
