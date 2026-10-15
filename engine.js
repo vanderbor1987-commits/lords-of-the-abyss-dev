@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.8';
+const BUILD_VERSION = '4.7.9';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -2687,9 +2687,21 @@ function getBotCardStats(enemyName, enemyCp, slotIndex, heroId = null) {
 }
 
 // Создание боевого профиля карты с честной симуляцией статов
-function buildCombatUnit(id, isPlayer, slotIndex, baseTeamCP, combatType = 'arena', enemyName = '', fullSquad = null) {
+function buildCombatUnit(id, isPlayer, slotIndex, baseTeamCP, combatType = 'arena', enemyName = '', fullSquad = null, realCardMeta = null) {
     const hero = HEROES_CATALOG[id] || HEROES_CATALOG['f_und_v'];
-    const cardData = isPlayer ? (gState.deck[id] || { stars: 1, lvl: 1 }) : getBotCardStats(enemyName, baseTeamCP, slotIndex, id);
+    // B3: для живых соперников используем реальные stars/lvl из squadMeta,
+    // а не сгенерированные getBotCardStats. Если meta нет — fallback на ботов.
+    let cardData;
+    if (isPlayer) {
+        cardData = gState.deck[id] || { stars: 1, lvl: 1 };
+    } else if (realCardMeta && realCardMeta[id]) {
+        cardData = {
+            stars: Math.max(1, Math.min(10, realCardMeta[id].stars || 1)),
+            lvl: Math.max(1, Math.min(300, realCardMeta[id].lvl || 1))
+        };
+    } else {
+        cardData = getBotCardStats(enemyName, baseTeamCP, slotIndex, id);
+    }
     
     let hCP = 0;
     if (isPlayer) {
@@ -2793,7 +2805,9 @@ function launchVisualCombat(playerSquadIds, enemyData, combatType, onCompleteCal
     const enemyHasElemBonus = checkElementalAdvantage(enemyData.squad, playerSquadIds);
     activeCombatData = {
         playerUnits: playerSquadIds.map((id, idx) => id ? buildCombatUnit(id, true, idx, pCP, combatType) : null),
-        enemyUnits: enemyData.squad.map((id, idx) => id ? buildCombatUnit(id, false, idx, enemyData.cp, combatType, enemyData.name, enemyData.squad) : null),
+        // B3: 8-й аргумент — реальные статы карт защитника (для живых игроков).
+        // Для ботов squadMeta === null → используется getBotCardStats (как раньше).
+        enemyUnits: enemyData.squad.map((id, idx) => id ? buildCombatUnit(id, false, idx, enemyData.cp, combatType, enemyData.name, enemyData.squad, enemyData.squadMeta || null) : null),
         hasElemBonus,
         enemyHasElemBonus,
         playerSynergy: getFormationSynergy(playerSquadIds),
@@ -4847,6 +4861,7 @@ function closeCardInspect() {
    ========================================================== */
 
 let liveArenaSubmitDebounce = null;
+let liveArenaSubmitRetry = null;  // B3: таймер ретрая при rate_limited
 
 function getLaunchQuery() {
     try {
@@ -4871,7 +4886,17 @@ async function submitArenaProfile() {
         name: (gState.playerName || 'Duke Valdor').slice(0, 12),
         trophies: Math.floor(gState.trophies || 150),
         cp: Math.floor(calculateCP(gState.defenseFormation, null, false)),
-        defenseSquad: sanitizeFormation(gState.defenseFormation).map(id => id || 'f_und_v')
+        // B3: передаём реальные stars/lvl каждой карты защиты.
+        // Атакующий увидит настоящие статы, а не бото-фейк от getBotCardStats.
+        defenseSquad: sanitizeFormation(gState.defenseFormation).map(id => {
+            const realId = id || 'f_und_v';
+            const card = gState.deck[realId] || { stars: 1, lvl: 1 };
+            return {
+                id: realId,
+                stars: Math.max(1, Math.min(10, card.stars || 1)),
+                lvl: Math.max(1, Math.min(300, card.lvl || 1))
+            };
+        })
     };
 
     try {
@@ -4882,6 +4907,18 @@ async function submitArenaProfile() {
         });
         const data = await resp.json();
         if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);
+        // B3: если сервер отклонил по rate-limit — планируем ретрай через retryIn мс.
+        // Это критично для обновления имени: иначе после смены имени submit не пройдёт,
+        // пока игрок не сделает ещё действие спустя минуту.
+        if (data && data.ok === false && data.reason === 'rate_limited') {
+            const retryIn = Math.max(1000, (data.retryIn || 5000) + 500);
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] rate_limited, retry in', retryIn, 'ms');
+            if (liveArenaSubmitRetry) clearTimeout(liveArenaSubmitRetry);
+            liveArenaSubmitRetry = setTimeout(() => {
+                liveArenaSubmitRetry = null;
+                submitArenaProfile();
+            }, retryIn);
+        }
         return data;
     } catch (e) {
         if (DEV_MODE_CHECK()) console.warn('[LiveArena] submit failed:', e);
@@ -5046,6 +5083,26 @@ async function revengeFromInbox(attackerUid) {
         return pushToast(currentLang === 'RU' ? 'Игрок недоступен для реванша' : 'Player unavailable for revenge');
     }
     const myAtkCP = calculateCP(gState.attackFormation, null, false);
+    // B3: та же логика разбора двух форматов defenseSquad, что и в renderArena.
+    const squadIds = [];
+    const squadMeta = {};
+    if (Array.isArray(profile.defenseSquad) && profile.defenseSquad.length === 3) {
+        profile.defenseSquad.forEach(el => {
+            if (typeof el === 'string') {
+                squadIds.push(el);
+            } else if (el && typeof el === 'object' && typeof el.id === 'string') {
+                squadIds.push(el.id);
+                squadMeta[el.id] = {
+                    stars: Math.max(1, Math.min(10, parseInt(el.stars, 10) || 1)),
+                    lvl: Math.max(1, Math.min(300, parseInt(el.lvl, 10) || 1))
+                };
+            } else {
+                squadIds.push('f_und_v');
+            }
+        });
+    } else {
+        squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
+    }
     const rival = {
         isReal: true,
         uid: profile.uid,
@@ -5053,9 +5110,8 @@ async function revengeFromInbox(attackerUid) {
         name: profile.name || '???',
         trophies: Math.floor(profile.trophies || 150),
         cp: Math.floor(profile.cp || 1000),
-        squad: Array.isArray(profile.defenseSquad) && profile.defenseSquad.length === 3
-            ? profile.defenseSquad
-            : ['f_und_v', 'f_und_c', 'f_und_r'],
+        squad: squadIds,
+        squadMeta: squadMeta,
         gain: calculateDynamicTrophyGain(myAtkCP, profile.cp || 1000),
         isRevenge: true,
         consecutiveLosses: 0
@@ -5893,6 +5949,27 @@ function renderArena() {
             if (!lp || !lp.uid || lp.uid === myUid) continue;
 
             const bot = rivalsData[i];
+            // B3: разбираем defenseSquad двух форматов (строки или объекты).
+            // squad — массив id (для боевых логик), squadMeta — {id: {stars, lvl}}.
+            const squadIds = [];
+            const squadMeta = {};
+            if (Array.isArray(lp.defenseSquad) && lp.defenseSquad.length === 3) {
+                lp.defenseSquad.forEach(el => {
+                    if (typeof el === 'string') {
+                        squadIds.push(el);
+                    } else if (el && typeof el === 'object' && typeof el.id === 'string') {
+                        squadIds.push(el.id);
+                        squadMeta[el.id] = {
+                            stars: Math.max(1, Math.min(10, parseInt(el.stars, 10) || 1)),
+                            lvl: Math.max(1, Math.min(300, parseInt(el.lvl, 10) || 1))
+                        };
+                    } else {
+                        squadIds.push('f_und_v');
+                    }
+                });
+            } else {
+                squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
+            }
             rivalsData[i] = {
                 isReal: true,
                 uid: lp.uid,
@@ -5900,9 +5977,8 @@ function renderArena() {
                 name: lp.name || 'Неизвестный',
                 trophies: Math.floor(lp.trophies || 150),
                 cp: Math.floor(lp.cp || 1000),
-                squad: Array.isArray(lp.defenseSquad) && lp.defenseSquad.length === 3
-                    ? lp.defenseSquad
-                    : ['f_und_v', 'f_und_c', 'f_und_r'],
+                squad: squadIds,
+                squadMeta: squadMeta,
                 gain: calculateDynamicTrophyGain(myAtkCP, lp.cp || 1000),
                 isRevenge: false,
                 consecutiveLosses: 0
@@ -11289,6 +11365,14 @@ function saveAndCloseSettings() {
     renderLeaderboard();
     renderUI();
     pushToast(currentLang === 'RU' ? "Настройки сохранены!" : "Settings saved!");
+
+    // B3: при смене имени — немедленный submit, минуя 30-сек debounce.
+    // Иначе партнёр видит старое имя ещё минуту. Rate-limit на сервере снижен
+    // до 5 сек, поэтому реальный submit пройдёт в течение ~5-10 сек.
+    if (typeof submitArenaProfile === 'function' && typeof canSubmitToLiveArena === 'function' && canSubmitToLiveArena()) {
+        if (liveArenaSubmitDebounce) { clearTimeout(liveArenaSubmitDebounce); liveArenaSubmitDebounce = null; }
+        submitArenaProfile();
+    }
 }
 
 function generateRandomNick() {

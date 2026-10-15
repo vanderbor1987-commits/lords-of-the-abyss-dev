@@ -20,7 +20,7 @@
 
 const TS_WINDOW_VALIDATE = 3600;      // P9: sign актуален 1 час
 const TS_WINDOW_ARENA = 86400;        // Arena: sign актуален 24 часа (долгие сессии)
-const SUBMIT_COOLDOWN_MS = 60_000;    // 1 submit в минуту на игрока
+const SUBMIT_COOLDOWN_MS = 5_000;     // 1 submit в 5 сек (было 60с — блокировало смену имени)
 const ATTACK_COOLDOWN_MS = 60_000;    // 1 атака в минуту на игрока
 const INBOX_MAX_ENTRIES = 20;         // максимум 20 непрочитанных атак в inbox
 const RIVALS_MAX = 5;                 // верхний предел на один запрос rivals
@@ -231,9 +231,26 @@ async function handleArenaSubmit(request, env) {
         return json({ ok: false, reason: 'invalid_cp' }, 400);
     }
 
+    // B3: defenseSquad теперь может быть двух форматов:
+    //   Старый: ['id1', 'id2', 'id3']
+    //   Новый:  [{id, stars, lvl}, ...]
+    // Оба принимаются для обратной совместимости.
     const defenseSquad = Array.isArray(body.defenseSquad) ? body.defenseSquad : [];
-    if (defenseSquad.length !== DEFENSE_SQUAD_SIZE
-        || !defenseSquad.every(id => typeof id === 'string' && id.length > 0 && id.length <= 40)) {
+    if (defenseSquad.length !== DEFENSE_SQUAD_SIZE) {
+        return json({ ok: false, reason: 'invalid_squad' }, 400);
+    }
+    const squadOk = defenseSquad.every(el => {
+        if (typeof el === 'string') return el.length > 0 && el.length <= 40;
+        if (el && typeof el === 'object') {
+            if (typeof el.id !== 'string' || el.id.length === 0 || el.id.length > 40) return false;
+            const s = parseInt(el.stars, 10), l = parseInt(el.lvl, 10);
+            if (!Number.isFinite(s) || s < 1 || s > 10) return false;
+            if (!Number.isFinite(l) || l < 1 || l > 300) return false;
+            return true;
+        }
+        return false;
+    });
+    if (!squadOk) {
         return json({ ok: false, reason: 'invalid_squad' }, 400);
     }
 
