@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.2';
+const BUILD_VERSION = '4.8.3';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -4178,7 +4178,7 @@ function renderExpeditionsList() {
                     <span style="font-size:11px; color:var(--gold); font-weight:700; white-space:nowrap;">${I18N[currentLang].exp_in_progress} ${getFormattedTime(leftSec)}</span>
                     <div style="display:flex; gap:4px; align-items:center;">
                         ${speedupControlHtml}
-                        <button class="btn-action" style="font-size:11px; padding:4px 10px; background:#7f1d1d; border-color:#ef4444; color:#fca5a5;" onclick="cancelExpedition('${exp.id}')">${cancelBtnLabel}</button>
+                        <button class="btn-action" style="font-size:11px; padding:4px 10px; background:#7f1d1d; border-color:#ef4444; color:#fca5a5;" onclick="openCancelExpeditionConfirm('${exp.id}')">${cancelBtnLabel}</button>
                     </div>
                 </div>`;
         } else {
@@ -4475,40 +4475,41 @@ function speedupExpedition(expId) {
 // Защита: множитель уровня и стихийный резонанс умножают ЗОЛОТО
 // MAJOR-M3: reentrancy-guard блокирует двойное нажатие «Забрать» (двойной тап, две вкладки)
 // и гарантирует single-flight начисление награды за одну экспедицию.
-// R3: досрочно прервать экспедицию. Награда — пропорционально прошедшему времени.
-// Кристаллы и реликвии НЕ выдаются (только золото), чтобы не эксплойтить.
-function cancelExpedition(expId) {
-    const config = EXPEDITIONS_CONFIG.find(e => e.id === expId);
+// FIX-EXP-CANCEL: отмена похода больше НЕ выдаёт награду.
+// Причина: пропорциональная награда открывала эксплойт — игрок мог смотреть
+// рекламу x2 на коротком походе и отменять сразу, получая бонус ни за что.
+// Теперь: сначала модалка подтверждения с явным предупреждением, что награды
+// не будет. При подтверждении герои возвращаются немедленно, без выдачи.
+let _pendingCancelExpId = null;
+
+function openCancelExpeditionConfirm(expId) {
     const expData = gState.expeditions[expId];
-    if (!config || !expData) return;
+    if (!expData) return;
+    _pendingCancelExpId = expId;
+    const m = document.getElementById('cancel-expedition-modal');
+    if (m) m.style.display = 'flex';
+    playSfx(400, 'triangle', 0.05);
+}
 
-    const now = Date.now();
-    if (expData.endTime <= now) {
-        return claimExpedition(expId);
-    }
+function closeCancelExpeditionModal() {
+    _pendingCancelExpId = null;
+    const m = document.getElementById('cancel-expedition-modal');
+    if (m) m.style.display = 'none';
+}
 
-    const totalSec = config.durationSec || 1;
-    const remainingSec = Math.max(0, Math.floor((expData.endTime - now) / 1000));
-    const elapsedSec = Math.max(0, totalSec - remainingSec);
-    const progress = Math.max(0, Math.min(1, elapsedSec / totalSec));
-    const partialGold = Math.floor(config.rewardGold * progress);
+function confirmCancelExpedition() {
+    const expId = _pendingCancelExpId;
+    closeCancelExpeditionModal();
+    if (!expId) return;
+    const expData = gState.expeditions[expId];
+    if (!expData) return;
 
+    // Награда НЕ начисляется. Герои возвращаются в строй немедленно.
     delete gState.expeditions[expId];
 
-    if (partialGold > 0) {
-        gState.gold += partialGold;
-        gState.lifetimeGold += partialGold;
-    }
-
-    playCoinSfx();
-    triggerHaptic('tap');
-    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
-    const cancelStr = currentLang === 'RU' ? 'Экспедиция отменена' : 'Expedition cancelled';
-    if (partialGold > 0) {
-        pushToast(`${cancelStr}: +${formatNumber(partialGold)} ${gI}`);
-    } else {
-        pushToast(cancelStr);
-    }
+    playSfx(300, 'square', 0.1);
+    triggerHaptic('defeat');
+    pushToast(currentLang === 'RU' ? 'Экспедиция отменена. Герои вернулись.' : 'Expedition cancelled. Heroes returned.');
 
     saveGame();
     renderExpeditionsList();

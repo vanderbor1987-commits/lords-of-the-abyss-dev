@@ -544,6 +544,10 @@ const I18N = {
         exp_picker_cancel: 'Отмена',
         exp_picker_auto: 'АВТО',
         exp_picker_confirm: 'ОТПРАВИТЬ',
+        exp_cancel_confirm_title: 'ОТМЕНИТЬ ЭКСПЕДИЦИЮ?',
+        exp_cancel_confirm_desc: 'Герои вернутся немедленно. Награда за поход НЕ будет начислена.',
+        exp_cancel_confirm_yes: 'ОТМЕНИТЬ',
+        exp_cancel_confirm_no: 'ОСТАВИТЬ',
 
         // Дар первого платежа
         first_purchase_modal_title: 'ДАР ПЕРВОГО ПЛАТЕЖА',
@@ -1088,6 +1092,10 @@ const I18N = {
         exp_picker_cancel: 'Cancel',
         exp_picker_auto: 'AUTO',
         exp_picker_confirm: 'DEPLOY',
+        exp_cancel_confirm_title: 'CANCEL EXPEDITION?',
+        exp_cancel_confirm_desc: 'Heroes return immediately. NO reward will be granted.',
+        exp_cancel_confirm_yes: 'CANCEL',
+        exp_cancel_confirm_no: 'KEEP',
 
         // First Purchase Gift
         first_purchase_modal_title: 'FIRST PURCHASE GIFT',
