@@ -1,0 +1,1888 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="author" content="Vander Bor">
+    <title>Lords of the Abyss</title>
+    <meta name="theme-color" content="#07090d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" type="image/webp" href="assets/icons/portal_abyss.webp">
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=4.7.1">
+        <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
+         Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
+         запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
+         "No parent to post message" в консоли сторонних браузеров и ускоряет загрузку. -->
+    <script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div id="desktop-backdrop">
+    <div id="app-viewport">
+        <!-- ЕДИНЫЙ ГОТИЧЕСКИЙ ЭКРАН ЗАГРУЗКИ И СТАРТА -->
+        <div id="app-preloader">
+            <!-- Возрастной ценз (требование правил VK Mini Apps п. 2.1.5) -->
+            <div class="preloader-age-badge" id="preloader-age-badge" title="Возрастное ограничение">16+</div>
+
+            <!-- Полупрозрачная кнопка языка в правом верхнем углу -->
+            <button class="preloader-lang-btn" id="btn-preloader-lang" onclick="togglePreloaderLanguage()">RU</button>
+
+            <!-- FIX-PRELOADER-SOUND: кнопка mute/unmute звука на экране предзагрузки.
+                 Требование UX-модерации: возможность выключить звук ДО входа в игру,
+                 пока читаешь соглашение/знакомишься с проектом. Иконка синхронизируется
+                 через updateSettingsAudioBtnText() с учётом gState.isAudioMuted && isMusicMuted. -->
+            <button class="preloader-sound-btn" id="btn-preloader-sound" onclick="toggleMasterAudio()" aria-label="Sound" data-muted="false">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f5b041" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="#f5b041"></polygon>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                </svg>
+            </button>
+
+            <div class="preloader-crest">
+                <img src="assets/icons/portal_abyss.webp" class="preloader-crest-img" alt="Abyss Crest" onerror="this.style.display='none'">
+            </div>
+            <h1 class="preloader-title">LORDS OF THE ABYSS</h1>
+            <div class="preloader-subtitle">A GAME BY VANDER BOR</div>
+            
+            <div class="preloader-track" id="preloader-track-box">
+                <div class="preloader-bar" id="preloader-bar"></div>
+            </div>
+            <div class="preloader-meta" id="preloader-meta-box">
+                <span class="preloader-status" id="preloader-status">Пробуждение древних владык...</span>
+                <span class="preloader-pct" id="preloader-pct">0%</span>
+            </div>
+
+            <!-- P8: Экран принятия соглашения при первом запуске (п. 1.1.4 правил VK Mini Apps) -->
+            <div class="preloader-terms-box" id="preloader-terms-box" style="display: none;">
+                <div class="preloader-terms-intro" data-i18n="preloader_terms_intro">Для запуска игры необходимо принять условия:</div>
+                <div class="preloader-terms-checkbox-row">
+                    <input type="checkbox" id="chk-preloader-terms" onchange="togglePreloaderTermsCheck(this.checked)">
+                    <label for="chk-preloader-terms" class="preloader-terms-check-label" data-i18n="preloader_terms_accept_label">Я принимаю</label>
+                    <button type="button" class="preloader-terms-link" onclick="event.preventDefault(); openLegalDocument('terms')" data-i18n="legal_terms">Соглашение</button>
+                    <span data-i18n="preloader_terms_and">и</span>
+                    <button type="button" class="preloader-terms-link" onclick="event.preventDefault(); openLegalDocument('privacy')" data-i18n="legal_privacy">Конфиденциальность</button>
+                </div>
+            </div>
+
+            <!-- Пульсирующая кнопка старта (появляется при 100%) -->
+            <button class="btn-action preloader-start-btn" id="btn-preloader-start" onclick="startGameFromPreloader()" style="display: none;" data-i18n="title_start_new">
+                ВОЙТИ В БЕЗДНУ
+            </button>
+
+            <!-- FIX-BUILD-VERSION: маленький индикатор сборки в углу предзагрузки.
+                 По дате сразу видно, применился ли последний патч из GitHub. -->
+            <div class="preloader-build-tag" id="ui-build-version-preloader">v4.1 · 12.10.2026</div>
+        </div>
+
+        <!-- ==========================================================
+        ШАПКА ПРОФИЛЯ И РЕСУРСЫ
+        ========================================================== -->
+        <header class="app-header">
+            <!-- 1. Верхняя системная полоса: Ресурсы + Звук и Экран для модерации -->
+            <div class="top-header-strip">
+                <div class="res-row">
+                    <div class="res-pill" id="pill-gold" title="Золото Цитадели">
+                        <span class="res-icon">
+                            <img src="assets/icons/gold.webp" class="res-img-icon" alt="Золото" onerror="this.onerror=null; this.style.display='none';">
+                        </span>
+                        <span id="ui-gold">0</span>
+                    </div>
+                    <div class="res-pill" id="pill-army" title="Гарнизон Легиона">
+                        <span class="res-icon">
+                            <img src="assets/icons/army.webp" class="res-img-icon" alt="Армия" onerror="this.onerror=null; this.style.display='none';">
+                        </span>
+                        <span id="ui-army">0</span>/<span id="ui-army-cap">100</span>
+                    </div>
+                    <div class="res-pill" id="pill-cryst" title="Кристаллы Бездны">
+                        <span class="res-icon">
+                            <img src="assets/icons/crystal.webp" class="res-img-icon" alt="Кристаллы" onerror="this.onerror=null; this.style.display='none';">
+                        </span>
+                        <span id="ui-crystals">0</span>
+                    </div>
+                    <div class="res-pill" id="pill-relics" title="Реликвии Возвышения">
+                        <span class="res-icon">
+                            <img src="assets/icons/relic.webp" class="res-img-icon" alt="Реликвии" onerror="this.onerror=null; this.style.display='none';">
+                        </span>
+                        <span id="ui-relics">0</span>
+                    </div>
+                </div>
+
+                <div class="top-sys-buttons">
+                    <!-- Системный контроллер звука (Векторный SVG-динамик) -->
+                    <div class="top-sys-btn" id="btn-audio-toggle" onclick="toggleMasterAudio()">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gold); display:block;">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor"></polygon>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                        </svg>
+                    </div>
+                    <!-- Системный контроллер экрана (Векторный SVG полноэкранного режима) -->
+                    <div class="top-sys-btn" id="btn-fullscreen-header" onclick="toggleFullscreen()">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gold); display:block;">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                        </svg>
+                    </div>
+                    <!-- FIX-4.2.10: Главное меню. Закрывает требование п. 4.2.10 правил VK Mini Apps
+                         «Игра должна иметь полноценное стартовое меню... возможность вернуться в главное меню в любой момент». -->
+                    <div class="top-sys-btn" id="btn-main-menu" onclick="openMainMenu()" title="Главное меню">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gold); display:block;">
+                            <line x1="3" y1="6" x2="21" y2="6"></line>
+                            <line x1="3" y1="12" x2="21" y2="12"></line>
+                            <line x1="3" y1="18" x2="21" y2="18"></line>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Профиль Лорда (БМ) и Кнопки Заданий/Календаря -->
+            <div class="header-profile-row" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="nick-wrap" onclick="openSettingsModal()" id="nick-wrapper" style="display: inline-flex; width: auto; cursor: pointer;">
+                    <div class="lord-avatar-icon" id="ui-lord-avatar">
+                        <img src="assets/icons/swords_cp.webp" style="width:24px; height:24px;" alt="Аватар">
+                    </div>
+                    <div class="lord-profile-info">
+                        <div class="lord-sub-title" id="ui-lord-title-tag">Ополченец Склепа</div>
+                        <div class="lord-title-row">
+                            <span class="lord-title-text" id="ui-lord-name">Duke Valdor</span>
+                        </div>
+                        <div class="lord-meta-row" style="display: flex; align-items: center; gap: 6px;">
+                            <div class="lord-cp-pill"><img src="assets/icons/swords_cp.webp" class="res-icon-inline" style="width:14px; height:14px; margin-right:2px;" alt="БМ"> <b id="ui-total-cp">0</b> <span id="lbl-ui-cp-unit">БМ</span></div>
+                            <span class="vip-tag" id="ui-vip-tag">VIP</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 4px; align-items: center; padding-right: 2px;">
+                    <div class="header-circle-btn" id="btn-hud-pass" onclick="openAbyssPassModal()">
+                        <img src="assets/icons/hud_pass.webp" class="hud-icon-img" alt="Pass"><span class="notif-badge" id="badge-pass-circle"></span>
+                    </div>
+                    <div class="header-circle-btn" id="btn-hud-wheel" onclick="openLuckyWheelModal()">
+                        <img src="assets/icons/hud_wheel.webp" class="hud-icon-img" alt="Wheel"><span class="notif-badge" id="badge-wheel-circle"></span>
+                    </div>
+                    <div class="header-circle-btn" id="btn-hud-calendar" onclick="openDailyCalendarModal()">
+                        <img src="assets/icons/hud_calendar.webp" class="hud-icon-img" alt="Calendar"><span class="notif-badge" id="badge-calendar-circle"></span>
+                    </div>
+                    <div class="header-circle-btn" id="btn-hud-quests" onclick="navigate('quests-view')">
+                        <img src="assets/icons/hud_quests.webp" class="hud-icon-img" alt="Quests"><span class="notif-badge" id="badge-quests-circle"></span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ==========================================================
+             ГЛАВНАЯ НАВИГАЦИЯ
+             ========================================================== -->
+        <nav class="main-nav">
+            <button class="nav-btn active" onclick="navigate('citadel-view')" id="nav-citadel">
+                <span class="nav-icon">🏛️</span>
+                <span class="nav-text">Цитадель</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('roster-view')" id="nav-roster">
+                <span class="nav-icon">⚔️</span>
+                <span class="nav-text">Штаб</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('altar-view')" id="nav-altar">
+                <span class="nav-icon">🔮</span>
+                <span class="nav-text">Алтарь</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('arena-view')" id="nav-arena">
+                <span class="nav-icon">🏆</span>
+                <span class="nav-text">Арена</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('dungeon-view')" id="nav-dungeon">
+                <span class="nav-icon">🌀</span>
+                <span class="nav-text">Бездна</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('raid-view')" id="nav-raid">
+                <span class="nav-icon">🐲</span>
+                <span class="nav-text">Рейд</span>
+            </button>
+            <button class="nav-btn" onclick="navigate('quests-view')" id="nav-quests">
+                <span class="nav-icon">📜</span>
+                <span class="nav-text" id="nav-quests-text">Задания</span>
+                <span class="notif-badge" id="badge-nav-quests"></span>
+            </button>
+            <button class="nav-btn" onclick="navigate('shop-view')" id="nav-shop">
+                <span class="nav-icon">💰</span>
+                <span class="nav-text">Магазин</span>
+            </button>
+        </nav>
+
+        <!-- ==========================================================
+             ОСНОВНЫЕ ИГРОВЫЕ ЭКРАНЫ
+             ========================================================== -->
+        <main class="content-viewport">
+            <!-- 1. ЦИТАДЕЛЬ (ИНТЕРАКТИВНЫЙ ХАБ ЗАМКА) -->
+            <div id="citadel-view" class="view-tab active">
+
+                
+
+                <!-- 8 районов замка с интерактивными хитбоксами над зданиями -->
+                <div class="citadel-hotspots-layer">
+                    <!-- 1. Шахты -->
+                    <div class="map-district district-mine">
+                        <div class="district-hitbox" onclick="openBuildingModal('mine')" title="Шахты"></div>
+                        <div class="district-badge" onclick="openBuildingModal('mine')">
+                            <span class="badge-title"><span data-i18n="mine_name">Шахты</span> <span id="mine-lvl">Ур. 1</span></span>
+                        </div>
+                    </div>
+
+                    <!-- 2. Цитадель -->
+                    <div class="map-district district-keep">
+                        <div class="district-hitbox" onclick="openBuildingModal('keep')" title="Цитадель"></div>
+                        <div class="district-badge keep-badge" onclick="openBuildingModal('keep')">
+                            <span class="badge-title"><span data-i18n="keep_name">Цитадель</span> <span id="keep-lvl">Ур. 1</span></span>
+                            <span class="district-notif-badge gold" id="badge-district-keep"></span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Казармы -->
+                    <div class="map-district district-barracks">
+                        <div class="district-hitbox" onclick="openBuildingModal('barracks')" title="Казармы"></div>
+                        <div class="district-badge" onclick="openBuildingModal('barracks')">
+                            <span class="badge-title"><span data-i18n="barracks_name">Казармы</span> <span id="barracks-lvl">Ур. 0</span></span>
+                        </div>
+                    </div>
+
+                    <!-- 4. Алтарь -->
+                    <div class="map-district district-altar">
+                        <div class="district-hitbox" onclick="navigate('altar-view')" title="Алтарь"></div>
+                        <div class="district-badge" onclick="navigate('altar-view')">
+                            <span class="badge-title" data-i18n="altar">Алтарь</span>
+                            <span class="district-notif-badge gold" id="badge-district-altar"></span>
+                        </div>
+                    </div>
+
+                    <!-- 5. Штаб -->
+                    <div class="map-district district-roster">
+                        <div class="district-hitbox" onclick="navigate('roster-view')" title="Штаб"></div>
+                        <div class="district-badge" onclick="navigate('roster-view')">
+                            <span class="badge-title" data-i18n="roster">Штаб</span>
+                            <span class="district-notif-badge" id="badge-district-roster"></span>
+                        </div>
+                    </div>
+
+                    <!-- 6. Подземелья -->
+                    <div class="map-district district-dungeons">
+                        <div class="district-hitbox" onclick="openBattleHubModal()" title="Подземелья"></div>
+                        <div class="district-badge" onclick="openBattleHubModal()">
+                            <span class="badge-title" data-i18n="dungeon">Подземелья</span>
+                            <span class="district-notif-badge" id="badge-district-dungeons"></span>
+                        </div>
+                    </div>
+
+                    <!-- 7. Арена -->
+                    <div class="map-district district-arena">
+                        <div class="district-hitbox" onclick="navigate('arena-view')" title="Арена"></div>
+                        <div class="district-badge" onclick="navigate('arena-view')">
+                            <span class="badge-title" data-i18n="arena">Арена</span>
+                            <span class="district-notif-badge" id="badge-district-arena"></span>
+                        </div>
+                    </div>
+
+                    <!-- 8. Магазин -->
+                    <div class="map-district district-market">
+                        <div class="district-hitbox" onclick="navigate('shop-view')" title="Магазин"></div>
+                        <div class="district-badge" onclick="navigate('shop-view')">
+                            <span class="badge-title" data-i18n="shop">Магазин</span>
+                            <span class="district-notif-badge" id="badge-district-market"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Стильная кнопка тапа (строго 1 строка без переносов) -->
+                <div class="citadel-bottom-tap-zone">
+                    <div class="castle-tap-btn" id="tap-node">
+                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; white-space:nowrap; gap:6px;">
+                            <span id="lbl-tap-title" style="font-family:'Cinzel',serif; font-size:12.5px; font-weight:900; color:var(--gold); letter-spacing:0.5px; flex-shrink:0;">ДАНЬ И ОПОЛЧЕНИЕ</span>
+                            <span class="castle-frenzy-label" id="lbl-tap-desc" style="font-size:11px; color:#cbd5e1; font-weight:700; overflow:hidden; text-overflow:ellipsis;">Тапай в темпе! Золото и найм</span>
+                        </div>
+                        <div class="combo-meter" style="width:100%; margin-top:5px; height:4px;">
+                            <div id="combo-bar" class="combo-fill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. ШТАБ (МОНОЛИТНЫЙ ХАБ: 4 ВКЛАДКИ) -->
+            <div id="roster-view" class="view-tab">
+                <div class="modal-window roster-modal-window">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" data-i18n="roster_headline">ШТАБ ЛЕГИОНА</h3>
+                        <span class="modal-close-x btn-back-citadel" onclick="closeRoster()">✖</span>
+                    </div>
+
+                    <!-- 4 Вкладки Штаба в строгом порядке -->
+                    <div class="roster-main-tabs-bar">
+                        <button class="roster-tab-nav-btn active" id="btn-roster-tab-cards" onclick="selectRosterTab('cards')" data-i18n="tab_roster_cards">
+                            КАРТОТЕКА
+                        </button>
+                        <button class="roster-tab-nav-btn" id="btn-roster-tab-formation" onclick="selectRosterTab('formation')" data-i18n="tab_roster_formation">
+                            ПОСТРОЕНИЕ
+                        </button>
+                        <button class="roster-tab-nav-btn" id="mode-exp-btn" onclick="selectRosterTab('expeditions')">
+                            <span data-i18n="expeditions_btn">ПОХОДЫ</span>
+                            <span class="notif-badge" id="badge-tab-exp"></span>
+                        </button>
+                        <button class="roster-tab-nav-btn" id="mode-codex-btn" onclick="selectRosterTab('codex')">
+                            <span data-i18n="tab_roster_codex">КОДЕКС</span>
+                            <span class="notif-badge" id="badge-tab-codex"></span>
+                        </button>
+                    </div>
+
+                    <!-- ВКЛАДКА 1: КАРТОТЕКА (ТОЛЬКО СВОИ ГЕРОИ) -->
+                    <div id="roster-pane-cards" class="roster-pane active">
+                        <div class="deck-title-bar">
+                            <span id="lbl-deck-title" data-i18n="deck_title_owned">ВАШИ ГЕРОИ:</span>
+                            <span class="deck-counter-badge" id="ui-deck-counter">0 бойцов</span>
+                        </div>
+                        <div class="roster-filter-panel">
+                            <div class="roster-element-filters" id="roster-element-filters">
+                                <button class="roster-filter-btn active" id="filter-f-all" onclick="setRosterFactionFilter('all')" data-i18n="filter_all">ВСЕ</button>
+                                <button class="roster-filter-btn" id="filter-f-light" onclick="setRosterFactionFilter('light')"><img src="assets/icons/elem_light.webp" class="res-icon-inline" alt="Свет"> <span data-i18n="faction_light">Свет</span></button>
+                                <button class="roster-filter-btn" id="filter-f-undead" onclick="setRosterFactionFilter('undead')"><img src="assets/icons/elem_undead.webp" class="res-icon-inline" alt="Нежить"> <span data-i18n="faction_undead">Нежить</span></button>
+                                <button class="roster-filter-btn" id="filter-f-chaos" onclick="setRosterFactionFilter('chaos')"><img src="assets/icons/elem_chaos.webp" class="res-icon-inline" alt="Хаос"> <span data-i18n="faction_chaos">Хаос</span></button>
+                                <button class="roster-filter-btn" id="filter-f-demon" onclick="setRosterFactionFilter('demon')"><img src="assets/icons/elem_demon.webp" class="res-icon-inline" alt="Демоны"> <span data-i18n="faction_demon">Демоны</span></button>
+                            </div>
+                            <div class="roster-sort-controls">
+                                <button class="btn-action roster-sort-toggle-btn" id="btn-roster-sort-tier" onclick="toggleRosterTierSort()">Ранг ⬇</button>
+                                <button class="btn-action roster-sort-toggle-btn" id="btn-roster-sort-lvl" onclick="toggleRosterLvlSort()">Уровень ⬇</button>
+                            </div>
+                        </div>
+                        <div class="cards-tcg-grid" id="cards-container"></div>
+                    </div>
+
+                    <!-- ВКЛАДКА 2: ПОСТРОЕНИЕ (АТАКА + ОБОРОНА В 1 ОКНЕ) -->
+                    <div id="roster-pane-formation" class="roster-pane" style="display:none;">
+                        <!-- АТАКА -->
+                        <div class="formation-squad-block attack-theme">
+                            <div class="formation-header-single-line">
+                                <div class="squad-left-tag attack"><img src="assets/icons/swords_cp.webp" class="res-icon-inline" style="width:13px; height:13px;" alt="БМ"> АТАКА: <b id="roster-atk-cp">0 БМ</b></div>
+                                <span id="roster-synergy-badge" class="synergy-badge">Синергия: Нет</span>
+                            </div>
+                            <div class="formation-slots">
+                                <div class="slot-target" id="slot-0" onclick="openSlotPicker(0, 'attack')" title="Авангард Атаки">
+                                    <span class="slot-role-tag role-vanguard" id="lbl-slot-0">АВАНГАРД</span>
+                                    <div class="slot-val-name" id="slot-0-val">[Выбрать]</div>
+                                </div>
+                                <div class="slot-target" id="slot-1" onclick="openSlotPicker(1, 'attack')" title="Главком Атаки (+50% БМ)">
+                                    <span class="slot-role-tag role-commander" id="lbl-slot-1">ГЛАВКОМ</span>
+                                    <div class="slot-val-name" id="slot-1-val">[Выбрать]</div>
+                                </div>
+                                <div class="slot-target" id="slot-2" onclick="openSlotPicker(2, 'attack')" title="Тыл Атаки">
+                                    <span class="slot-role-tag role-rearguard" id="lbl-slot-2">ТЫЛ</span>
+                                    <div class="slot-val-name" id="slot-2-val">[Выбрать]</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ОБОРОНА -->
+                        <div class="formation-squad-block defense-theme">
+                            <div class="formation-header-single-line">
+                                <div class="squad-left-tag defense"><img src="assets/icons/army.webp" class="res-icon-inline" style="width:13px; height:13px; vertical-align:-1px;" alt="Оборона"> ОБОРОНА: <b id="roster-def-cp">0 БМ</b></div>
+                                <span id="roster-def-synergy-badge" class="synergy-badge">Синергия: Нет</span>
+                            </div>
+                            <div class="formation-slots">
+                                <div class="slot-target" id="slot-def-0" onclick="openSlotPicker(0, 'defense')" title="Авангард Обороны">
+                                    <span class="slot-role-tag role-vanguard">АВАНГАРД</span>
+                                    <div class="slot-val-name" id="slot-def-0-val">[Выбрать]</div>
+                                </div>
+                                <div class="slot-target" id="slot-def-1" onclick="openSlotPicker(1, 'defense')" title="Главком Обороны (+50% БМ)">
+                                    <span class="slot-role-tag role-commander">ГЛАВКОМ</span>
+                                    <div class="slot-val-name" id="slot-def-1-val">[Выбрать]</div>
+                                </div>
+                                <div class="slot-target" id="slot-def-2" onclick="openSlotPicker(2, 'defense')" title="Тыл Обороны">
+                                    <span class="slot-role-tag role-rearguard">ТЫЛ</span>
+                                    <div class="slot-val-name" id="slot-def-2-val">[Выбрать]</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="element-wheel-hint" id="lbl-element-wheel-hint">
+                            <img src="assets/icons/elem_light.webp" class="res-icon-inline" alt="Свет"> Свет > <img src="assets/icons/elem_undead.webp" class="res-icon-inline" alt="Нежить"> Нежить > <img src="assets/icons/elem_chaos.webp" class="res-icon-inline" alt="Хаос"> Хаос > <img src="assets/icons/elem_demon.webp" class="res-icon-inline" alt="Демоны"> Демоны > <img src="assets/icons/elem_light.webp" class="res-icon-inline" alt="Свет"> (+15% БМ)
+                        </div>
+                    </div>
+
+                    <!-- ВКЛАДКА 3: ПОХОДЫ (ВСТРОЕННЫЕ ЭКСПЕДИЦИИ) -->
+                    <div id="roster-pane-expeditions" class="roster-pane" style="display:none;">
+                        <div class="pane-header-box">
+                            <span class="pane-header-title" data-i18n="exp_title">ЭКСПЕДИЦИИ В ГЛУБИНЫ</span>
+                            <p class="pane-header-desc" data-i18n="exp_desc">Отправляйте свободных героев на добычу ресурсов. Высокий уровень отряда умножает золото!</p>
+                        </div>
+                        <div class="expeditions-list" id="expeditions-list-box"></div>
+                    </div>
+
+                    <!-- ВКЛАДКА 4: КОДЕКС (84 ГЕРОЯ + ВЕХИ) -->
+                    <div id="roster-pane-codex" class="roster-pane" style="display:none;">
+                        <div class="pane-header-box">
+                            <span class="pane-header-title" data-i18n="roster_codex_header_title">ПАНТЕОН 4 СТИХИЙ (84 ГЕРОЯ)</span>
+                            <p class="pane-header-desc" data-i18n="roster_codex_header_desc">Соберите героев каждой стихии. Вехи даруют кристаллы, реликвии и постоянный бонус БМ империи!</p>
+                        </div>
+                        <div class="codex-faction-tabs" id="codex-faction-tabs"></div>
+                        <div id="codex-content-box" class="codex-scroll-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. АЛТАРЬ (ЕДИНОЕ ОКНО) -->
+            <div id="altar-view" class="view-tab">
+                <div class="modal-window" style="max-width: 380px;">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" id="lbl-altar-title">Врата Призыва Бездны</h3>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+                    <p class="modal-desc-txt" id="lbl-altar-desc">Призывайте героев 4 стихий. Соберите 3 одной стихии для бонуса +75% CP!</p>
+                    
+                    <div class="quick-summon-toggle-row">
+                        <label class="toggle-control">
+                            <input type="checkbox" id="chk-quick-summon" onchange="toggleQuickSummonSetting(this.checked)">
+                            <span class="toggle-label" id="lbl-quick-summon">Быстрый призыв (без окон)</span>
+                        </label>
+                    </div>
+
+                    <div class="altar-actions-stack">
+                        <div class="altar-buttons-row">
+                            <button class="btn-action altar-pull-btn" onclick="summonGacha('gold', 1)" id="btn-sum-g1" title="Призыв воинов от ранга F до A за Кристаллы"><span id="lbl-sum-gold">Базовый x1</span><br><b class="btn-price-sub" id="price-sum-g1">10 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b></button>
+                            <button class="btn-action altar-pull-btn" onclick="summonGacha('gold', 10)" id="btn-sum-g10" title="Призыв 10 воинов со скидкой"><span id="lbl-sum-gold-10">Базовый x10</span><br><b class="btn-price-sub">90 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b></button>
+                        </div>
+                        <div class="altar-buttons-row">
+                            <button class="btn-action altar-pull-btn elite" onclick="summonGacha('crystal', 1)" id="btn-sum-c1" title="Призыв элитных лордов от D до SSS ранга за Кристаллы"><span id="lbl-sum-cryst">Элитный x1</span><br><b class="btn-price-sub" id="price-sum-c1">100 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b></button>
+                            <button class="btn-action altar-pull-btn elite" onclick="summonGacha('crystal', 10)" id="btn-sum-c10" title="Призыв 10 элитных лордов со скидкой"><span id="lbl-sum-cryst-10">Элитный x10</span><br><b class="btn-price-sub">900 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b></button>
+                        </div>
+                    </div>
+
+                    <div class="altar-rates-card">
+                        <div class="rates-header" id="lbl-rates-title">ВЕРОЯТНОСТИ ВЫПАДЕНИЯ РАНГОВ:</div>
+                        <div class="altar-rate-line" id="lbl-rates-basic">Базовый: F: 45% | E: 25% | D: 15% | C: 9% | B: 5% | A: 1%</div>
+                        <div class="altar-rate-line elite" id="lbl-rates-elite">Элитный: D: 42% | C: 28% | B: 18% | A: 10% | S: 1.2% | SS: 0.6% | SSS: 0.2%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. АРЕНА (ЕДИНОЕ ОКНО) -->
+            <div id="arena-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" data-i18n="arena_status_title">АРЕНА ЛОРДОВ</h3>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <div class="arena-tickets-group" style="background:#10141d; border:1px solid var(--border-metal); padding:4px 8px; border-radius:6px; display:flex; align-items:center; gap:6px;">
+                                <span class="arena-tickets-label" style="font-size:11.5px; font-weight:800; color:#fff;"><b id="arena-tickets-val" style="color:var(--gold);">10/10</b> <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"></span>
+                                <span id="arena-timer" class="timer-pill" style="font-size:11px;">--:--:--</span>
+                            </div>
+                            <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                        </div>
+                    </div>
+
+                    <!-- Кликабельная карточка перехода в Рейтинг Лиги -->
+                <div class="building-card arena-league-banner-card" style="cursor:pointer; margin-top:4px;" onclick="openArenaLadderModal()">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div id="ui-league-icon-box" style="width:32px; height:32px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                            <img src="assets/icons/league_bronze.webp" id="ui-league-icon-img" style="width:100%; height:100%; object-fit:contain;" alt="Лига">
+                        </div>
+                        <div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <b style="font-size:13.5px; color:var(--gold); font-family:'Cinzel',serif;" id="ui-league-name">Бронзовая Лига</b>
+                                <span class="league-status-pill" id="ui-league-status-tag">[ТОП-10 ПОВЫШЕНИЕ]</span>
+                            </div>
+                            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                                <span id="ui-season-timer">Сброс: Вс 24:00</span> • <span id="lbl-open-ladder-hint" data-i18n="arena_reset_hint">Рейтинг Лиги</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn-action" style="padding:6px 10px; font-size:11px; background:linear-gradient(180deg, #1e2638 0%, #101520 100%); border-color:var(--gold);" onclick="openArenaLadderModal()" data-i18n="arena_ladder_btn">ТАБЛИЦА</button>
+                </div>
+
+                <!-- Контейнер заголовка и кнопки обновления Арены -->
+                <div class="section-title arena-rivals-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span id="lbl-rivals-text" data-i18n="rivals_title">СОПЕРНИКИ В ЛИГЕ (ПО УБЫВАНИЮ НАГРАДЫ):</span>
+                    <button class="btn-action arena-refresh-btn" id="btn-arena-refresh" onclick="refreshArenaRivals()" data-i18n="arena_refresh_btn">ОБНОВИТЬ ⟳</button>
+                </div>
+                <div id="arena-opp-list" class="arena-rivals-stack"></div>
+
+                <div class="arena-log-card">
+                    <div class="log-title" id="lbl-battle-log" data-i18n="battle_log">ЖУРНАЛ СРАЖЕНИЙ:</div>
+                    <div id="battle-history-box" class="log-feed"></div>
+                </div>
+                </div>
+            </div>
+
+            <!-- 5. ПОДЗЕМЕЛЬЕ (БЕЗДНА - ЕДИНОЕ ОКНО) -->
+            <div id="dungeon-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <h3 class="modal-headline" id="lbl-dung-title">СПУСК В БЕЗДНУ</h3>
+                            <span class="dungeon-floor-badge" id="ui-dungeon-floor-badge">ЭТАЖ 1</span>
+                            <button class="btn-action btn-chronicles-archive" onclick="openChroniclesArchiveModal()" id="btn-chronicles-archive" data-i18n="dungeon_archive_btn">ХРОНИКИ</button>
+                        </div>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+                    <p class="dung-desc-txt" id="lbl-dung-desc">Очищайте этажи. Быстрый рейд тратит 1 Энергии и зачищает пройденный этаж.</p>
+                    <div class="dung-energy-bar-row">
+                        <span class="stamina-badge" id="dung-stamina-badge"></span>
+                        <button class="btn-action btn-ad-standard btn-dung-refill" id="btn-dung-refill" onclick="refillDungeonStaminaAd()" style="display:none;"></button>
+                    </div>
+
+                <div class="dungeon-boss-card" id="dung-boss-card">
+                    <div class="boss-tier-tag" id="dung-boss-tier-tag" data-i18n="dung_boss_tier_tag">[СТРАЖ ЭТАЖА]</div>
+                    <div class="dungeon-boss-avatar" id="dung-boss-avatar"></div>
+                    <div class="boss-name" id="dung-boss-name">Страж Скверны</div>
+                    <div class="boss-cp-val" id="dung-boss-cp"></div>
+                    
+                    <div class="dungeon-reward-box">
+                        <span class="reward-title" id="lbl-dung-loot-title" data-i18n="dung_loot_title">Трофеи за зачистку:</span>
+                        <div class="reward-values" id="dung-loot-desc"></div>
+                    </div>
+
+                    <div class="dung-action-row">
+                        <button class="btn-action dung-assault-btn" onclick="startDungeonCombat()" id="btn-dung-attack" data-i18n="dung_attack">ШТУРМОВАТЬ ЭТАЖ</button>
+                        <button class="btn-action dung-farm-btn" onclick="farmDungeonShards()" id="btn-dung-farm" data-i18n="dung_farm">БЫСТРЫЙ РЕЙД</button>
+                    </div>
+                </div>
+
+                <!-- Динамическая плашка Мощи Легиона -->
+                <div id="dung-squad-wrapper" style="margin-top:4px;"></div>
+                </div>
+            </div>
+
+            <!-- 6. МИРОВОЙ РЕЙД-БОСС (ЕДИНОЕ ОКНО) -->
+            <div id="raid-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <h3 class="modal-headline" id="lbl-raid-title">МИРОВОЙ ЛЕВИАФАН</h3>
+                            <span class="raid-badge-tag" id="lbl-raid-badge">РЕЙД НЕДЕЛИ</span>
+                        </div>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+                    <p class="modal-desc-txt" id="lbl-raid-desc">Персональный босс недели! Наносите сокрушительный урон легионом!</p>
+                    <div class="raid-countdown-row">
+                        <span id="lbl-raid-timer-title">До обновления рейда:</span>
+                        <b id="raid-reset-countdown" class="timer-pill">--:--:--</b>
+                    </div>
+
+                <div class="raid-boss-card">
+                    <div class="raid-boss-avatar" id="raid-boss-icon">
+                        <img src="assets/icons/boss_leviathan.webp" style="width:128px; height:128px; object-fit:contain;" alt="Левиафан">
+                    </div>
+                    <div class="raid-boss-name" id="raid-boss-name">ДРЕВНИЙ ЛЕВИАФАН БЕЗДНЫ</div>
+                    <div class="raid-hp-container">
+                        <div id="raid-boss-hp-bar" class="raid-hp-fill"></div>
+                    </div>
+                    <div class="raid-hp-text" id="raid-boss-hp-text">500,000 / 500,000 HP</div>
+                    <button class="btn-action raid-strike-btn" id="btn-raid-attack" onclick="attackWorldRaidBoss()">
+                        СОКРУШИТЕЛЬНЫЙ УДАР
+                    </button>
+                    <!-- Кнопка ускорения строго под кнопкой удара -->
+                    <div id="raid-strike-speedup-box" class="raid-speedup-bottom-box" style="display: none; width: 100%;"></div>
+                </div>
+                </div>
+            </div>
+
+            <!-- 7. ЗАДАНИЯ (ЕДИНОЕ ОКНО) -->
+            <div id="quests-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" data-i18n="quests_headline">ЗАДАНИЯ И ДОСТИЖЕНИЯ</h3>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+                    <div class="roster-toggle-bar" style="gap:4px;">
+                        <button class="roster-sub-btn active" id="btn-sub-daily" onclick="toggleQuestTab('daily')">
+                            <span id="lbl-subtab-daily">ЕЖЕДНЕВНЫЕ</span>
+                            <span class="notif-badge" id="badge-sub-daily"></span>
+                        </button>
+                        <button class="roster-sub-btn" id="btn-sub-quests" onclick="toggleQuestTab('quests')">
+                            <span id="lbl-subtab-quests">ЭТАПНЫЕ</span>
+                            <span class="notif-badge" id="badge-sub-quests"></span>
+                        </button>
+                        <button class="roster-sub-btn" id="btn-sub-achieve" onclick="toggleQuestTab('achievements')">
+                            <span id="lbl-subtab-achieve">ДОСТИЖЕНИЯ</span>
+                            <span class="notif-badge" id="badge-sub-achieve"></span>
+                        </button>
+                    </div>
+                    <div id="daily-quest-header-timer" style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--text-muted); margin:2px 2px -2px 2px;">
+                        <span><span data-i18n="quest_daily_income">Ежедневный доход:</span> <b style="color:var(--crystal);">+27 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b></span>
+                        <span id="daily-reset-countdown" class="timer-pill" style="font-size:11px;">Сброс: --:--:--</span>
+                    </div>
+                    <div id="quests-render-box" class="quests-feed" style="margin-top:6px;"></div>
+                </div>
+            </div>
+
+            <!-- 8. МАГАЗИН (ПРЕМИУМ-ВИТРИНА ПО КАТЕГОРИЯМ) -->
+            <div id="shop-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" id="lbl-shop-title">Императорская Сокровищница</h3>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+
+                    <!-- 1. ЕЖЕДНЕВНЫЙ БЕСПЛАТНЫЙ ДАР (Freebie) -->
+                    <div class="building-card shop-freebie-card" id="shop-freebie-box">
+                        <div class="shop-item-info">
+                            <div class="shop-item-title" id="lbl-freebie-title" style="color:var(--gold);" data-i18n="shop_freebie_title">ЕЖЕДНЕВНЫЙ ДАР КАЗНЫ</div>
+                            <p class="shop-item-desc" id="lbl-freebie-desc">+1,500 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> и +10 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> раз в 24ч</p>
+                        </div>
+                        <button class="btn-action shop-buy-btn" style="background:var(--green); border-color:#22c55e;" id="btn-claim-freebie" onclick="claimDailyFreebie()" data-i18n="quest_claim">ЗАБРАТЬ</button>
+                    </div>
+
+                    <!-- 2. БОНУС ПЕРВОЙ ПОКУПКИ -->
+                    <div id="first-purchase-banner" class="first-purchase-banner" onclick="openFirstPurchaseModal()">
+                        ДАР ПЕРВОГО ПЛАТЕЖА: [S] ЛИЛИТ • 100,000 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> • 300 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> (Подробнее)
+                    </div>
+
+                    <!-- КАТЕГОРИЯ 1: СПЕЦИАЛЬНЫЕ НАБОРЫ -->
+                    <div class="shop-section-label" data-i18n="shop_sec_special">СПЕЦИАЛЬНЫЕ НАБОРЫ</div>
+                    <div class="shop-grid">
+                        <div class="building-card shop-featured-card">
+                            <div class="shop-item-info">
+                                <div class="shop-item-title" id="lbl-shop-starter-title" data-i18n="shop_starter_title">ПАК ВЛАДЫКИ</div>
+                                <p class="shop-item-desc" id="lbl-shop-starter-desc">+1.8M <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> (8ч шахт) + 250 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> + [A] Паладин + 2 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> + 10 <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"></p>
+                            </div>
+                            <button class="btn-action shop-buy-btn" id="btn-shop-starter" onclick="openBuyConfirm('starter_pro', 149)">149 руб.</button>
+                        </div>
+                        <div class="building-card shop-vip-card">
+                            <div class="shop-item-info">
+                                <div class="shop-item-title color-relic" id="lbl-shop-vip-title" data-i18n="shop_vip_title">VIP-СТАТУС (30 ДНЕЙ)</div>
+                                <p class="shop-item-desc" id="lbl-shop-vip-desc" data-i18n="shop_vip_desc">Без рекламы, авто-удвоение x2 наград, 15 билетов, мгновенный бой</p>
+                            </div>
+                            <button class="btn-action shop-buy-btn vip" id="btn-shop-vip" onclick="openBuyConfirm('vip_30', 299)">299 руб.</button>
+                        </div>
+                    </div>
+
+                    <!-- КАТЕГОРИЯ 2: ХРАНИЛИЩЕ КРИСТАЛЛОВ -->
+                    <div class="shop-section-label" data-i18n="shop_sec_crystals">ХРАНИЛИЩЕ КРИСТАЛЛОВ</div>
+                    <div class="shop-tile-grid grid-3">
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-2">
+                                <img src="assets/icons/shop_crystals.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount">100 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-100"><span class="shop-badge-x2">x2</span> 200 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('cryst_100', 29)">29 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-2">
+                                <img src="assets/icons/shop_crystals_2.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount">350 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-350"><span class="shop-badge-x2">x2</span> 700 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('cryst_350', 69)">69 руб.</button>
+                        </div>
+                        <div class="shop-tile-card featured-tile">
+                            <div class="shop-hit-ribbon" data-i18n="shop_ten_pulls_ribbon">10 ПРИЗЫВОВ!</div>
+                            <div class="shop-tile-cluster cluster-2">
+                                <img src="assets/icons/shop_crystals_3.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount" style="color:var(--gold);">1,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-1000"><span class="shop-badge-x2">x2</span> 2,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" style="background:var(--gold); color:#0b0f17; font-weight:900;" onclick="openBuyConfirm('cryst_1000', 149)">149 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-6">
+                                <img src="assets/icons/shop_crystals_4.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount">2,500 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-2500"><span class="shop-badge-x2">x2</span> 5,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('cryst_2500', 349)">349 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-6">
+                                <img src="assets/icons/shop_crystals_5.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount">6,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-6000"><span class="shop-badge-x2">x2</span> 12,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('cryst_6000', 699)">699 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-6">
+                                <img src="assets/icons/shop_crystals_6.webp" class="cluster-item" alt="C">
+                            </div>
+                            <div class="shop-tile-amount">14,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <div class="shop-tile-sub" id="sub-cryst-14000"><span class="shop-badge-x2">x2</span> 28,000 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('cryst_14000', 1399)">1,399 руб.</button>
+                        </div>
+                    </div>
+
+                    <!-- КАТЕГОРИЯ 3: БИЛЕТЫ АРЕНЫ -->
+                    <div class="shop-section-label" data-i18n="shop_sec_tickets">БИЛЕТЫ АРЕНЫ</div>
+                    <div class="shop-tile-grid grid-3">
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-1">
+                                <img src="assets/icons/shop_tickets.webp" class="cluster-item" alt="T">
+                            </div>
+                            <div class="shop-tile-amount">+5 <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_tickets_sub_5">Малый пак (5 шт)</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('tickets_5', 29)">29 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-4">
+                                <img src="assets/icons/shop_tickets.webp" class="cluster-item" alt="T">
+                                <img src="assets/icons/shop_tickets.webp" class="cluster-item" alt="T">
+                            </div>
+                            <div class="shop-tile-amount">+15 <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_tickets_sub_15">Боекомплект (15 шт)</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('tickets_15', 69)">69 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-5">
+                                <img src="assets/icons/shop_tickets_3.webp" class="cluster-item" alt="T">
+                            </div>
+                            <div class="shop-tile-amount">+50 <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_tickets_sub_50">Арсенал Лиги (50 шт)</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('tickets_50', 199)">199 руб.</button>
+                        </div>
+                    </div>
+
+                    <!-- КАТЕГОРИЯ РЕЛИКВИЙ УДАЛЕНА ДЛЯ СОХРАНЕНИЯ БАЛАНСА ВОЗВЫШЕНИЯ -->
+
+                    <!-- КАТЕГОРИЯ 5: ЗОЛОТОЙ ЗАПАС ШАХТ -->
+                    <div class="shop-section-label" data-i18n="shop_sec_gold">ЗОЛОТОЙ ЗАПАС ШАХТ</div>
+                    <div class="shop-tile-grid grid-3">
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-gold-1">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                            </div>
+                            <div class="shop-tile-amount" id="warp-val-2h">+0 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_warp_sub_2h" style="color:var(--gold); font-weight:800;">Добыча за 2 часа</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('gold_warp_2h', 49)">49 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-gold-3">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                            </div>
+                            <div class="shop-tile-amount" id="warp-val-8h">+0 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_warp_sub_8h" style="color:var(--gold); font-weight:800;">Добыча за 8 часов</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('gold_warp_8h', 119)">119 руб.</button>
+                        </div>
+                        <div class="shop-tile-card">
+                            <div class="shop-tile-cluster cluster-gold-5">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">
+                                <img src="assets/icons/shop_gold.webp" class="cluster-item" alt="G">                              
+                            </div>
+                            <div class="shop-tile-amount" id="warp-val-24h">+0 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></div>
+                            <div class="shop-tile-sub" data-i18n="shop_warp_sub_24h" style="color:var(--gold); font-weight:800;">Добыча за 24 часа</div>
+                            <button class="btn-action shop-tile-btn" onclick="openBuyConfirm('gold_warp_24h', 249)">249 руб.</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- ==========================================================
+             ПОДВАЛ: РЕКЛАМНЫЙ БУСТ
+             ========================================================== -->
+        <footer class="app-footer">
+            <button class="ad-reward-btn" onclick="watchAdReward()" id="btn-ad-footer" title="Бесплатное золото и билеты Арены за просмотр">
+                РЕКЛАМА: +500 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> И +2 <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T">
+            </button>
+        </footer>
+
+        <!-- Летучий Демон (Процедурный анимированный спрайт) -->
+        <div id="flying-demon" class="flying-demon" style="display: none;" onclick="catchDemon()" title="Нажмите, чтобы перехватить сокровища беса!">
+            <img src="assets/icons/demon_imp.webp" class="flying-demon-img" alt="Бес" onerror="this.onerror=null; this.style.display='none';">
+        </div>
+
+        <!-- ==========================================================
+             МОДАЛЬНЫЕ ОКНА
+             ========================================================== -->
+        <!-- 1. МОДАЛЬНОЕ ОКНО: НАСТОЯЩИЙ TCG CARD BATTLER -->
+        <div class="modal-backdrop" id="battle-overlay-modal" style="display: none;">
+            <div class="battle-tcg-arena-window">
+                <div class="tcg-screen-flash" id="tcg-screen-flash"></div>
+                <!-- Верхняя панель боя -->
+                <div class="tcg-battle-top-bar">
+                    <div class="tcg-battle-heading">
+                        <span class="tcg-board-title" id="ui-battle-type-label" data-i18n="battle_arena_title">АРЕНА КАРТОЧНЫХ
+                            БИТВ</span>
+                        <span class="tcg-elem-pill" id="battle-combat-ticker">Стихии в балансе</span>
+                    </div>
+                    <div class="tcg-battle-controls">
+                        <button class="btn-action btn-speed-toggle" id="btn-battle-speed"
+                            onclick="toggleBattleSpeed()">1x</button>
+                        <button class="btn-action skip-battle-btn" onclick="skipCombatSimulation()"
+                            id="btn-battle-skip">ПРОПУСТИТЬ
+                            ⏩</button>
+                    </div>
+                </div>
+        
+                <!-- Боевой стол -->
+                <div class="tcg-board-stage" id="tcg-board-stage">
+                    <!-- Ряд карт противника (сверху) -->
+                    <div class="tcg-team-zone enemy-zone">
+                        <div class="team-label-row">
+                            <span class="team-role-tag enemy" data-i18n="battle_enemy_squad">ВРАЖЕСКИЙ ОТРЯД</span>
+                            <span class="team-hp-summary" id="enemy-team-hp-sum">0 HP</span>
+                        </div>
+                        <div class="battle-cards-row" id="enemy-combat-squad"></div>
+                    </div>
+        
+                    <!-- Разделительная полоса с индикатором хода и снарядами -->
+                    <div class="tcg-center-divider">
+                        <div class="tcg-turn-indicator" id="tcg-turn-indicator" data-i18n="battle_turn_start">БИТВА НАЧИНАЕТСЯ!
+                        </div>
+                        <div id="tcg-projectile-layer" class="projectile-layer"></div>
+                    </div>
+        
+                    <!-- Ряд наших карт (снизу) -->
+                    <div class="tcg-team-zone player-zone">
+                        <div class="battle-cards-row" id="player-combat-squad"></div>
+                        <div class="team-label-row">
+                            <span class="team-role-tag player" data-i18n="battle_your_legion">ВАШ ЛЕГИОН</span>
+                            <span class="team-hp-summary" id="player-team-hp-sum">0 HP</span>
+                        </div>
+                    </div>
+                </div>
+        
+                <!-- Окно победы/поражения -->
+                <div class="combat-verdict-overlay" id="combat-verdict-box" style="display: none;">
+                    <div class="verdict-banner" id="combat-verdict-title">ПОБЕДА!</div>
+                    <div class="verdict-spoils" id="combat-verdict-spoils">+32 Кубка | +480 Золота</div>
+        
+                    <div class="verdict-banter-box" id="combat-verdict-banter" style="display:none;">
+                        <div class="banter-quote" id="banter-quote-text">"Смерть не повод нарушать строй."</div>
+                        <div class="banter-author" id="banter-quote-author">— Король Костей</div>
+                    </div>
+        
+                    <div class="verdict-actions-row" id="combat-verdict-actions">
+                        <button class="btn-action verdict-close-btn" onclick="closeCombatSimulation(1)"
+                            id="btn-battle-close">Забрать</button>
+                        <button class="btn-action verdict-double-btn" onclick="closeCombatSimulation(2)" id="btn-battle-double"
+                            data-i18n="battle_double_ad">УДВОИТЬ x2 (РЕКЛАМА)</button>
+                    </div>
+                </div>
+        
+                <!-- Ультимейт-сплэш (Hero Cut-In) -->
+                <div id="ultimate-cutin-overlay" class="ult-cutin-container" style="display:none;">
+                    <div class="ult-cutin-stripe" id="ult-cutin-stripe"></div>
+                    <div class="ult-cutin-avatar" id="ult-cutin-icon"></div>
+                    <div class="ult-cutin-text-group">
+                        <div class="ult-cutin-name" id="ult-cutin-name">ИМЯ ГЕРОЯ</div>
+                        <div class="ult-cutin-skill" id="ult-cutin-skill">АБСОЛЮТНАЯ ЯРОСТЬ</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- (Экспедиции перенесены во вкладку Штаба) -->
+
+        <!-- 3. МОДАЛЬНОЕ ОКНО: ВЫБОР ГЕРОЕВ ДЛЯ ЭКСПЕДИЦИИ -->
+        <div class="modal-backdrop" id="exp-picker-modal" style="display: none;">
+            <div class="modal-window">
+                <h4 class="modal-headline" id="exp-picker-title" data-i18n="exp_picker_title">Формирование отряда экспедиции</h4>
+                <div class="exp-selection-counter" id="exp-picker-counter" style="font-size:11.5px; color:var(--gold); margin-bottom:6px; font-weight:700;">Требуется героев: 1. Выбрано: 0</div>
+                <div id="exp-picker-list" class="slot-picker-scroll-list"></div>
+                <div class="calendar-actions-row" style="margin-top:8px;">
+                    <button class="btn-action" style="flex:0.8; background:#273347; color:#fff;" onclick="closeExpHeroPicker()" id="btn-exp-picker-cancel" data-i18n="exp_picker_cancel">Отмена</button>
+                    <button class="btn-action" style="flex:0.9; background:var(--crystal); border-color:#a855f7;" onclick="autoSelectInPicker()" id="btn-exp-picker-auto" data-i18n="exp_picker_auto">АВТО</button>
+                    <button class="btn-action" style="flex:1.2;" onclick="confirmExpeditionDeployment()" id="btn-exp-picker-confirm" data-i18n="exp_picker_confirm">ОТПРАВИТЬ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. МОДАЛЬНОЕ ОКНО: ДЕМОН-ВЕСТНИК -->
+        <div class="modal-backdrop" id="demon-modal" style="display: none;">
+            <div class="modal-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="lbl-modal-demon-title">ДЕМОН-ВЕСТНИК ПЕРЕХВАЧЕН!</h3>
+                    <span class="modal-close-x" onclick="closeDemonModal()">✖</span>
+                </div>
+                <p class="modal-desc-txt" id="lbl-modal-demon-desc" style="font-size:11.5px;">Бес переносил похищенные сокровища Пропасти!</p>
+                
+                <div class="building-card" style="flex-direction:column; align-items:center; gap:8px; padding:14px; margin:8px 0; background:radial-gradient(circle, #252f42 0%, #0c1017 100%); border:1.5px solid var(--gold);">
+                    <div class="demon-modal-art-box">
+                        <img src="assets/icons/demon_imp.webp" class="demon-modal-art-img" alt="Бес" onerror="this.onerror=null; this.outerHTML='🦇';">
+                    </div>
+                    <div style="display:flex; gap:14px; margin-top:4px; align-items:center;">
+                        <span style="font-size:13.5px; font-weight:800; color:var(--gold);" id="demon-loot-gold">+0 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></span>
+                        <span style="font-size:13.5px; font-weight:800; color:var(--crystal);" id="demon-loot-cryst">+0 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></span>
+                    </div>
+                    <div style="font-size:11.5px; color:#cbd5e1; font-weight:700;">+ <img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T"> <span data-i18n="demon_chance_ticket">Шанс билета Арены</span></div>
+                </div>
+
+                <div class="calendar-actions-row" style="margin-top:2px;">
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff; font-size:11.5px; padding:10px 4px;" onclick="claimDemonReward(false)" data-i18n="demon_banish_btn">Изгнать (База)</button>
+                    <button class="btn-action btn-ad-standard" style="flex:1.2; font-size:11.5px; padding:10px 4px;" onclick="claimDemonReward(true)" id="btn-demon-ad"><img src="assets/icons/icon_ad.webp" class="res-icon-inline" style="width:13px; height:13px;"> <span data-i18n="demon_subjugate_btn">Подчинить x2</span></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. МОДАЛЬНОЕ ОКНО: КАЛЕНДАРЬ НАГРАД -->
+        <div class="modal-backdrop" id="daily-calendar-modal" style="display: none;">
+            <div class="modal-window cal-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="lbl-cal-modal-title">КАЛЕНДАРЬ НАГРАД</h3>
+                    <span class="modal-close-x" onclick="closeDailyCalendarModal()">✖</span>
+                </div>
+                <div class="cal-week-tabs" id="cal-week-tabs"></div>
+                <p class="modal-desc-txt" id="lbl-cal-modal-desc">Заходите каждый день за ценными сокровищами и героями Бездны!</p>
+                <div class="daily-calendar-grid" id="daily-calendar-grid"></div>
+                <div class="calendar-actions-row" id="cal-action-buttons" style="justify-content: flex-end; margin-top: 8px;">
+                    <button class="btn-action" onclick="claimDailyReward(1)" id="btn-cal-claim" style="padding: 10px 18px; background: #273347; border-color: var(--border-metal); color: #fff;">ЗАБРАТЬ</button>
+                    <button class="btn-action btn-ad-standard" onclick="claimDailyReward(2)" id="btn-cal-double" style="padding: 10px 18px;"><img src="assets/icons/icon_ad.webp" class="res-icon-inline" style="width:13px; height:13px;"> УДВОИТЬ x2</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5.1 МОДАЛЬНОЕ ОКНО: КОЛЕСО ФОРТУНЫ БЕЗДНЫ -->
+        <div class="modal-backdrop" id="lucky-wheel-modal" style="display: none; z-index: 2900;">
+            <div class="modal-window lucky-wheel-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" style="color:var(--gold);" data-i18n="wheel_headline">КОЛЕСО ФОРТУНЫ</h3>
+                    <span class="modal-close-x" onclick="closeLuckyWheelModal()">✖</span>
+                </div>
+                <p class="modal-desc-txt" id="wheel-status-desc" data-i18n="wheel_status_desc">Испытайте благосклонность Бездны!</p>
+
+                <!-- Физический барабан с золотой стрелкой-язычком -->
+                <div class="wheel-stage-container">
+                    <div class="wheel-pointer-peg" id="wheel-pointer-peg"></div>
+                    <div class="wheel-disc-wrapper">
+                        <svg id="wheel-disc-svg" viewBox="0 0 300 300" class="wheel-disc-svg"></svg>
+                        <div class="wheel-center-core">
+                            <img src="assets/icons/portal_abyss.webp" style="width:34px; height:34px; object-fit:contain; filter:drop-shadow(0 0 6px #000);" alt="🌀">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wheel-actions-box">
+                    <button class="btn-action modal-full-btn wheel-spin-btn" id="btn-wheel-spin" onclick="spinLuckyWheel()">
+                        ВРАЩАТЬ (БЕСПЛАТНО)
+                    </button>
+                    <button class="btn-action modal-full-btn" style="background:#273347; margin-top:4px;" onclick="closeLuckyWheelModal()" data-i18n="modal_close">
+                        ЗАКРЫТЬ
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. МОДАЛЬНОЕ ОКНО: РЕЗУЛЬТАТ ПРИЗЫВА (ДОФАМИНОВАЯ ГАЧА) -->
+        <div class="modal-backdrop" id="summon-result-modal" style="display: none;">
+            <div class="modal-window gacha-window" style="background: rgba(13, 17, 24, 0.98); border: 1.5px solid var(--gold); box-shadow: 0 0 30px rgba(0,0,0,0.9);">
+                <h3 class="modal-headline" id="lbl-sum-result-title" style="font-size:16px; text-shadow:0 0 10px var(--gold-glow);">ВРАТА БЕЗДНЫ РАСПАХНУЛИСЬ!</h3>
+                <p class="modal-desc-txt" id="lbl-sum-result-desc" style="font-size:11.5px;">Тапните по картам, чтобы снять печати:</p>
+                
+                <div id="summon-result-grid" class="summon-result-grid"></div>
+                
+                <div class="calendar-actions-row" style="margin-top:6px;">
+                    <button class="btn-action" style="flex:1; font-size:12px; background:linear-gradient(180deg, #9333ea 0%, #7e22ce 100%); border-color:var(--crystal);" onclick="revealAllGachaCards()" id="btn-sum-reveal-all" data-i18n="summon_reveal_all">ВСКРЫТЬ ВСЕ</button>
+                    <button class="btn-action" style="flex:1; font-size:12px; display:none;" onclick="closeSummonResultModal()" id="btn-sum-result-close" data-i18n="sum_modal_close">ПРИНЯТЬ ВОИНОВ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Оверлей для цитаты Легендарного Героя (Hero Spotlight 2.0) -->
+        <div id="epic-quote-overlay" class="modal-backdrop" style="display: none; z-index: 4000; opacity: 0; transition: opacity 0.3s ease;">
+            <div class="modal-window hero-spotlight-window">
+                <div class="modal-header-row" style="width: 100%;">
+                    <span class="spotlight-title-badge" id="spotlight-rank-badge">[SSS] ЛЕГЕНДА БЕЗДНЫ</span>
+                    <span class="modal-close-x" onclick="closeEpicQuote()" style="font-size: 16px;">✖</span>
+                </div>
+
+                <!-- Полноформатная Full-Art карта легенды -->
+                <div class="inspect-card-frame full-art-frame spotlight-card-frame" id="spotlight-card-frame">
+                    <div class="full-art-card-inner">
+                        <div class="card-foil-glare"></div>
+                        <div class="full-art-image-layer" id="spotlight-card-icon">👑</div>
+                        <div class="inspect-header-row" style="padding: 6px 8px;">
+                            <span id="spotlight-tier-pill" class="inspect-tier-pill">[SSS] РАНГ</span>
+                            <span class="inspect-stars-txt" style="font-size: 12px;">★</span>
+                        </div>
+                        <div class="inspect-card-bottom-overlay" style="padding: 10px 8px 6px;">
+                            <div id="spotlight-hero-name" class="inspect-hero-name" style="font-size: 15px;">Имя Героя</div>
+                            <div id="spotlight-role-tag" class="inspect-role-tag" style="font-size: 10.5px;">Главком • Демоны</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Цитата и имя -->
+                <div class="spotlight-quote-card">
+                    <div id="epic-quote-text" class="spotlight-quote-text">«Цитата персонажа»</div>
+                    <div id="epic-quote-author" class="spotlight-quote-author">— Имя</div>
+                </div>
+
+                <!-- Кнопки публикации и закрытия -->
+                <div class="calendar-actions-row" style="width: 100%; gap: 6px;">
+                    <button class="btn-action" id="btn-spotlight-share" style="flex:1; background:linear-gradient(180deg,#3b82f6,#1d4ed8); border-color:#60a5fa; font-size:11.5px; padding:10px 4px;" onclick="shareTriumphToWall('sss_hero', window.lastCelebratedHeroName || '')">
+                        ПОДЕЛИТЬСЯ
+                    </button>
+                    <button class="btn-action spotlight-btn" id="btn-spotlight-accept" style="flex:1.4; padding:10px 6px;" onclick="closeEpicQuote()">
+                        ПРИНЯТЬ
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. МОДАЛЬНОЕ ОКНО: ИНСПЕКТОР ГЕРОЯ И ПРОКАЧКА (FULL-ART TCG) -->
+        <div class="modal-backdrop" id="card-inspect-modal" style="display: none;">
+            <div class="modal-window hero-inspect-window">
+                <!-- Верхняя строка с привычным крестиком закрытия -->
+                <div class="modal-header-row inspect-modal-header">
+                    <h3 class="modal-headline" style="font-size:15px; margin:0;" data-i18n="inspect_headline">КОЛЛЕКЦИОННАЯ КАРТА</h3>
+                    <span class="modal-close-x btn-back-citadel" onclick="closeCardInspect()" style="font-size:14px; padding:3px 9px;">✖</span>
+                </div>
+
+                <!-- 3D Full-Art Карточка героя (Бегущий луч по рамке) -->
+                <div class="inspect-card-perspective-container" id="inspect-tilt-box">
+                    <div class="inspect-card-frame full-art-frame" id="inspect-frame">
+                        <div class="full-art-card-inner">
+                            <!-- Непрерывный голографический блик (Foil Glare) -->
+                            <div class="card-foil-glare" id="inspect-foil-glare"></div>
+
+                            <!-- Фоновый полноформатный арт на всю карту -->
+                            <div class="full-art-image-layer" id="ins-icon"></div>
+
+                            <!-- Верхний слой карты: Ранг и Звёзды -->
+                            <div class="inspect-header-row">
+                                <span id="ins-tier" class="inspect-tier-pill">[S] РАНГ</span>
+                                <span id="ins-stars" class="inspect-stars-txt">★★★★★</span>
+                            </div>
+
+                            <!-- Нижний слой карты: Имя 24px, Роль, Статы и Лор внутри -->
+                            <div class="inspect-card-bottom-overlay">
+                                <div id="ins-name" class="inspect-hero-name">Имя Героя</div>
+                                <div id="ins-role-tag" class="inspect-role-tag">Авангард • Свет</div>
+                                
+                                <div class="inspect-stats-chips-row">
+                                    <div id="ins-stats-bar" class="inspect-stats-line"><img src="assets/icons/swords_cp.webp" class="res-icon-inline" alt="CP"> CP: +0 | <img src="assets/icons/army.webp" class="res-icon-inline" alt="Лимит"> Лимит: +0</div>
+                                </div>
+
+                                <div id="ins-lore" class="inspect-lore-box">История персонажа...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Неподвижная монолитная панель прокачки под картой с 1 циклической кнопкой множителя -->
+                <div class="hero-progression-bar stationary-upgrade-bar" style="flex-direction:column; gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                        <div class="hero-level-display" id="ins-level-display">Уровень: 1 / 200</div>
+                        <button class="btn-action lvl-cycle-btn" id="btn-lvl-cycle" onclick="cycleLevelUpgradeMultiplier()">x1</button>
+                    </div>
+                    <button class="btn-action modal-full-btn levelup-btn" id="btn-levelup-hero" onclick="upgradeSelectedHeroLevel()">Ур.+1 (500 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">)</button>
+                </div>
+                
+                <!-- Нижняя кнопка закрытия -->
+                <button class="btn-action modal-full-btn" onclick="closeCardInspect()" id="btn-close-card-inspect">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ПРОБУЖДЕНИЕ МАСТЕРСТВА (ГЕРОЙ НА 200 УР.) -->
+        <div class="modal-backdrop" id="mastery-awakening-modal" style="display: none; z-index: 2750;">
+            <div class="modal-window mastery-awakening-window">
+                <h3 class="modal-headline" id="mastery-awakening-title">★ ПРОБУЖДЕНИЕ МАСТЕРСТВА ★</h3>
+                <div class="mastery-awakening-hero-row">
+                    <div class="mastery-awakening-icon-box" id="mastery-awakening-icon"></div>
+                    <div class="mastery-awakening-hero-meta">
+                        <div id="mastery-awakening-hero-name">Hero</div>
+                        <div id="mastery-awakening-hero-sub">Reached Level 200.</div>
+                    </div>
+                </div>
+                <div class="mastery-awakening-info-box" id="mastery-awakening-info-box"></div>
+                <div class="calendar-actions-row" style="margin-top:6px;">
+                    <button class="btn-action" id="btn-mastery-cancel" onclick="cancelMasteryEntry()">ОСТАНОВИТЬСЯ</button>
+                    <button class="btn-action btn-mastery-confirm" id="btn-mastery-confirm" onclick="confirmMasteryEntry()">★ ВОЙТИ ★</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 8. МОДАЛЬНОЕ ОКНО: ОФФЛАЙН ДОХОД -->
+        <div class="modal-backdrop" id="offline-modal" style="display: none;">
+            <div class="modal-window">
+                <h3 class="modal-headline" id="lbl-offline-title">С ВОЗВРАЩЕНИЕМ, ЛОРД!</h3>
+                <p class="modal-desc-txt" id="offline-m-desc">Пока вы отсутствовали, Цитадель собрала налог:</p>
+                <div class="offline-gold-sum" id="offline-m-gold" style="font-size:18px; font-weight:800; color:var(--gold); text-align:center;">+0 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="Золото"></div>
+                <div class="calendar-actions-row">
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff;" onclick="claimOffline(1)" id="btn-offline-claim">Забрать</button>
+                    <button class="btn-action btn-ad-standard" style="flex:1.2;" onclick="claimOffline(2)" id="btn-offline-double"><img src="assets/icons/icon_ad.webp" class="res-icon-inline" style="width:13px; height:13px;"> Удвоить x2</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 9. МОДАЛЬНОЕ ОКНО: ВОЗВЫШЕНИЕ (С УМНЫМ СБРОСОМ) -->
+        <div class="modal-backdrop" id="ascend-modal" style="display: none;">
+            <div class="modal-window ascend-window">
+                <h3 class="modal-headline color-relic" id="lbl-ascend-m-title">ВЕЛИКОЕ ВОЗВЫШЕНИЕ</h3>
+                <div class="ascend-warning-box" id="lbl-ascend-m-warning">
+                    Внимание! Здания, золото и армия будут сброшены.<br><br>
+                    <b>ВЫ СОХРАНЯЕТЕ НАВСЕГДА:</b><br>
+                    • Всех героев, их звезды и уровни<br>
+                    • Кристаллы и Реликвии<br>
+                    • Ранг на Арене и прогресс Бездны<br><br>
+                    Вы получите <b>+1 Реликвию (+15% ко всей экономике навсегда)!</b>
+                </div>
+                <div style="display:flex; gap:6px; width:100%; margin:4px 0;">
+                    <button class="btn-action btn-auto-spend-hero" style="flex:1;" onclick="autoSpendExcessGoldOnHeroes()" id="btn-ascend-auto-spend" data-i18n="ascend_btn_auto">
+                        Полный автомат
+                    </button>
+                    <button class="btn-action btn-auto-spend-hero" style="flex:1; background:var(--crystal); border-color:#a855f7; color:#fff;" onclick="openAscendHeroPicker()" id="btn-ascend-picker-open" data-i18n="ascend_btn_pick">
+                        Выбрать героя
+                    </button>
+                </div>
+                <div class="calendar-actions-row" style="margin-top:6px;">
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff; padding:10px;" onclick="closeAscendModal()" id="btn-ascend-cancel">Отмена</button>
+                    <button class="btn-action btn-ascend" style="flex:1; padding:10px;" onclick="confirmAscension()" id="btn-ascend-confirm">ВОЗВЫСИТЬСЯ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ОВЕРЛЕЙ ТРИУМФА НАД МИРОВЫМ ЛЕВИАФАНОМ -->
+        <div id="leviathan-triumph-overlay" style="display: none;">
+            <div class="leviathan-triumph-vortex" id="leviathan-triumph-vortex"></div>
+            <div class="leviathan-triumph-flash" id="leviathan-triumph-flash"></div>
+            <div class="leviathan-triumph-card" id="leviathan-triumph-card">
+                <div class="leviathan-triumph-badge" id="lbl-leviathan-badge" data-i18n="raid_triumph_badge">РЕЙД НЕДЕЛИ ЗАВЕРШЕН</div>
+                <div class="leviathan-triumph-avatar-wrap">
+                    <img src="assets/icons/boss_leviathan.webp" class="leviathan-triumph-img" alt="Левиафан">
+                </div>
+                <h2 class="leviathan-triumph-title" id="lbl-leviathan-title" data-i18n="raid_triumph_title">ЛЕВИАФАН ПОВЕРЖЕН!</h2>
+                <div class="leviathan-triumph-desc" id="lbl-leviathan-desc" data-i18n="raid_triumph_desc">Древний титан глубин пал перед несокрушимой мощью вашего легиона!</div>
+                <div class="leviathan-triumph-loot-panel">
+                    <div class="leviathan-loot-row">
+                        <span data-i18n="raid_triumph_relic_lbl">Сакральная Реликвия:</span>
+                        <b style="color:var(--gold);">+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> (+15% ко всему)</b>
+                    </div>
+                    <div class="leviathan-loot-row">
+                        <span data-i18n="raid_triumph_cryst_lbl">Кристаллы Бездны:</span>
+                        <b style="color:var(--crystal);">+500 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></b>
+                    </div>
+                </div>
+                <div class="leviathan-triumph-actions">
+                    <button class="btn-action leviathan-share-btn" id="btn-leviathan-share" onclick="shareTriumphToWall('leviathan')" data-i18n="raid_triumph_share_btn">
+                        ПОДЕЛИТЬСЯ
+                    </button>
+                    <button class="btn-action modal-full-btn leviathan-claim-btn" id="btn-leviathan-claim" onclick="closeLeviathanTriumphOverlay()" data-i18n="raid_triumph_claim_btn">
+                        ПРИНЯТЬ ТРИУМФ ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- РИТУАЛ ВЕЛИКОГО ВОЗВЫШЕНИЯ 2.0 (ЭПИЧЕСКИЙ КАТАРСИС) -->
+        <div id="ascension-ritual-overlay" style="display: none;">
+            <div class="ritual-vortex-bg" id="ritual-vortex-bg"></div>
+            <div class="ritual-supernova-flash" id="ritual-supernova-flash"></div>
+            
+            <div class="ritual-content-card" id="ritual-content-card">
+                <div class="ritual-era-badge" id="ritual-era-badge">ЭПОХА #1 ЗАВЕРШЕНА</div>
+                
+                <div class="ritual-relic-stage">
+                    <div class="ritual-runic-ring ring-outer"></div>
+                    <div class="ritual-runic-ring ring-inner"></div>
+                    <div class="ritual-relic-halo"></div>
+                    <img src="assets/icons/relic.webp" class="ritual-relic-img" alt="Реликвия Вечности">
+                </div>
+
+                <h2 class="ritual-title" data-i18n="ritual_birth_title">РОЖДЕНИЕ РЕЛИКВИИ</h2>
+                <div class="ritual-desc" id="ritual-bonus-desc">+15% ко всей мощи и добыче империи навсегда</div>
+
+                <div class="ritual-stats-panel">
+                    <div class="ritual-stat-row">
+                        <span data-i18n="ritual_relics_collected">Собрано Реликвий:</span>
+                        <b id="ritual-total-relics" style="color:var(--gold);">1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"></b>
+                    </div>
+                    <div class="ritual-stat-row">
+                        <span data-i18n="ritual_permanent_power">Постоянное могущество:</span>
+                        <b id="ritual-multiplier-val" style="color:#4ade80;">+15% ко всем сферам</b>
+                    </div>
+                </div>
+
+                <button class="btn-action modal-full-btn ritual-rebirth-btn" onclick="completeAscensionRitual()" data-i18n="ritual_rebirth_btn">
+                    ВОЗРОДИТЬ ИМПЕРИЮ ➔
+                </button>
+            </div>
+        </div>
+
+        <!-- 10. МОДАЛЬНОЕ ОКНО: ВЫБОР ГЕРОЯ В СЛОТ ПОСТРОЕНИЯ -->
+        <div class="modal-backdrop" id="slot-picker-modal" style="display: none;">
+            <div class="modal-window">
+                <h4 class="modal-headline" id="slot-picker-title">Выберите Героя</h4>
+                <div id="slot-picker-list" class="slot-picker-scroll-list"></div>
+                <button class="btn-action modal-full-btn" style="background:#273347; margin-top:6px;" onclick="closeSlotPicker()" id="btn-slot-cancel">Отмена</button>
+            </div>
+        </div>
+
+        <!-- 11. МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ ПОКУПКИ -->
+        <div class="modal-backdrop" id="buy-modal" style="display: none;">
+            <div class="modal-window">
+                <h3 class="modal-headline" id="buy-m-title">Подтверждение покупки</h3>
+                <p class="modal-desc-txt" id="buy-m-desc">Приобрести выбранный товар за реальные средства?</p>
+                <div class="calendar-actions-row">
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff;" onclick="closeBuyModal()" id="lbl-buy-cancel">Отмена</button>
+                    <button class="btn-action" style="flex:1;" id="buy-m-confirm-btn">Оплатить</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 12. МОДАЛЬНОЕ ОКНО: ТАКТИЧЕСКАЯ РАЗВЕДКА И КОНТР-ПИКИ -->
+        <div class="modal-backdrop" id="player-inspect-modal" style="display: none;">
+            <div class="modal-window" style="max-width:370px;">
+                <h3 class="modal-headline" id="p-ins-name">Lord Name</h3>
+                <div class="inspect-subrank" id="p-ins-rank" style="font-size:12px; color:var(--gold); text-align:center; font-weight:800;">Ранг #50 | <img src="assets/icons/swords_cp.webp" class="res-icon-inline" style="width:13px; height:13px;" alt="БМ"> 1,200 БМ</div>
+                
+                <!-- Блок тактической разведки -->
+                <div class="intel-report-box" id="p-ins-intel-box"></div>
+
+                <div class="section-title" id="lbl-ins-garrison" style="margin-top:4px;">
+                    ОБОРОНА СОПЕРНИКА <img src="assets/icons/army.webp" class="res-icon-inline" alt="Оборона">:
+                </div>
+                <div class="opp-mini-squad" id="p-ins-squad" style="justify-content: center; gap:6px; margin: 4px 0 8px;"></div>
+                
+                <button class="btn-action modal-full-btn" onclick="closePlayerInspect()" id="btn-close-inspect">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ТРИУМФ СЕЗОНА АРЕНЫ (ЦЕРЕМОНИЯ НАГРАЖДЕНИЯ) -->
+        <div class="modal-backdrop" id="season-verdict-modal" style="display: none; z-index: 3400;">
+            <div class="modal-window season-verdict-window">
+                <div class="season-crest-banner"><img src="assets/icons/trophy.webp" style="width:48px; height:48px;" alt="Трофей"></div>
+                <h3 class="modal-headline season-ceremony-headline" id="season-verdict-title">ИТОГИ СЕЗОНА #1</h3>
+                <div class="season-rank-pill" id="season-verdict-rank-badge">ВАШ РАНГ: #1 ЧЕМПИОН ЛИГИ</div>
+                
+                <div class="season-rewards-feed" id="season-verdict-rewards-box">
+                    <!-- Заполняется динамически: золото, кристаллы, карта героя -->
+                </div>
+
+                <div class="season-congrats-text" id="season-verdict-congrats">
+                    «Ваше имя высечено золотом на вратах Цитадели. Новый сезон ладдера объявляется открытым!»
+                </div>
+
+                <button class="btn-action modal-full-btn season-claim-btn" onclick="claimSeasonCeremony()">
+                    ПРИНЯТЬ ТРОФЕИ
+                </button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: РЕЙТИНГ И ЛИГИ АРЕНЫ -->
+        <div class="modal-backdrop" id="arena-ladder-modal" style="display: none; z-index: 2800;">
+            <div class="modal-window" style="max-height: 90%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <div>
+                        <h3 class="modal-headline" id="lbl-ladder-modal-title">РЕЙТИНГ ЛИГИ</h3>
+                        <span id="ui-ladder-league-desc" style="font-size:11px; color:var(--gold); font-weight:800;"></span>
+                    </div>
+                    <span class="modal-close-x" onclick="closeArenaLadderModal()">✖</span>
+                </div>
+                <div class="league-info-box" style="background:#10141d; border:1px solid var(--border-metal); border-radius:6px; padding:6px 8px; font-size:11px; display:flex; justify-content:space-between; align-items:center; margin:2px 0;">
+                    <span style="color:#4ade80; font-weight:700;" data-i18n="arena_promo_tag">[+] Места 1–10: Повышение</span>
+                    <span style="color:#f87171; font-weight:700;" data-i18n="arena_demo_tag">[-] Места 990–1000: Вылет</span>
+                </div>
+                <div id="leaderboard-box" class="ladder-feed" style="max-height: 380px;"></div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button class="btn-action" id="btn-arena-vk-ladder" style="flex:1; background:#1e3a8a; border-color:#3b82f6; color:#fff; display:none;" onclick="PlatformBridge.showVKLeaderboard()" data-i18n="vk_ladder_btn">ДРУЗЬЯ VK</button>
+                    <button class="btn-action" id="btn-arena-yandex-ladder" style="flex:1; background:#1e3a8a; border-color:#3b82f6; color:#fff; display:none;" onclick="openYandexArenaLeaderboard()" data-i18n="arena_live_players_btn">ЖИВЫЕ ИГРОКИ</button>
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff;" onclick="openRewardsModal()" data-i18n="arena_rewards_btn">НАГРАДЫ ЛИГИ</button>
+                    <button class="btn-action" style="flex:1;" onclick="closeArenaLadderModal()" data-i18n="modal_close">ЗАКРЫТЬ</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-backdrop" id="arena-live-ladder-modal" style="display: none; z-index: 2900;">
+            <div class="modal-window" style="max-height: 90%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <div>
+                        <h3 class="modal-headline" data-i18n="arena_live_players_title">ЖИВЫЕ ИГРОКИ</h3>
+                        <span style="font-size:11px; color:var(--gold); font-weight:800;" data-i18n="arena_live_players_hint">Общий рейтинг игроков Яндекс Игр</span>
+                    </div>
+                    <span class="modal-close-x" onclick="closeYandexArenaLeaderboard()">✖</span>
+                </div>
+                <div id="arena-live-leaderboard-box" class="ladder-feed" style="max-height: 380px;"></div>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button class="btn-action" id="btn-arena-live-refresh" style="flex:1;" onclick="loadYandexArenaLeaderboard()" data-i18n="arena_live_refresh">ОБНОВИТЬ ⟳</button>
+                    <button class="btn-action" style="flex:1;" onclick="closeYandexArenaLeaderboard()" data-i18n="modal_close">ЗАКРЫТЬ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ВЫБОР ГЕРОЯ ДЛЯ ИЗЛИШКОВ ЗОЛОТА ВОЗВЫШЕНИЯ -->
+        <div class="modal-backdrop" id="ascend-hero-picker-modal" style="display: none; z-index: 2900;">
+            <div class="modal-window" style="max-height: 88%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" data-i18n="ascend_excess_title">ВЛИВАНИЕ ИЗЛИШКОВ ЗОЛОТА</h3>
+                    <span class="modal-close-x" onclick="closeAscendHeroPicker()">✖</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#10141d; padding:6px 10px; border-radius:6px; border:1px solid var(--border-metal); margin:2px 0 4px;">
+                    <span id="ascend-picker-excess-gold" style="font-size:12px; font-weight:800; color:var(--gold);"></span>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <button class="btn-action" id="btn-sort-tier-toggle" style="padding:4px 8px; font-size:11px;" onclick="toggleAscendTierSort()">Ранг ⬇</button>
+                        <button class="btn-action" id="btn-sort-lvl-toggle" style="padding:4px 8px; font-size:11px;" onclick="toggleAscendLvlSort()">Уровень ⬆</button>
+                        <button class="btn-action lvl-cycle-btn" id="btn-ascend-picker-mult" onclick="cycleAscendPickerMultiplier()">x1</button>
+                    </div>
+                </div>
+                <div id="ascend-picker-hero-list" style="display:flex; flex-direction:column; gap:6px; margin:4px 0;"></div>
+                <button class="btn-action modal-full-btn" id="btn-ascend-picker-done" onclick="closeAscendHeroPicker()" style="background:#273347; margin-top:4px;">ГОТОВО</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ПОДТВЕРЖДЕНИЕ СБРОСА ПРОГРЕССА -->
+        <div class="modal-backdrop" id="hard-reset-modal" style="display: none; z-index: 3500;">
+            <div class="modal-window" style="max-width: 340px; text-align: center;">
+                <h3 class="modal-headline" style="color:var(--red);" data-i18n="settings_reset_confirm_title">ПОЛНЫЙ СБРОС</h3>
+                <p class="modal-desc-txt" style="font-size:12px; color:#fff; margin:6px 0;" data-i18n="settings_reset_confirm_desc">Вы действительно хотите удалить все сохранения и начать игру с чистого листа?</p>
+                <div class="calendar-actions-row" style="margin-top:6px;">
+                    <button class="btn-action" style="flex:1; background:#273347;" onclick="closeHardResetModal()" data-i18n="modal_cancel">ОТМЕНА</button>
+                    <button class="btn-action" style="flex:1; background:#991b1b; border-color:#ef4444;" onclick="executeHardReset()" data-i18n="settings_reset_confirm_del">УДАЛИТЬ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: БОЕВОЙ ПРОПУСК БЕЗДНЫ (ОТДЕЛЬНОЕ ОКНО) -->
+        <div class="modal-backdrop" id="abyss-pass-modal" style="display: none; z-index: 2750;">
+            <div class="modal-window" style="max-height: 92%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" data-i18n="pass_headline">ПРОПУСК БЕЗДНЫ</h3>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <button class="btn-action" id="btn-pass-claim-all" onclick="claimAllAbyssPassRewards()" data-i18n="pass_btn_claim_all">ВЗЯТЬ ВСЁ</button>
+                        <span class="modal-close-x" onclick="closeAbyssPassModal()">✖</span>
+                    </div>
+                </div>
+                <div id="abyss-pass-modal-container" style="display:flex; flex-direction:column; gap:8px;"></div>
+                <button class="btn-action modal-full-btn" onclick="closeAbyssPassModal()" style="margin-top:6px;" data-i18n="modal_close">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: НАГРАДЫ ЛИГИ С 5 ВКЛАДКАМИ -->
+        <div class="modal-backdrop" id="rewards-modal" style="display: none; z-index: 2900;">
+            <div class="modal-window" style="max-height: 90%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" data-i18n="arena_rewards_title">НАГРАДЫ ЛИГ АРЕНЫ</h3>
+                    <span class="modal-close-x" onclick="closeRewardsModal()">✖</span>
+                </div>
+                <!-- 5 Вкладок Лиг с чистыми артами -->
+                <div class="rewards-league-tabs" id="rewards-league-tabs" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; margin:2px 0;">
+                    <button class="league-tab-btn" id="ltab-bronze" onclick="selectRewardsLeagueTab('bronze')"><img src="assets/icons/league_bronze.webp" style="width:22px; height:22px; object-fit:contain;" alt="Бронза"></button>
+                    <button class="league-tab-btn" id="ltab-silver" onclick="selectRewardsLeagueTab('silver')"><img src="assets/icons/league_silver.webp" style="width:22px; height:22px; object-fit:contain;" alt="Серебро"></button>
+                    <button class="league-tab-btn" id="ltab-gold" onclick="selectRewardsLeagueTab('gold')"><img src="assets/icons/league_gold.webp" style="width:22px; height:22px; object-fit:contain;" alt="Золото"></button>
+                    <button class="league-tab-btn" id="ltab-platinum" onclick="selectRewardsLeagueTab('platinum')"><img src="assets/icons/league_platinum.webp" style="width:22px; height:22px; object-fit:contain;" alt="Платина"></button>
+                    <button class="league-tab-btn" id="ltab-diamond" onclick="selectRewardsLeagueTab('diamond')"><img src="assets/icons/league_diamond.webp" style="width:22px; height:22px; object-fit:contain;" alt="Алмаз"></button>
+                </div>
+                <div id="rewards-league-content" style="display:flex; flex-direction:column; gap:6px; margin:4px 0;"></div>
+                <button class="btn-action modal-full-btn" onclick="closeRewardsModal()" id="btn-close-rewards">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: НАГРАДА ПЕРВОЙ ПОКУПКИ (FULL-ART КАРТА [S] ЛИЛИТ) -->
+        <div class="modal-backdrop" id="first-purchase-modal" style="display: none; z-index: 3500;">
+            <div class="modal-window hero-inspect-window" style="max-width: 380px;">
+                <h3 class="modal-headline" id="lbl-first-purchase-title" style="color:var(--gold); font-size:16px;" data-i18n="first_purchase_modal_title">ДАР ПЕРВОГО ПЛАТЕЖА</h3>
+                <p class="modal-desc-txt" id="lbl-first-purchase-desc" style="margin-bottom:4px;" data-i18n="first_purchase_desc">Выдается один раз при совершении ЛЮБОЙ покупки в Казне:</p>
+                
+                <div class="inspect-card-frame full-art-frame" style="height: 290px; width: 215px; margin: 0 auto; border-color: var(--tier-s); box-shadow: 0 0 25px rgba(239, 68, 68, 0.6);">
+                    <div class="full-art-card-inner">
+                        <div class="full-art-image-layer">
+                            <img src="assets/heroes/s_dem_c.webp" class="inspect-art-img" onerror="this.onerror=null; this.style.display='none';">
+                        </div>
+                        <div class="inspect-header-row" style="padding: 6px 8px;">
+                            <span class="inspect-tier-pill" id="lbl-first-purchase-tier" style="color:var(--tier-s); border-color:var(--tier-s); font-size:11px;">[S] РАНГ</span>
+                            <span class="inspect-stars-txt" style="font-size:12px; color:var(--gold);">★</span>
+                        </div>
+                        <div class="inspect-card-bottom-overlay" style="padding: 12px 8px 8px;">
+                            <div class="inspect-hero-name" id="lbl-first-purchase-name" style="font-size:15px; color:var(--tier-s);">Лилит, Тень Бездны</div>
+                            <div class="inspect-role-tag" id="lbl-first-purchase-role" style="font-size:11px;">Главком • Демоны</div>
+                            <div style="font-size:11.5px; color:var(--gold); font-weight:800; margin-top:2px;" id="lbl-first-purchase-cp"><img src="assets/icons/swords_cp.webp" class="res-icon-inline" style="width:13px; height:13px; vertical-align:-1px;" alt="CP"> 3,800 БМ</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="building-card" style="padding:10px 14px; background:#10141d; flex-direction:column; align-items:flex-start; gap:4px; margin-top:4px;">
+                    <div style="font-size:12px; color:#fff;">• <b data-i18n="first_purchase_hero_tag">Легенда в строй:</b> <span style="color:var(--tier-s); font-weight:800;" id="lbl-first-purchase-hero-name">[S] Лилит</span></div>
+                    <div style="font-size:12px; color:#fff;">• <b data-i18n="first_purchase_gold_tag">Золото Казны:</b> <span style="color:var(--gold); font-weight:800;">+100,000 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></span></div>
+                    <div style="font-size:12px; color:#fff;">• <b data-i18n="first_purchase_cryst_tag">Кристаллы Бездны:</b> <span style="color:var(--crystal); font-weight:800;">+300 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"></span></div>
+                </div>
+
+                <button class="btn-action modal-full-btn" onclick="closeFirstPurchaseModal()" data-i18n="first_purchase_claim_btn">
+                    ПРИНЯТЬ
+                </button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: НАСТРОЙКИ 2.0 (2 ВКЛАДКИ) -->
+        <div class="modal-backdrop" id="settings-modal" style="display: none; z-index: 2800;">
+            <div class="modal-window settings-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="lbl-settings-title" data-i18n="settings_title">НАСТРОЙКИ</h3>
+                    <span class="modal-close-x" onclick="closeSettingsModal()">✖</span>
+                </div>
+
+                <!-- Переключатель вкладок Профиль / Система -->
+                <div class="roster-toggle-bar" style="margin-bottom: 6px;">
+                    <button class="roster-sub-btn active" id="btn-tab-settings-profile" onclick="toggleSettingsTab('profile')" data-i18n="settings_tab_profile">ПРОФИЛЬ</button>
+                    <button class="roster-sub-btn" id="btn-tab-settings-system" onclick="toggleSettingsTab('system')" data-i18n="settings_tab_system">СИСТЕМА И ЗВУК</button>
+                </div>
+
+                <!-- Вкладка 1: Профиль Лорда -->
+                <div id="settings-tab-profile" class="settings-tab-pane">
+                    <div class="settings-section-title" data-i18n="settings_sec_avatar">АВАТАР ЛОРДА:</div>
+                    <div class="settings-avatar-grid" id="settings-avatar-grid" style="max-height:105px; overflow-y:auto; padding-right:2px;"></div>
+
+                    <div class="settings-section-title" style="margin-top:6px;" data-i18n="settings_sec_nick">ИМЯ ПОВЕЛИТЕЛЯ:</div>
+                    <div class="settings-name-row">
+                        <input type="text" id="settings-nick-input" maxlength="12" placeholder="Имя Лорда">
+                        <button class="btn-action" style="padding:6px 12px; font-size:11px;" onclick="generateRandomNick()" data-i18n="modal_nick_rnd">СЛУЧАЙНО</button>
+                    </div>
+
+                    <div class="settings-section-title" style="margin-top:6px;" data-i18n="settings_sec_titles">ДОСТУПНЫЕ ТИТУЛЫ:</div>
+                    <div id="settings-title-selector-box" style="display:flex; flex-direction:column; gap:4px; max-height:115px; overflow-y:auto;"></div>
+
+                    <div class="settings-section-title" style="margin-top:6px;" data-i18n="settings_sec_promo">ПРОМОКОД:</div>
+                    <div class="settings-promo-inline-row">
+                        <input
+                            type="text"
+                            id="promo-input-settings"
+                            maxlength="24"
+                            autocomplete="off"
+                            autocapitalize="characters"
+                            spellcheck="false"
+                            class="promo-input-field promo-input-settings"
+                            placeholder="LOTA2026"
+                            data-i18n-placeholder="promo_placeholder"
+                            onkeydown="if(event.key==='Enter'){event.preventDefault();redeemPromoCode('settings');}"
+                        >
+                        <button class="btn-action btn-promo-settings" onclick="redeemPromoCode('settings')" data-i18n="promo_redeem_btn">АКТИВИРОВАТЬ</button>
+                    </div>
+
+                    <div class="settings-section-title" id="lbl-platform-bonuses" style="margin-top:6px;" data-i18n="settings_sec_platform">БОНУСЫ ПЛАТФОРМЫ:</div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <div class="building-card settings-row-card" id="row-perk-vk-bookmark" style="padding:6px 10px;">
+                            <span data-i18n="settings_perk_bookmark_lbl">Добавить в избранное (меню слева)</span>
+                            <button class="btn-action" id="btn-perk-bookmark" style="font-size:11px; padding:4px 8px; display:inline-flex; align-items:center; gap:3px; background:#273347; color:#cbd5e1;" onclick="addToBookmarksVK()">ДОБАВИТЬ</button>
+                        </div>
+                        <div class="building-card settings-row-card" id="row-perk-vk-homescreen" style="padding:6px 10px;">
+                            <span data-i18n="settings_perk_homescreen_lbl">Добавить на экран смартфона</span>
+                            <button class="btn-action" id="btn-perk-homescreen" style="font-size:11px; padding:4px 8px; display:inline-flex; align-items:center; gap:3px; background:#273347; color:#cbd5e1;" onclick="addToHomeScreenVK()">ДОБАВИТЬ</button>
+                        </div>
+                        <div class="building-card settings-row-card" id="row-perk-vk-invite" style="padding:6px 10px;">
+                            <span data-i18n="referral_invite_lbl">Зов Бездны (Пригласить друзей)</span>
+                            <button class="btn-action" id="btn-perk-vk-invite" style="font-size:11px; padding:4px 8px; display:inline-flex; align-items:center; gap:3px;" onclick="PlatformBridge.inviteFriendsVK()">+50 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> ВЗЯТЬ</button>
+                        </div>
+                        <div class="building-card settings-row-card" id="row-perk-yandex-shortcut" style="padding:6px 10px; display:none;">
+                            <span data-i18n="settings_perk_shortcut_lbl">Иконка на рабочий стол</span>
+                            <button class="btn-action" id="btn-perk-yandex-shortcut" style="font-size:11px; padding:4px 8px; display:inline-flex; align-items:center; gap:3px;" onclick="PlatformBridge.promptYandexShortcut()">+50 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> ВЗЯТЬ</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Вкладка 2: Система, Звук и Ползунки -->
+                <div id="settings-tab-system" class="settings-tab-pane" style="display: none;">
+                    <div class="settings-section-title" data-i18n="settings_sec_audio">ЗВУКОВОЕ СОПРОВОЖДЕНИЕ:</div>
+                    <div class="settings-controls-stack">
+                        <!-- Фоновая музыка с ползунком -->
+                        <div class="building-card settings-volume-card">
+                            <div class="settings-vol-top">
+                                <span style="font-weight:800; color:#fff;" data-i18n="settings_music_lbl">Фоновая музыка</span>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <b id="lbl-music-vol-val" style="color:var(--gold); font-size:11.5px;">35%</b>
+                                    <button class="btn-action" id="btn-settings-music" style="padding:3px 8px; font-size:10.5px;" onclick="toggleMusicFromSettings()">ВКЛ</button>
+                                </div>
+                            </div>
+                            <input type="range" min="0" max="100" value="35" class="settings-range-slider" id="slider-music-volume" oninput="onMusicVolumeChange(this.value)">
+                        </div>
+
+                        <!-- Эффекты (SFX) с ползунком -->
+                        <div class="building-card settings-volume-card">
+                            <div class="settings-vol-top">
+                                <span style="font-weight:800; color:#fff;" data-i18n="settings_sfx_lbl">Звуковые эффекты</span>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <b id="lbl-sfx-vol-val" style="color:var(--gold); font-size:11.5px;">80%</b>
+                                    <button class="btn-action" id="btn-settings-audio" style="padding:3px 8px; font-size:10.5px;" onclick="toggleAudioFromSettings()">ВКЛ</button>
+                                </div>
+                            </div>
+                            <input type="range" min="0" max="100" value="80" class="settings-range-slider" id="slider-sfx-volume" oninput="onSfxVolumeChange(this.value)">
+                        </div>
+
+                        <div class="building-card settings-row-card" style="padding:7px 10px;">
+                            <span style="font-weight:700;" data-i18n="settings_haptics_lbl">Вибрация</span>
+                            <button class="btn-action" id="btn-settings-haptics" style="padding:4px 10px;" onclick="toggleHapticsSetting()">ВКЛ</button>
+                        </div>
+
+                        <div class="building-card settings-row-card" style="padding:7px 10px;">
+                            <span style="font-weight:700;" data-i18n="settings_lang_lbl">Язык интерфейса</span>
+                            <button class="btn-action" id="btn-settings-lang" style="padding:4px 10px;" onclick="toggleLanguage()">RU</button>
+                        </div>
+
+                        <div class="building-card settings-row-card" style="padding:7px 10px;">
+                                <span style="font-weight:700;" data-i18n="settings_fullscreen_lbl">Полноэкранный режим</span>
+                                <button class="btn-action" id="btn-settings-fullscreen" style="padding:4px 10px;" onclick="toggleFullscreenFromSettings()" data-i18n="settings_fullscreen_btn">⛶ Экран</button>
+                            </div>
+
+                            <div class="building-card settings-row-card" style="padding:7px 10px;" id="row-settings-vip-combat">
+                                <span style="font-weight:700; color:var(--gold);" data-i18n="settings_vip_combat">VIP: Мгновенный бой (0 сек)</span>
+                                <button class="btn-action" id="btn-settings-vip-combat" style="padding:4px 10px;" onclick="toggleVipCombatSetting()">ВКЛ</button>
+                            </div>
+
+                            <div class="building-card settings-row-card" style="padding:7px 10px;" id="row-settings-vip-ads">
+                                <span style="font-weight:700; color:var(--gold);" data-i18n="settings_vip_ads">VIP: Кнопка рекламы</span>
+                                <button class="btn-action" id="btn-settings-vip-ads" style="padding:4px 10px;" onclick="toggleVipAdsSetting()">ВЫКЛ</button>
+                            </div>
+                        </div>
+
+                        <!-- FIX-4.2.10: кнопка «Сбросить прогресс» перенесена в Главное меню (единая точка
+                             danger-зоны). В Настройках оставлена только ссылка-намёк на меню. -->
+                        <div class="settings-danger-hint" style="margin-top:8px; text-align:center; font-size:11px; color:var(--text-muted); line-height:1.4;">
+                            <span data-i18n="settings_reset_hint">Сброс прогресса доступен в ☰ Главном меню</span>
+                        </div>
+                </div>
+
+                <button class="btn-action modal-full-btn" style="margin-top:4px;" onclick="saveAndCloseSettings()" data-i18n="settings_btn_save">СОХРАНИТЬ И ЗАКРЫТЬ</button>
+                <div class="settings-legal-links-row">
+                    <button type="button" class="settings-legal-link" onclick="openLegalDocument('terms')" data-i18n="legal_terms">Соглашение</button>
+                    <span>•</span>
+                    <button type="button" class="settings-legal-link" onclick="openLegalDocument('privacy')" data-i18n="legal_privacy">Конфиденциальность</button>
+                    <span>•</span>
+                    <button type="button" class="settings-legal-link" onclick="PlatformBridge.openExternalUrl('https://vk.ru/lordsabyss')" data-i18n="legal_community">Сообщество</button>
+                </div>
+                <div style="text-align: center; color: var(--border-metal-light); font-size: 11px; font-weight: 800; margin-top: 8px; letter-spacing: 0.5px;">DEVELOPED BY VANDER BOR</div>
+                <!-- FIX-BUILD-VERSION: версия сборки для QA — сразу видно, применился ли патч из репо. -->
+                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v4.1 · 12.10.2026</div>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ПРОКАЧКА ЗДАНИЯ И ВОЗВЫШЕНИЕ -->
+        <div class="modal-backdrop" id="building-modal" style="display: none;">
+            <div class="modal-window building-inspect-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="bld-m-title">Здание Цитадели</h3>
+                    <span class="modal-close-x" onclick="closeBuildingModal()">✖</span>
+                </div>
+                <div class="bld-modal-art-box" id="bld-m-art-box">
+                    <span class="bld-modal-icon" id="bld-m-icon"></span>
+                </div>
+                <p class="modal-desc-txt" id="bld-m-desc" style="margin-top:2px;">Описание здания</p>
+                <div class="bld-modal-stats">
+                    <div class="bld-stat-row">
+                        <span data-i18n="bld_stat_cur_lvl">Текущий уровень:</span>
+                        <span class="bld-stat-val" id="bld-m-cur-lvl">Ур. 1</span>
+                    </div>
+                    <div class="bld-stat-row">
+                        <span data-i18n="bld_stat_cur_eff">Текущий эффект:</span>
+                        <span class="bld-stat-val" id="bld-m-cur-eff">+0</span>
+                    </div>
+                    <div class="bld-stat-row">
+                        <span data-i18n="bld_stat_next_eff">На след. уровне:</span>
+                        <span class="bld-stat-val" id="bld-m-next-eff">+0</span>
+                    </div>
+                </div>
+                <button class="btn-action modal-full-btn" id="bld-m-upg-btn" onclick="upgradeFromModal()">
+                    УЛУЧШИТЬ (120 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">)
+                </button>
+
+                <!-- Блок Возвышения внутри Трона -->
+                <div id="bld-keep-ascend-box" style="display:none; border-top:1px solid var(--border-metal); padding-top:8px; margin-top:6px;">
+                    <button class="btn-action modal-full-btn btn-ascend" id="btn-ascend" onclick="closeBuildingModal(); openAscendModal();" data-i18n="bld_keep_ascend_btn">
+                        ВЕЛИКОЕ ВОЗВЫШЕНИЕ (+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">)
+                    </button>
+                    <div id="lbl-ascend-req" style="font-size:11.5px; color:var(--text-muted); text-align:center; margin-top:4px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ВЫБОР ПОДЗЕМЕЛЬЯ (БЕЗДНА ИЛИ РЕЙД) -->
+        <div class="modal-backdrop" id="battle-hub-modal" style="display: none;">
+            <div class="modal-window" style="max-width:390px;">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" data-i18n="hub_headline">ПОДЗЕМЕЛЬЯ БЕЗДНЫ</h3>
+                    <span class="modal-close-x" onclick="closeBattleHubModal()">✖</span>
+                </div>
+                <p class="modal-desc-txt" style="font-size:11.5px; color:#cbd5e1;" data-i18n="hub_desc">Выберите рубеж для штурма вашим легионом:</p>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+                    <div class="hub-selection-card hub-dungeon-banner" onclick="closeBattleHubModal(); navigate('dungeon-view');">
+                        <div class="hub-icon-wrap">
+                            <img src="assets/icons/portal_abyss.webp" style="width:28px; height:28px; object-fit:contain;" alt="Бездна">
+                            <span class="district-notif-badge" id="badge-hub-dungeon"></span>
+                        </div>
+                        <div style="flex:1; min-width:0; z-index:2;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <b style="color:#6ee7b7; font-size:13px; white-space:nowrap; text-shadow:0 1px 4px #000;" data-i18n="hub_dungeon_title">Спуск в Бездну</b>
+                                <span id="hub-abyss-info" class="hub-status-pill"></span>
+                            </div>
+                            <div style="font-size:11.5px; color:#cbd5e1; margin-top:3px; text-shadow:0 1px 3px #000;" data-i18n="hub_dungeon_desc">Зачистка этажей, фарм армией и боссы</div>
+                        </div>
+                        <button class="btn-action btn-hub-enter dungeon" data-i18n="hub_enter_btn">ВОЙТИ</button>
+                    </div>
+
+                    <div class="hub-selection-card hub-raid-banner" onclick="closeBattleHubModal(); navigate('raid-view');">
+                        <div class="hub-icon-wrap">
+                            <img src="assets/icons/boss_leviathan.webp" style="width:28px; height:28px; object-fit:contain;" alt="Левиафан">
+                            <span class="district-notif-badge" id="badge-hub-raid"></span>
+                        </div>
+                        <div style="flex:1; min-width:0; z-index:2;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <b style="color:#67e8f9; font-size:13px; white-space:nowrap; text-shadow:0 1px 4px #000;" data-i18n="hub_raid_title">Мировой Левиафан</b>
+                                <span id="hub-raid-info" class="hub-status-pill"></span>
+                            </div>
+                            <div style="font-size:11.5px; color:#cbd5e1; margin-top:3px; text-shadow:0 1px 3px #000;" data-i18n="hub_raid_desc">Еженедельный босс, сокрушительный удар</div>
+                        </div>
+                        <button class="btn-action btn-hub-enter raid" data-i18n="hub_enter_btn">ВОЙТИ</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Интерактивный оверлей-советник FTUE (12 шагов) -->
+                <div id="ftue-curtain" style="display: none;">
+                    <div class="ftue-click-shield"></div>
+                    <div class="ftue-advisor-card" id="ftue-advisor-card">
+                        <div class="ftue-advisor-header">
+                            <span class="ftue-chapter-tag" id="ftue-chapter-text">ГЛАВА 1: ОСНОВА ИМПЕРИИ</span>
+                            <span class="ftue-step-pill" id="ftue-step-pill">ШАГ 1/12</span>
+                        </div>
+                        <div class="ftue-advisor-body">
+                            <div class="ftue-avatar-frame">
+                                <img src="assets/advisor.webp" class="ftue-avatar-img" alt="Советник" onerror="this.onerror=null; this.style.display='none';">
+                            </div>
+                    <div class="ftue-lore-text" id="ftue-lore-text">Советник Императора обращается к вам...</div>
+                </div>
+                <div class="ftue-task-box">
+                    <div style="flex:1; min-width:0;">
+                        <div class="ftue-goal-desc" id="ftue-task-text">Тапните 15 раз</div>
+                        <div class="ftue-reward-row" id="ftue-reward-text">Награда: +500 G</div>
+                    </div>
+                    <button class="btn-action ftue-btn-claim in-progress" id="btn-ftue-claim" onclick="claimFtueReward()">0 / 15</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: АРХИВ ХРОНИК БЕЗДНЫ (БИБЛИОТЕКА) -->
+        <div class="modal-backdrop" id="chronicles-archive-modal" style="display: none;">
+            <div class="modal-window" style="max-width: 400px; max-height: 85%; overflow-y: auto;">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="lbl-chronicles-archive-title" data-i18n="chronicles_archive_title">АРХИВ ХРОНИК БЕЗДНЫ</h3>
+                    <span class="modal-close-x" onclick="closeChroniclesArchiveModal()">✖</span>
+                </div>
+                <p class="modal-desc-txt" id="lbl-chronicles-archive-desc" data-i18n="chronicles_archive_desc">Летописи древних эпох, открываемые при победе над стражами каждые 5 этажей.</p>
+                <div id="chronicles-archive-list" style="display: flex; flex-direction: column; gap: 6px; margin: 6px 0;"></div>
+                <button class="btn-action modal-full-btn" onclick="closeChroniclesArchiveModal()" data-i18n="modal_close">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛЬНОЕ ОКНО: ХРОНИКИ БЕЗДНЫ (ОСКОЛКИ ПАМЯТИ) -->
+        <div class="modal-backdrop" id="chronicle-modal" style="display: none;">
+            <div class="modal-window" style="background: radial-gradient(circle at 50% 20%, #291e14 0%, #0d0a08 100%); border: 1.5px solid var(--gold); max-width: 380px; box-shadow: 0 0 35px rgba(245,176,65,0.4);">
+                <h3 class="modal-headline" id="chronicle-title" style="color:var(--gold); font-size:16px;" data-i18n="chronicles_archive_title">ХРОНИКИ БЕЗДНЫ</h3>
+                <div id="chronicle-chapter" style="font-size:12px; font-weight:800; color:var(--text-muted); text-align:center; letter-spacing:1px; margin-top:-2px;">ГЛАВА V</div>
+                
+                <div class="building-card" style="padding:14px 16px; background:rgba(10,14,22,0.85); border:1px solid rgba(245,176,65,0.35); margin:6px 0;">
+                    <p id="chronicle-text" style="font-size:12.5px; font-style:italic; line-height:1.45; color:#f1f5f9; text-align:center;"></p>
+                </div>
+                
+                <div style="font-size:13.5px; font-weight:900; color:var(--crystal); text-align:center; margin:2px 0 6px 0;" id="chronicle-reward" data-i18n="chronicles_reward_msg">+50 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C"> Кристаллов Награды!</div>
+                <button class="btn-action modal-full-btn" onclick="closeChronicleModal()" style="font-size:12.5px; padding:10px;" data-i18n="chronicles_archive_claim_mem">ПРИНЯТЬ ПАМЯТЬ</button>
+            </div>
+        </div>
+
+        <!-- P8-ARCH: встроенная модалка юридических документов (terms / privacy).
+             Открывается ВНУТРИ игрового iframe, чтобы не создавать дубль VK-сессии
+             при клике «Соглашение» из карточки приложения.
+             FIX-LEGAL-DEDUP: удалён ВТОРОЙ #legal-doc-modal (был дубликат id).
+             Из-за дубля getElementById('btn-legal-doc-close') возвращал кнопку из скрытого
+             блока, а видимая кнопка «ЗАКРЫТЬ» никогда не переводилась при смене языка.
+             z-index (2147483000) задан в CSS через #legal-doc-modal — выше предзагрузчика (99999). -->
+        <div class="modal-backdrop" id="legal-doc-modal" style="display: none;">
+            <div class="modal-window legal-doc-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" id="legal-doc-title">ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ</h3>
+                    <span class="modal-close-x" onclick="closeLegalDocModal()">✖</span>
+                </div>
+                <div class="legal-doc-updated" id="legal-doc-updated">Редакция от 12 октября 2026 года</div>
+                <div class="legal-doc-body" id="legal-doc-body"></div>
+                <button class="btn-action modal-full-btn" id="btn-legal-doc-close" onclick="closeLegalDocModal()" style="margin-top: 6px;">ЗАКРЫТЬ</button>
+            </div>
+        </div>
+
+        <!-- FIX-4.2.10: Главное меню (bottom-sheet). Открывается из HUD-кнопки ☰.
+             Пункт «В ЦИТАДЕЛЬ» скрывается, если игрок уже в Цитадели.
+             «Сброс прогресса» живёт только здесь (убран из Настроек). -->
+        <div class="modal-backdrop" id="main-menu-modal" style="display: none; align-items: flex-end; padding: 0;">
+            <div class="main-menu-sheet">
+                <div class="main-menu-header">
+                    <h3 class="modal-headline" data-i18n="menu_headline">ГЛАВНОЕ МЕНЮ</h3>
+                    <span class="modal-close-x" onclick="closeMainMenu()">✖</span>
+                </div>
+                <div class="main-menu-list">
+                    <button class="main-menu-item" id="mm-citadel" onclick="closeMainMenu(); navigate('citadel-view')">
+                        <span data-i18n="menu_to_citadel">В ЦИТАДЕЛЬ</span>
+                    </button>
+                    <button class="main-menu-item" onclick="closeMainMenu(); openSettingsModal()">
+                        <span data-i18n="menu_profile">ПРОФИЛЬ И НАСТРОЙКИ</span>
+                    </button>
+                    <button class="main-menu-item" onclick="toggleLanguage()">
+                        <span data-i18n="menu_language">ЯЗЫК</span>
+                        <span class="mm-value" id="mm-lang-val">RU</span>
+                    </button>
+                    <button class="main-menu-item" onclick="toggleMasterAudio()">
+                        <span data-i18n="menu_sound">ЗВУК</span>
+                        <span class="mm-value" id="mm-sound-val">ВКЛ</span>
+                    </button>
+                    <button class="main-menu-item" onclick="openPromoModal()">
+                        <span data-i18n="menu_promo">ПРОМОКОД</span>
+                    </button>
+                    <div class="main-menu-divider"></div>
+                    <!-- FIX-MENU-EXIT: НЕ закрываем меню перед открытием юр-документа/сообщества.
+                         legal-doc-modal имеет z-index 2147483000 и перекроет меню (1050) сверху.
+                         После его закрытия игрок возвращается к меню — корректный UX «back to menu». -->
+                    <button class="main-menu-item" onclick="openLegalDocument('terms')">
+                        <span data-i18n="legal_terms">СОГЛАШЕНИЕ</span>
+                    </button>
+                    <button class="main-menu-item" onclick="openLegalDocument('privacy')">
+                        <span data-i18n="legal_privacy">КОНФИДЕНЦИАЛЬНОСТЬ</span>
+                    </button>
+                    <button class="main-menu-item" onclick="PlatformBridge.openExternalUrl('https://vk.ru/lordsabyss')">
+                        <span data-i18n="legal_community">СООБЩЕСТВО</span>
+                    </button>
+
+                    <!-- Опасная зона: сброс прогресса -->
+                    <div class="main-menu-divider danger"></div>
+                    <button class="main-menu-item danger" onclick="openHardResetModal()">
+                        <span data-i18n="settings_btn_reset">СБРОСИТЬ ПРОГРЕСС</span>
+                        <span class="mm-danger-tag" data-i18n="menu_reset_danger_tag">⚠ ОПАСНО</span>
+                    </button>
+
+                    <!-- Выход из игры: отдельная нейтральная зона внизу -->
+                    <div class="main-menu-divider"></div>
+                    <button class="main-menu-item exit" onclick="exitGame()">
+                        <span data-i18n="menu_exit">ВЫХОД</span>
+                        <span class="mm-value" data-i18n="menu_exit_hint" style="color:var(--text-muted); font-size:11px;">Покинуть игру</span>
+                    </button>
+
+                    <!-- Индикатор сборки: по дате видно, применился ли последний патч -->
+                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v4.1 · 12.10.2026</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN: плавающая кнопка ⚙. Показывается ТОЛЬКО в admin-сессии
+             (совпал vk_user_id + есть ?admin=1 в URL). См. data-admin.js. -->
+        <div id="btn-admin-panel" class="admin-floating-btn" style="display: none;" onclick="openAdminPanel()" title="Admin Panel">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+        </div>
+
+        <!-- ADMIN: панель команд -->
+        <div class="modal-backdrop" id="admin-panel-modal" style="display: none; z-index: 5000;">
+            <div class="modal-window admin-panel-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" style="color:#f87171;">⚙ МАСТЕР-ПАНЕЛЬ</h3>
+                    <span class="modal-close-x" onclick="closeAdminPanel()">✖</span>
+                </div>
+
+                <div class="admin-section-label">РЕСУРСЫ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn" onclick="adminGrant('gold', 1000000)">+1 000 000 золота</button>
+                    <button class="btn-action admin-btn" onclick="adminGrant('crystals', 10000)">+10 000 кристаллов</button>
+                    <button class="btn-action admin-btn" onclick="adminGrant('relics', 100)">+100 реликвий</button>
+                    <button class="btn-action admin-btn" onclick="adminGrant('tickets', 100)">+100 билетов</button>
+                </div>
+
+                <div class="admin-section-label">ГЕРОИ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn" onclick="adminUnlockAll()">Открыть всех</button>
+                    <button class="btn-action admin-btn danger" onclick="adminMaxHeroes()">Всех на максимум</button>
+                </div>
+
+                <div class="admin-section-label">ПРОГРЕСС</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn" onclick="adminSkipFtue()">Пропустить обучение</button>
+                    <button class="btn-action admin-btn" onclick="adminResetFtue()">Сбросить обучение</button>
+                    <button class="btn-action admin-btn" onclick="adminMaxBuildings()">Здания на максимум</button>
+                    <button class="btn-action admin-btn" onclick="adminTeleportPrompt()">Этаж Бездны</button>
+                    <button class="btn-action admin-btn" onclick="openAdminLeaguePicker()">Установить лигу</button>
+                    <button class="btn-action admin-btn" onclick="adminAddVip(30)">+30 дней VIP</button>
+                    <button class="btn-action admin-btn" onclick="adminResetSeason()">Сброс сезона</button>
+                    <button class="btn-action admin-btn" onclick="adminShowState()">Показать состояние</button>
+                </div>
+
+                <div class="admin-section-label" style="color:#f87171;">ОПАСНО</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn danger" onclick="if(confirm('ПОЛНЫЙ СБРОС АККАУНТА. Продолжить?')) adminResetAll()">ПОЛНЫЙ СБРОС</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN: подмодалка выбора лиги (открывается из кнопки «Установить лигу») -->
+        <div class="modal-backdrop" id="admin-league-modal" style="display: none; z-index: 5100;">
+            <div class="modal-window admin-subpanel-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline">ВЫБОР ЛИГИ АРЕНЫ</h3>
+                    <span class="modal-close-x" onclick="closeAdminLeaguePicker()">✖</span>
+                </div>
+                <p class="modal-desc-txt" style="font-size:11.5px;">Кубки будут установлены в нижнюю границу выбранной лиги, соперники и ладдер — перегенерированы.</p>
+                <div class="admin-league-grid">
+                    <button class="admin-league-btn" onclick="pickAdminLeague('bronze')">
+                        <img src="assets/icons/league_bronze.webp" alt="Bronze">
+                        <span>Бронза</span>
+                    </button>
+                    <button class="admin-league-btn" onclick="pickAdminLeague('silver')">
+                        <img src="assets/icons/league_silver.webp" alt="Silver">
+                        <span>Серебро</span>
+                    </button>
+                    <button class="admin-league-btn" onclick="pickAdminLeague('gold')">
+                        <img src="assets/icons/league_gold.webp" alt="Gold">
+                        <span>Золото</span>
+                    </button>
+                    <button class="admin-league-btn" onclick="pickAdminLeague('platinum')">
+                        <img src="assets/icons/league_platinum.webp" alt="Platinum">
+                        <span>Платина</span>
+                    </button>
+                    <button class="admin-league-btn" onclick="pickAdminLeague('diamond')">
+                        <img src="assets/icons/league_diamond.webp" alt="Diamond">
+                        <span>Алмаз</span>
+                    </button>
+                </div>
+                <button class="btn-action modal-full-btn" onclick="closeAdminLeaguePicker()" style="background:#273347; color:#fff;">ОТМЕНА</button>
+            </div>
+        </div>
+
+        <!-- P-PROMO: модалка ввода промокода. Открывается из Главного меню (☰)
+             и из Настроек → Профиль. Валидатор — PROMO_CODES в data-promo.js. -->
+        <div class="modal-backdrop" id="promo-modal" style="display: none; z-index: 2600;">
+            <div class="modal-window promo-modal-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline" data-i18n="promo_headline">АКТИВАЦИЯ ПРОМОКОДА</h3>
+                    <span class="modal-close-x" onclick="closePromoModal()">✖</span>
+                </div>
+                <p class="modal-desc-txt" data-i18n="promo_desc">Введите код, полученный от разработчика или найденный в сообществе игры.</p>
+                <input
+                    type="text"
+                    id="promo-input"
+                    maxlength="24"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    class="promo-input-field"
+                    placeholder="LOTA2026"
+                    data-i18n-placeholder="promo_placeholder"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();redeemPromoCode();}"
+                >
+                <div class="calendar-actions-row" style="margin-top:6px;">
+                    <button class="btn-action" style="flex:1; background:#273347; color:#fff;" onclick="closePromoModal()" data-i18n="modal_cancel">ОТМЕНА</button>
+                    <button class="btn-action" style="flex:1.4; background:linear-gradient(180deg, #d97706 0%, #b45309 100%); border-color:var(--gold); color:#fff; font-weight:900;" onclick="redeemPromoCode()" data-i18n="promo_redeem_btn">АКТИВИРОВАТЬ</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Контейнер всплывающих тостов -->
+        <div id="toast-feed"></div>
+    </div>
+</div>
+
+<script src="data-i18n.js?v=4.7.1"></script>
+<script src="data-heroes.js?v=4.7.1"></script>
+<script src="data-legal.js?v=4.7.1"></script>
+<script src="data-promo.js?v=4.7.1"></script>
+<script src="data-admin.js?v=4.7.1"></script>
+<script src="engine.js?v=4.7.1"></script>
+</body>
+</html>

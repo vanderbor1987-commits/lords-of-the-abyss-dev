@@ -1,0 +1,10 @@
+# ==========================================================
+# LORDS OF THE ABYSS — Cloudflare Worker config (P9)
+# ==========================================================
+name = "lota-vk-validator"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# APP_SECRET НЕ хранится в этом файле — он задаётся командой:
+#   npx wrangler secret put APP_SECRET
+# Это защищает ключ от утечки через git.

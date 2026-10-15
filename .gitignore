@@ -1,0 +1,5 @@
+*.bak
+applied/
+.DS_Store
+.vscode/
+patches.json

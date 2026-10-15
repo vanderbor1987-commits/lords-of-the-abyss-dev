@@ -1,0 +1,25 @@
+{
+  "name": "Lords of the Abyss",
+  "short_name": "Lords Abyss",
+  "author": "Vander Bor",
+  "description": "Эпическая карточная стратегия и кликер в сеттинге темного фэнтези",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "icons": [
+    {
+      "src": "assets/icons/portal_abyss.webp",
+      "sizes": "192x192",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icons/portal_abyss.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}
