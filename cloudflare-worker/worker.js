@@ -1,33 +1,48 @@
 /* ==========================================================
-   LORDS OF THE ABYSS — VK LAUNCH PARAMS VALIDATOR
-   Cloudflare Worker • Web Crypto (HMAC-SHA256)
+   LORDS OF THE ABYSS — CLOUDFLARE WORKER v2.0
    
-   Задача (P9): валидация подписи параметров запуска VK Mini Apps
-   в соответствии с п. 1.2.2 правил VK Mini Apps (ред. 17.03.2026).
+   Роуты:
+     POST /                 → P9-валидация launch params (п. 1.2.2 правил VK)
+     POST /arena/submit     → сохранить игрока (ник, кубки, CP, отряд обороны)
+     POST /arena/rivals     → отдать 1-3 живых соперников с близкими кубками
+     POST /arena/attack     → зарегистрировать атаку и отнять/прибавить кубки
+     POST /arena/inbox      → выдать список входящих атак на игрока
+     POST /arena/inbox/clear → очистить inbox (после прочтения)
    
-   Алгоритм:
-     1. Из query string извлекаются все vk_* параметры + sign.
-     2. sign удаляется из набора.
-     3. Оставшиеся vk_* сортируются по алфавиту.
-     4. Формируется строка вида key1=value1&key2=value2...
-     5. HMAC-SHA256(APP_SECRET, sorted_query) → base64url без padding.
-     6. Constant-time сравнение с присланным sign.
-     7. Проверка vk_ts (не старше 3600 секунд).
+   KV namespace: LOTA_LADDER
+     player:<uid>              → JSON профиля игрока
+     sorted:trophies           → JSON массив отсортированный по кубкам DESC
+     inbox:<uid>               → JSON массив входящих атак
+     ratelimit:submit:<uid>    → timestamp последнего submit
+     ratelimit:attack:<uid>    → timestamp последней атаки
    
-   Env vars (задаются через wrangler secret put):
-     APP_SECRET — защищённый ключ приложения из VK Console.
    ========================================================== */
 
-const TS_WINDOW_SEC = 3600; // Рекомендация VK: подпись валидна 1 час[reference:2]
+const TS_WINDOW_VALIDATE = 3600;      // P9: sign актуален 1 час
+const TS_WINDOW_ARENA = 86400;        // Arena: sign актуален 24 часа (долгие сессии)
+const SUBMIT_COOLDOWN_MS = 60_000;    // 1 submit в минуту на игрока
+const ATTACK_COOLDOWN_MS = 60_000;    // 1 атака в минуту на игрока
+const INBOX_MAX_ENTRIES = 20;         // максимум 20 непрочитанных атак в inbox
+const RIVALS_MAX = 5;                 // верхний предел на один запрос rivals
+
+// Санити-границы для античита
+const TROPHIES_MIN = 100;
+const TROPHIES_MAX = 4500;
+const CP_MIN = 100;
+const CP_MAX = 500_000_000;
+const TROPHY_CHANGE_MIN = 1;
+const TROPHY_CHANGE_MAX = 50;
+const DEFENSE_SQUAD_SIZE = 3;
+
+const NAME_MIN_LEN = 2;
+const NAME_MAX_LEN = 12;
+const NAME_PATTERN = /^[a-zA-Zа-яА-ЯёЁ0-9 \-_]{2,12}$/;
 
 export default {
     async fetch(request, env, ctx) {
-        // CORS preflight — VK iframe ходит с https://*.vk.com и https://prod-app*.vk-apps.com
+        // CORS preflight — VK iframe + GH Pages + Yandex
         if (request.method === 'OPTIONS') {
-            return new Response(null, {
-                status: 204,
-                headers: corsHeaders()
-            });
+            return new Response(null, { status: 204, headers: corsHeaders() });
         }
 
         if (request.method !== 'POST') {
@@ -38,22 +53,30 @@ export default {
             return json({ valid: false, reason: 'server_misconfigured' }, 500);
         }
 
-        let body;
-        try {
-            body = await request.json();
-        } catch (e) {
-            return json({ valid: false, reason: 'bad_json' }, 400);
+        if (!env.LOTA_LADDER) {
+            return json({ valid: false, reason: 'kv_not_bound' }, 500);
         }
 
-        const rawQuery = body && typeof body.query === 'string' ? body.query : '';
-        if (!rawQuery) {
-            return json({ valid: false, reason: 'empty_query' }, 400);
-        }
+        const url = new URL(request.url);
+        const path = url.pathname.replace(/\/+$/, '') || '/';
 
-        const result = await validateVkSignature(rawQuery, env.APP_SECRET);
-        return json(result, 200);
+        // Роутинг
+        if (path === '/' || path === '/validate') {
+            return handleValidate(request, env);
+        }
+        if (path === '/arena/submit') return handleArenaSubmit(request, env);
+        if (path === '/arena/rivals') return handleArenaRivals(request, env);
+        if (path === '/arena/attack') return handleArenaAttack(request, env);
+        if (path === '/arena/inbox') return handleArenaInbox(request, env);
+        if (path === '/arena/inbox/clear') return handleArenaInboxClear(request, env);
+
+        return json({ valid: false, reason: 'not_found' }, 404);
     }
 };
+
+/* ==========================================================
+   ХЕЛПЕРЫ
+   ========================================================== */
 
 function corsHeaders() {
     return {
@@ -71,39 +94,54 @@ function json(obj, status) {
     });
 }
 
-async function validateVkSignature(rawQuery, appSecret) {
-    // 1. Парсим query в массив [key, value]. URLSearchParams корректно декодирует
-    //    %-encoding, но VK шлёт уже декодированные значения — двойного декодирования нет.
+async function readBody(request) {
+    try {
+        return await request.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+/* ==========================================================
+   ВАЛИДАЦИЯ VK SIGN (HMAC-SHA256)
+   Возвращает { ok, userId } или { ok: false, reason }
+   ========================================================== */
+
+async function validateSign(rawQuery, appSecret, tsWindowSec) {
+    if (!rawQuery || typeof rawQuery !== 'string') {
+        return { ok: false, reason: 'empty_query' };
+    }
+
     const params = new URLSearchParams(rawQuery);
     const allPairs = [];
     for (const [k, v] of params.entries()) {
         allPairs.push([k, v]);
     }
 
-    // 2. Извлекаем sign и удаляем его из набора
     let sign = null;
     const signPairs = [];
     for (const [k, v] of allPairs) {
-        if (k === 'sign') {
-            sign = v;
-        } else {
-            signPairs.push([k, v]);
+        if (k === 'sign') sign = v;
+        else signPairs.push([k, v]);
+    }
+
+    if (!sign) return { ok: false, reason: 'no_sign' };
+
+    // vk_ts проверяем до HMAC — если старый, не тратим CPU на подпись
+    const vkTsRaw = params.get('vk_ts');
+    if (vkTsRaw) {
+        const vkTs = parseInt(vkTsRaw, 10);
+        if (Number.isFinite(vkTs)) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            if (nowSec - vkTs > tsWindowSec) {
+                return { ok: false, reason: 'sign_expired' };
+            }
         }
     }
 
-    if (!sign) {
-        return { valid: false, reason: 'no_sign' };
-    }
-
-    // 3. Сортируем по ключу по алфавиту (побайтово, UTF-16 code units)
     signPairs.sort((a, b) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0));
+    const sortedQuery = signPairs.map(([k, v]) => `${k}=${v}`).join('&');
 
-    // 4. Собираем строку key=value&key=value...
-    const sortedQuery = signPairs
-        .map(([k, v]) => `${k}=${v}`)
-        .join('&');
-
-    // 5. HMAC-SHA256 → base64url без padding
     const encoder = new TextEncoder();
     const key = await crypto.subtle.importKey(
         'raw',
@@ -112,48 +150,305 @@ async function validateVkSignature(rawQuery, appSecret) {
         false,
         ['sign']
     );
-    const signatureBuf = await crypto.subtle.sign(
-        'HMAC',
-        key,
-        encoder.encode(sortedQuery)
-    );
+    const signatureBuf = await crypto.subtle.sign('HMAC', key, encoder.encode(sortedQuery));
     const computedSign = base64UrlNoPad(new Uint8Array(signatureBuf));
 
-    // 6. Constant-time сравнение. Длины должны совпадать, иначе сразу false.
     if (computedSign.length !== sign.length) {
-        return { valid: false, reason: 'sign_length_mismatch' };
+        return { ok: false, reason: 'sign_length_mismatch' };
     }
     let mismatch = 0;
     for (let i = 0; i < computedSign.length; i++) {
         mismatch |= computedSign.charCodeAt(i) ^ sign.charCodeAt(i);
     }
-    if (mismatch !== 0) {
-        return { valid: false, reason: 'sign_mismatch' };
-    }
+    if (mismatch !== 0) return { ok: false, reason: 'sign_mismatch' };
 
-    // 7. Проверка vk_ts (если есть)
-    const vkTsRaw = params.get('vk_ts');
-    if (vkTsRaw) {
-        const vkTs = parseInt(vkTsRaw, 10);
-        if (Number.isFinite(vkTs)) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            if (nowSec - vkTs > TS_WINDOW_SEC) {
-                return { valid: false, reason: 'sign_expired' };
-            }
-        }
-    }
+    const userId = params.get('vk_user_id') || '';
+    if (!userId) return { ok: false, reason: 'no_user_id' };
 
-    return { valid: true };
+    return { ok: true, userId };
 }
 
-// base64url без padding — формат VK sign
 function base64UrlNoPad(bytes) {
     let bin = '';
     for (let i = 0; i < bytes.length; i++) {
         bin += String.fromCharCode(bytes[i]);
     }
-    return btoa(bin)
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/* ==========================================================
+   РОУТ / — P9 валидация (не трогаем, работает как раньше)
+   ========================================================== */
+
+async function handleValidate(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ valid: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = body && typeof body.query === 'string' ? body.query : '';
+    if (!rawQuery) return json({ valid: false, reason: 'empty_query' }, 400);
+
+    const result = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_VALIDATE);
+    if (!result.ok) return json({ valid: false, reason: result.reason }, 200);
+    return json({ valid: true });
+}
+
+/* ==========================================================
+   РОУТ /arena/submit — сохранить профиль игрока
+   ========================================================== */
+
+async function handleArenaSubmit(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+
+    // Rate-limit
+    const rlKey = `ratelimit:submit:${uid}`;
+    const lastSubmit = parseInt(await env.LOTA_LADDER.get(rlKey), 10) || 0;
+    const now = Date.now();
+    if (now - lastSubmit < SUBMIT_COOLDOWN_MS) {
+        return json({ ok: false, reason: 'rate_limited', retryIn: SUBMIT_COOLDOWN_MS - (now - lastSubmit) }, 429);
+    }
+
+    // Валидация полей
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!NAME_PATTERN.test(name) || name.length < NAME_MIN_LEN || name.length > NAME_MAX_LEN) {
+        return json({ ok: false, reason: 'invalid_name' }, 400);
+    }
+
+    const trophies = parseInt(body.trophies, 10);
+    if (!Number.isFinite(trophies) || trophies < TROPHIES_MIN || trophies > TROPHIES_MAX) {
+        return json({ ok: false, reason: 'invalid_trophies' }, 400);
+    }
+
+    const cp = parseInt(body.cp, 10);
+    if (!Number.isFinite(cp) || cp < CP_MIN || cp > CP_MAX) {
+        return json({ ok: false, reason: 'invalid_cp' }, 400);
+    }
+
+    const defenseSquad = Array.isArray(body.defenseSquad) ? body.defenseSquad : [];
+    if (defenseSquad.length !== DEFENSE_SQUAD_SIZE
+        || !defenseSquad.every(id => typeof id === 'string' && id.length > 0 && id.length <= 40)) {
+        return json({ ok: false, reason: 'invalid_squad' }, 400);
+    }
+
+    // Сохраняем профиль
+    const playerKey = `player:${uid}`;
+    const playerData = {
+        uid,
+        name,
+        trophies,
+        cp,
+        defenseSquad,
+        updatedAt: now
+    };
+    await env.LOTA_LADDER.put(playerKey, JSON.stringify(playerData));
+    await env.LOTA_LADDER.put(rlKey, String(now), { expirationTtl: 300 });
+
+    // Обновляем sorted:trophies
+    const sorted = await readSortedTrophies(env);
+    const existingIdx = sorted.findIndex(p => p.uid === uid);
+    if (existingIdx >= 0) {
+        sorted[existingIdx] = { uid, name, trophies, cp };
+    } else {
+        sorted.push({ uid, name, trophies, cp });
+    }
+    sorted.sort((a, b) => b.trophies - a.trophies);
+
+    // Ограничиваем размер: топ-500 игроков
+    const trimmed = sorted.slice(0, 500);
+    await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(trimmed));
+
+    const rank = trimmed.findIndex(p => p.uid === uid) + 1;
+    return json({ ok: true, rank: rank || null, total: trimmed.length });
+}
+
+async function readSortedTrophies(env) {
+    const raw = await env.LOTA_LADDER.get('sorted:trophies');
+    if (!raw) return [];
+    try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+/* ==========================================================
+   РОУТ /arena/rivals — отдать N ближайших по кубкам
+   ========================================================== */
+
+async function handleArenaRivals(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+    const count = Math.max(1, Math.min(RIVALS_MAX, parseInt(body.count, 10) || 3));
+
+    // Свой профиль (если есть)
+    const myRaw = await env.LOTA_LADDER.get(`player:${uid}`);
+    let myTrophies = 150;
+    if (myRaw) {
+        try { myTrophies = JSON.parse(myRaw).trophies || 150; } catch (e) {}
+    }
+
+    const sorted = await readSortedTrophies(env);
+    if (sorted.length === 0) {
+        return json({ ok: true, rivals: [] });
+    }
+
+    // Ищем соседей по кубкам (кроме себя)
+    const candidates = sorted.filter(p => p.uid !== uid);
+    if (candidates.length === 0) {
+        return json({ ok: true, rivals: [] });
+    }
+
+    // Сортируем по |Δtrophies| возрастанию
+    candidates.sort((a, b) => Math.abs(a.trophies - myTrophies) - Math.abs(b.trophies - myTrophies));
+    const top = candidates.slice(0, count);
+
+    // Догружаем полный профиль (с defenseSquad)
+    const rivals = [];
+    for (const p of top) {
+        const fullRaw = await env.LOTA_LADDER.get(`player:${p.uid}`);
+        if (!fullRaw) continue;
+        try {
+            rivals.push(JSON.parse(fullRaw));
+        } catch (e) {}
+    }
+
+    return json({ ok: true, rivals });
+}
+
+/* ==========================================================
+   РОУТ /arena/attack — зарегистрировать атаку
+   ========================================================== */
+
+async function handleArenaAttack(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const attackerUid = auth.userId;
+    const targetUid = String(body.targetUid || '');
+    const result = body.result === 'win' ? 'win' : (body.result === 'loss' ? 'loss' : null);
+    const trophyChange = parseInt(body.trophyChange, 10);
+
+    if (!targetUid || targetUid === attackerUid) {
+        return json({ ok: false, reason: 'invalid_target' }, 400);
+    }
+    if (!result) return json({ ok: false, reason: 'invalid_result' }, 400);
+    if (!Number.isFinite(trophyChange) || trophyChange < TROPHY_CHANGE_MIN || trophyChange > TROPHY_CHANGE_MAX) {
+        return json({ ok: false, reason: 'invalid_trophy_change' }, 400);
+    }
+
+    // Rate-limit атак
+    const rlKey = `ratelimit:attack:${attackerUid}`;
+    const lastAttack = parseInt(await env.LOTA_LADDER.get(rlKey), 10) || 0;
+    const now = Date.now();
+    if (now - lastAttack < ATTACK_COOLDOWN_MS) {
+        return json({ ok: false, reason: 'rate_limited' }, 429);
+    }
+
+    // Профиль атакующего — для отображения имени в inbox защитника
+    const attackerRaw = await env.LOTA_LADDER.get(`player:${attackerUid}`);
+    let attackerName = 'Неизвестный';
+    if (attackerRaw) {
+        try { attackerName = JSON.parse(attackerRaw).name || attackerName; } catch (e) {}
+    }
+
+    // Обновляем кубки защитника (реальное списание)
+    const targetRaw = await env.LOTA_LADDER.get(`player:${targetUid}`);
+    if (!targetRaw) {
+        return json({ ok: false, reason: 'target_not_found' }, 404);
+    }
+    let targetData;
+    try { targetData = JSON.parse(targetRaw); } catch (e) {
+        return json({ ok: false, reason: 'target_corrupted' }, 500);
+    }
+
+    const delta = result === 'win' ? -trophyChange : trophyChange;
+    const newTrophies = Math.max(TROPHIES_MIN, Math.min(TROPHIES_MAX, (targetData.trophies || 150) + delta));
+    targetData.trophies = newTrophies;
+    targetData.updatedAt = now;
+    await env.LOTA_LADDER.put(`player:${targetUid}`, JSON.stringify(targetData));
+
+    // Обновляем sorted:trophies
+    const sorted = await readSortedTrophies(env);
+    const idx = sorted.findIndex(p => p.uid === targetUid);
+    if (idx >= 0) {
+        sorted[idx].trophies = newTrophies;
+        sorted.sort((a, b) => b.trophies - a.trophies);
+        await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(sorted.slice(0, 500)));
+    }
+
+    // Пишем в inbox защитника
+    const inboxKey = `inbox:${targetUid}`;
+    const inboxRaw = await env.LOTA_LADDER.get(inboxKey);
+    let inbox = [];
+    if (inboxRaw) {
+        try { inbox = JSON.parse(inboxRaw) || []; } catch (e) { inbox = []; }
+    }
+    inbox.unshift({
+        attackerUid,
+        attackerName,
+        result,
+        trophyChange: delta,
+        ts: Math.floor(now / 1000)
+    });
+    inbox = inbox.slice(0, INBOX_MAX_ENTRIES);
+    await env.LOTA_LADDER.put(inboxKey, JSON.stringify(inbox), { expirationTtl: 30 * 86400 });
+
+    await env.LOTA_LADDER.put(rlKey, String(now), { expirationTtl: 300 });
+
+    return json({ ok: true });
+}
+
+/* ==========================================================
+   РОУТ /arena/inbox — выдать входящие атаки
+   ========================================================== */
+
+async function handleArenaInbox(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+    const inboxRaw = await env.LOTA_LADDER.get(`inbox:${uid}`);
+    let inbox = [];
+    if (inboxRaw) {
+        try { inbox = JSON.parse(inboxRaw) || []; } catch (e) { inbox = []; }
+    }
+    return json({ ok: true, attacks: inbox });
+}
+
+/* ==========================================================
+   РОУТ /arena/inbox/clear — очистить inbox
+   ========================================================== */
+
+async function handleArenaInboxClear(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+    await env.LOTA_LADDER.put(`inbox:${uid}`, '[]', { expirationTtl: 86400 });
+    return json({ ok: true });
 }

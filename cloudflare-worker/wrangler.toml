@@ -8,3 +8,15 @@ compatibility_date = "2026-10-01"
 # APP_SECRET НЕ хранится в этом файле — он задаётся командой:
 #   npx wrangler secret put APP_SECRET
 # Это защищает ключ от утечки через git.
+
+# ==========================================================
+# KV namespace для внутриигрового ладдера Арены.
+# 1. Создать в Cloudflare Dashboard → Workers & Pages → KV →
+#    Create a namespace → имя "LOTA_LADDER"
+# 2. Cloudflare покажет ID (длинная строка). Скопировать его.
+# 3. Заменить PASTE_YOUR_KV_ID_HERE ниже на этот ID.
+# 4. npx wrangler deploy
+# ==========================================================
+[[kv_namespaces]]
+binding = "LOTA_LADDER"
+id = "9c10587967de4125a19a91f606f162fc"

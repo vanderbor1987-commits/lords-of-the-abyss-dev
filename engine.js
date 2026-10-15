@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.5';
+const BUILD_VERSION = '4.7.6';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -83,6 +83,11 @@ const BUILD_DATE = '15.10.2026';
 // что безопасно для standalone/GH Pages, но НЕ закрывает п. 1.2.2.
 // ==========================================================
 const VK_VALIDATOR_URL = 'https://lota-vk-validator.vanderbor1987.workers.dev';
+
+// LIVE-ARENA (v4.7.6): тот же Cloudflare Worker, что и P9-валидатор.
+// Используется для обмена профилями и атаками между живыми игроками.
+// Работает до модерации VK — это отдельная инфраструктура, не VK API.
+const WORKER_BASE_URL = 'https://lota-vk-validator.vanderbor1987.workers.dev';
 
 let activeAssignExpId = null;
 let isAscendingInProgress = false;
@@ -1487,6 +1492,12 @@ function saveGame(immediateCloud = false) {
         localStorage.setItem(SAVE_KEY, payload);
         PlatformBridge.queueCloudSave(immediateCloud);
     } catch(e) {}
+
+    // LIVE-ARENA (v4.7.6): debounced submit профиля на Cloudflare Worker.
+    // Отправляется не чаще 1 раза в 30 сек. Работает только в VK (там sign).
+    // При immediateCloud=true (beforeunload / visibilitychange) — submit
+    // выполняется через scheduleLiveArenaSubmit с минимальным debounce.
+    if (typeof scheduleLiveArenaSubmit === 'function') scheduleLiveArenaSubmit();
 }
 
 // Модульный флаг сессии: активен, пока реальные часы не догонят записанный максимум.
@@ -4800,6 +4811,101 @@ function closeCardInspect() {
 }
 
 /* ==========================================================
+   LIVE ARENA (v4.7.6) — обмен данными с живыми игроками
+   через Cloudflare Worker + KV.
+
+   Схема:
+     • При saveGame() (debounced 30s) → POST /arena/submit
+     • При открытии Арены → POST /arena/rivals
+     • При победе/поражении над живым → POST /arena/attack
+     • При входе в игру → POST /arena/inbox (это в Патче B2)
+
+   Все запросы требуют валидный launch params (query) в теле.
+   В standalone (GH Pages без VK) — submit отключён, только чтение.
+
+   Кэш: gState.liveRivalsCache — массив живых соперников,
+   подмешивается в renderArena поверх ботов.
+   ========================================================== */
+
+let liveArenaSubmitDebounce = null;
+
+function getLaunchQuery() {
+    try {
+        return (typeof window !== 'undefined' && window.location)
+            ? window.location.search.replace(/^\?/, '')
+            : '';
+    } catch (e) { return ''; }
+}
+
+// Строгая проверка — submit разрешён только в VK (там есть sign).
+// На GH Pages / Yandex — работает только чтение списка живых.
+function canSubmitToLiveArena() {
+    return isRunningInsideVK() && !!getLaunchQuery();
+}
+
+async function submitArenaProfile() {
+    if (!canSubmitToLiveArena()) return { ok: false, reason: 'standalone' };
+
+    const query = getLaunchQuery();
+    const body = {
+        query,
+        name: (gState.playerName || 'Duke Valdor').slice(0, 12),
+        trophies: Math.floor(gState.trophies || 150),
+        cp: Math.floor(calculateCP(gState.defenseFormation, null, false)),
+        defenseSquad: sanitizeFormation(gState.defenseFormation).map(id => id || 'f_und_v')
+    };
+
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);
+        return data;
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveArena] submit failed:', e);
+        return { ok: false, reason: 'network' };
+    }
+}
+
+function scheduleLiveArenaSubmit() {
+    if (!canSubmitToLiveArena()) return;
+    if (liveArenaSubmitDebounce) clearTimeout(liveArenaSubmitDebounce);
+    liveArenaSubmitDebounce = setTimeout(() => {
+        liveArenaSubmitDebounce = null;
+        submitArenaProfile();
+    }, 30000);
+}
+
+async function fetchLiveRivals(count = 2) {
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/rivals`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, count })
+        });
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.rivals)) {
+            gState.liveRivalsCache = data.rivals;
+            gState.liveRivalsCacheTs = Date.now();
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] fetched rivals:', data.rivals.length);
+            return data.rivals;
+        }
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveArena] fetch rivals failed:', e);
+    }
+    return [];
+}
+
+// Обёртка над IS_DEV_MODE с защитой от ReferenceError при раннем вызове
+function DEV_MODE_CHECK() {
+    try { return typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE; } catch (e) { return false; }
+}
+
+/* ==========================================================
    АРЕНА И 5 ЛИГ (БРОНЗА, СЕРЕБРО, ЗОЛОТО, ПЛАТИНА, АЛМАЗ)
    ========================================================== */
 const ARENA_LEAGUES = [
@@ -5604,7 +5710,42 @@ function renderArena() {
         gState.arenaActiveRivals.sort((a, b) => a.rank - b.rank);
     }
 
-    const rivalsData = gState.arenaActiveRivals;
+    let rivalsData = gState.arenaActiveRivals;
+
+    // LIVE-ARENA (v4.7.6): подмешиваем живых игроков поверх ботов.
+    // gState.liveRivalsCache заполняется fetchLiveRivals() при открытии Арены.
+    // Логика: заменяем первых N ботов на N живых, сохраняя rank и gain.
+    // Если живых нет — список остаётся 100% из ботов (обратная совместимость).
+    const liveCache = Array.isArray(gState.liveRivalsCache) ? gState.liveRivalsCache : [];
+    const cacheFresh = gState.liveRivalsCacheTs && (Date.now() - gState.liveRivalsCacheTs < 120000);
+    const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+
+    if (cacheFresh && liveCache.length > 0) {
+        const myAtkCP = calculateCP(gState.attackFormation, null, false);
+        const maxToMerge = Math.min(liveCache.length, rivalsData.length - 1); // оставляем минимум 1 бота для разнообразия
+        for (let i = 0; i < maxToMerge; i++) {
+            const lp = liveCache[i];
+            if (!lp || !lp.uid || lp.uid === myUid) continue;
+
+            const bot = rivalsData[i];
+            rivalsData[i] = {
+                isReal: true,
+                uid: lp.uid,
+                rank: bot.rank,
+                name: lp.name || 'Неизвестный',
+                trophies: Math.floor(lp.trophies || 150),
+                cp: Math.floor(lp.cp || 1000),
+                squad: Array.isArray(lp.defenseSquad) && lp.defenseSquad.length === 3
+                    ? lp.defenseSquad
+                    : ['f_und_v', 'f_und_c', 'f_und_r'],
+                gain: calculateDynamicTrophyGain(myAtkCP, lp.cp || 1000),
+                isRevenge: false,
+                consecutiveLosses: 0
+            };
+        }
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] merged', maxToMerge, 'live players into rivals');
+    }
+
     cachedArenaRivals = rivalsData;
 
     rivalsData.forEach((lord, index) => {
@@ -11292,10 +11433,18 @@ function navigate(viewId) {
 
     if (viewId === 'dungeon-view') renderDungeon();
     if (viewId === 'arena-view') {
+        // LIVE-ARENA (v4.7.6): подтягиваем живых соперников асинхронно,
+        // затем перерисовываем список. Первый рендер идёт с кэшем (если есть),
+        // второй — после ответа Worker'а.
         renderArena();
         renderLeaderboard();
         renderBattleHistory();
         checkSeasonCeremony();
+        if (typeof fetchLiveRivals === 'function') {
+            fetchLiveRivals(2).then(list => {
+                if (list && list.length > 0) renderArena();
+            });
+        }
     }
     if (viewId === 'raid-view') renderRaidBossUI();
     if (viewId === 'quests-view') renderQuests();
