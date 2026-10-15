@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.3';
+const BUILD_VERSION = '4.8.4';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -1803,7 +1803,7 @@ function getHeroRoleLabel(hero) {
     if (!hero || !hero.role) return null;
     const roleMap = {
         'Авангард': { RU: 'АВАНГАРД', EN: 'VANGUARD', cls: 'role-vanguard' },
-        'Главком':  { RU: 'ГЛАВКОМ',  EN: 'COMMANDER', cls: 'role-commander' },
+        'Главком':  { RU: 'ЛИДЕР',    EN: 'COMMANDER', cls: 'role-commander' },
         'Тыл':      { RU: 'ТЫЛ',      EN: 'REARGUARD', cls: 'role-rearguard' }
     };
     const m = roleMap[hero.role];
@@ -2941,7 +2941,7 @@ function renderBattleCardHtml(u, side) {
     const roleClasses = { vanguard: 'role-vg', commander: 'role-cm', rearguard: 'role-rg' };
     const roleNames = {
         vanguard: currentLang === 'RU' ? 'АВАНГАРД' : 'VANGUARD',
-        commander: currentLang === 'RU' ? 'ГЛАВКОМ' : 'COMMANDER',
+        commander: currentLang === 'RU' ? 'ЛИДЕР' : 'COMMANDER',
         rearguard: currentLang === 'RU' ? 'ТЫЛ' : 'REARGUARD'
     };
     const roleShort = roleNames[u.roleType] || (currentLang === 'RU' ? 'БОЕЦ' : 'UNIT');
@@ -4588,10 +4588,13 @@ let activeRosterTab = 'cards';
 let activePickingSlot = 0;
 let activePickingSquad = 'attack'; // 'attack' | 'defense'
 
+// RU-ROLE: catalogKey — внутренний ключ роли в HEROES_CATALOG (data-heroes.js).
+// data-heroes.js НЕ трогаем — там 84 записи с role: 'Главком'. Только UI-слой
+// показывает 'Лидер', а фильтр слотов ищет по catalogKey = 'Главком'.
 const SLOT_ROLES_DATA = [
-    { RU: 'Авангард', EN: 'Vanguard' },
-    { RU: 'Главком', EN: 'Commander' },
-    { RU: 'Тыл', EN: 'Rearguard' }
+    { RU: 'Авангард', EN: 'Vanguard',  catalogKey: 'Авангард' },
+    { RU: 'Лидер',    EN: 'Commander', catalogKey: 'Главком' },
+    { RU: 'Тыл',      EN: 'Rearguard', catalogKey: 'Тыл' }
 ];
 
 function selectRosterTab(tabKey) {
@@ -4645,12 +4648,14 @@ function closeCodexModal() {
 function openSlotPicker(slotIndex, squadType = 'attack') {
     activePickingSlot = slotIndex;
     activePickingSquad = squadType;
-    const requiredRoleRU = SLOT_ROLES_DATA[slotIndex].RU;
+    // RU-ROLE: фильтруем по catalogKey (внутренний ключ 'Главком'), а не по RU-названию.
+    const slotRole = SLOT_ROLES_DATA[slotIndex];
+    const requiredRoleKey = slotRole.catalogKey || slotRole.RU;
     const list = document.getElementById('slot-picker-list');
     if (!list) return;
     list.innerHTML = '';
 
-    const matching = Object.values(HEROES_CATALOG).filter(c => gState.deck[c.id] && c.role === requiredRoleRU);
+    const matching = Object.values(HEROES_CATALOG).filter(c => gState.deck[c.id] && c.role === requiredRoleKey);
 
     matching.sort((a, b) => {
         const cardA = gState.deck[a.id] || { lvl: 1, stars: 1 };
@@ -6577,7 +6582,7 @@ function getSquadTacticalIntel(enemySquad) {
     const enemySyn = getFormationSynergy(enemySquad);
     const roleNames = [
         I18N[currentLang]?.roles?.vanguard || (currentLang === 'RU' ? 'Авангард' : 'Vanguard'),
-        I18N[currentLang]?.roles?.commander || (currentLang === 'RU' ? 'Главком' : 'Commander'),
+        I18N[currentLang]?.roles?.commander || (currentLang === 'RU' ? 'Лидер' : 'Commander'),
         I18N[currentLang]?.roles?.rearguard || (currentLang === 'RU' ? 'Тыл' : 'Rearguard')
     ];
 
