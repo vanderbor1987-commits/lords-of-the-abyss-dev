@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.1';
+const BUILD_VERSION = '4.7.2';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -10451,6 +10451,14 @@ function checkOfflineIncome() {
             const elGold = document.getElementById('offline-m-gold');
             const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" style="width:20px; height:20px;">';
             if (elGold) elGold.innerHTML = `+${formatNumber(earned)} ${gI}`;
+            // FIX-OFFLINE-MODAL-FROZEN: принудительный сброс залипшего флага и разблокировка кнопок.
+            // Причина: если игрок свернул игру во время показа rewarded-видео, isClaimingOffline
+            // оставался true, а кнопки — disabled. Модалка открывалась «мёртвой» и висела вечно.
+            isClaimingOffline = false;
+            const _btnOffClaim = document.getElementById('btn-offline-claim');
+            const _btnOffDouble = document.getElementById('btn-offline-double');
+            if (_btnOffClaim) _btnOffClaim.disabled = false;
+            if (_btnOffDouble) _btnOffDouble.disabled = false;
             const m = document.getElementById('offline-modal');
             if (m) m.style.display = 'flex';
         }
@@ -10499,7 +10507,29 @@ function claimOffline(m = 1) {
         unlockButtons();
     };
 
-    if (m > 1 && !isVipActive()) showPlatformRewarded(action, onError);
+    if (m > 1 && !isVipActive()) {
+        // FIX-OFFLINE-MODAL-FROZEN: watchdog-таймер 20с. Если rewarded-видео не вызвало
+        // ни onSuccess, ни onError (зависла реклама, отвал сети, выгрузка вкладки) —
+        // принудительно снимаем isClaimingOffline и разблокируем кнопки. Игрок сможет
+        // повторить попытку или забрать базовую сумму без F5.
+        const _offlineWatchdog = setTimeout(() => {
+            if (isClaimingOffline) {
+                console.warn('[Offline] Watchdog: rewarded ad did not resolve in 20s. Unlocking UI.');
+                isClaimingOffline = false;
+                unlockButtons();
+            }
+        }, 20000);
+
+        const _wrappedAction = () => {
+            clearTimeout(_offlineWatchdog);
+            action();
+        };
+        const _wrappedError = () => {
+            clearTimeout(_offlineWatchdog);
+            onError();
+        };
+        showPlatformRewarded(_wrappedAction, _wrappedError);
+    }
     else action();
 }
 
@@ -11786,6 +11816,16 @@ document.addEventListener('visibilitychange', () => {
         if (typeof aCtx !== 'undefined' && aCtx && aCtx.state === 'suspended') {
             try { aCtx.resume(); } catch(e) {}
         }
+        // FIX-OFFLINE-MODAL-FROZEN: при возврате в игру сбрасываем залипший флаг и
+        // разблокируем кнопки в модалке офлайн-дохода. Если игрок свернул игру во время
+        // показа rewarded-видео, колбэк onSuccess/onError не придёт, а isClaimingOffline
+        // останется true. Без этого сброса модалка #offline-modal висела бы с неактивными
+        // кнопками до перезагрузки страницы (F5), а pendingOfflineGold сгорал.
+        isClaimingOffline = false;
+        const _offClaim = document.getElementById('btn-offline-claim');
+        const _offDouble = document.getElementById('btn-offline-double');
+        if (_offClaim) _offClaim.disabled = false;
+        if (_offDouble) _offDouble.disabled = false;
         if (!demonActive) scheduleNextDemon();
         // FIX-OFFLINE-DUP: возврат в таб считает offline income ТОЛЬКО если облачный
         // sync за эту сессию уже завершён (или не нужен — standalone). Иначе игрок
