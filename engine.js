@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.1';
+const BUILD_VERSION = '4.8.2';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -2492,7 +2492,9 @@ function verifyTapLegitimacy() {
 
     if (tapHistory.length >= 12) {
         const timeSpan = now - tapHistory[0];
-        if (timeSpan < 720) { triggerFatigue(); return false; }
+        // FIX-CLICKER-90: порог 12 тапов за 1000мс = ~91мс/тап. Стопит автокликер
+        // до 90мс/тап включительно. Живой игрок медленнее 100мс — не задевает.
+        if (timeSpan < 1000) { triggerFatigue(); return false; }
         let diffs = [];
         for (let i = 1; i < tapHistory.length; i++) diffs.push(tapHistory[i] - tapHistory[i - 1]);
         const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
@@ -4930,8 +4932,8 @@ function renderCards() {
             <div class="tcg-art-bg-layer">${artContent}</div>
             <div class="tcg-header">
                 <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
-                    ${_roleHtml}
                     <span class="tcg-tier-badge" style="color:${tierColor};">[${card.tier}]</span>
+                    ${_roleHtml}
                 </div>
                 <span class="tcg-stars-row">${formatHeroStars(cardData.stars || 1)}</span>
             </div>
@@ -7866,6 +7868,7 @@ function closeSummonResultModal() {
    ========================================================== */
 let demonActive = false;
 let demonFlightInterval = null;
+let demonSoundInterval = null; // FIX-DEMON-SOUND: повтор звука пока демон летит
 let demonSpawnTimer = null;
 
 function scheduleNextDemon() {
@@ -7933,7 +7936,14 @@ function spawnDemon() {
     demonActive = true;
     demonEl.style.display = 'block';
     // R1: звук появления — привлекает внимание игрока.
+    // FIX-DEMON-SOUND: повторяем каждые 1.8с, пока демон летит. Иначе игрок
+    // отвлекается, и бес улетает с сокровищами, никем не замеченный.
     playDemonAppearSound();
+    if (demonSoundInterval) clearInterval(demonSoundInterval);
+    demonSoundInterval = setInterval(() => {
+        if (!demonActive) { clearInterval(demonSoundInterval); demonSoundInterval = null; return; }
+        playDemonAppearSound();
+    }, 1800);
     const baseTop = 90 + Math.random() * 180;
     demonEl.style.left = '-70px';
     demonEl.style.top = `${baseTop}px`;
@@ -7976,6 +7986,7 @@ function spawnDemonEmber(x, y, parent) {
 
 function despawnDemon() {
     clearInterval(demonFlightInterval);
+    if (demonSoundInterval) { clearInterval(demonSoundInterval); demonSoundInterval = null; }
     const demonEl = document.getElementById('flying-demon');
     if (demonEl) demonEl.style.display = 'none';
     demonActive = false;
@@ -7985,6 +7996,7 @@ function despawnDemon() {
 function catchDemon() {
     if (!demonActive) return;
     clearInterval(demonFlightInterval);
+    if (demonSoundInterval) { clearInterval(demonSoundInterval); demonSoundInterval = null; }
     const demonEl = document.getElementById('flying-demon');
     if (demonEl) demonEl.style.display = 'none';
     playSfx(1050, 'square', 0.2);
@@ -10174,8 +10186,8 @@ function renderCodexUI() {
                 <div class="tcg-art-bg-layer">${artContent}</div>
                 <div class="tcg-header">
                     <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
-                        ${_codexRoleHtml}
                         <span class="tcg-tier-badge" style="color:${tColor};">[${h.tier}]</span>
+                        ${_codexRoleHtml}
                     </div>
                     <span class="tcg-stars-row">${isOwned ? formatHeroStars(cardData.stars || 1) : `<span style="font-size:11px; color:var(--text-muted); font-weight:700;">${lockedStr}</span>`}</span>
                 </div>
@@ -12544,6 +12556,7 @@ setInterval(saveGame, 5000);
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         if (demonFlightInterval) { clearInterval(demonFlightInterval); demonFlightInterval = null; }
+        if (demonSoundInterval) { clearInterval(demonSoundInterval); demonSoundInterval = null; }
         if (demonSpawnTimer) { clearTimeout(demonSpawnTimer); demonSpawnTimer = null; }
         saveGame(true);
         PlatformBridge.flushCloudSave();
