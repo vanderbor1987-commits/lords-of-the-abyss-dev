@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.7';
+const BUILD_VERSION = '4.7.8';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -4924,6 +4924,152 @@ function DEV_MODE_CHECK() {
     try { return typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE; } catch (e) { return false; }
 }
 
+// LIVE-ARENA (v4.7.8): уведомить сервер об атаке на живого игрока.
+async function reportArenaAttack(targetUid, result, trophyChange) {
+    if (!canSubmitToLiveArena()) return { ok: false, reason: 'standalone' };
+    if (!targetUid || !result) return { ok: false, reason: 'bad_args' };
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/attack`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query,
+                targetUid: String(targetUid),
+                result: result === 'win' ? 'win' : 'loss',
+                trophyChange: Math.abs(Math.floor(trophyChange || 0))
+            })
+        });
+        const data = await resp.json();
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] attack reported →', data);
+        return data;
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveArena] attack report failed:', e);
+        return { ok: false, reason: 'network' };
+    }
+}
+
+async function fetchArenaInbox() {
+    if (!canSubmitToLiveArena()) return [];
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/inbox`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.attacks)) {
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] inbox fetched:', data.attacks.length);
+            return data.attacks;
+        }
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveArena] inbox fetch failed:', e);
+    }
+    return [];
+}
+
+async function clearArenaInboxOnServer() {
+    if (!canSubmitToLiveArena()) return;
+    const query = getLaunchQuery();
+    try {
+        await fetch(`${WORKER_BASE_URL}/arena/inbox/clear`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+    } catch (e) {}
+}
+
+async function fetchPlayerProfile(targetUid) {
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, targetUid: String(targetUid) })
+        });
+        const data = await resp.json();
+        if (data && data.ok && data.player) return data.player;
+    } catch (e) {}
+    return null;
+}
+
+async function checkArenaInbox() {
+    const attacks = await fetchArenaInbox();
+    if (!attacks || attacks.length === 0) return;
+    gState.pendingInboxAttacks = attacks;
+    renderArenaInbox();
+    const m = document.getElementById('arena-inbox-modal');
+    if (m) m.style.display = 'flex';
+}
+
+function renderArenaInbox() {
+    const list = document.getElementById('arena-inbox-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const attacks = Array.isArray(gState.pendingInboxAttacks) ? gState.pendingInboxAttacks : [];
+    if (attacks.length === 0) {
+        list.innerHTML = `<div class="arena-inbox-row" style="justify-content:center;">${I18N[currentLang]?.arena_inbox_empty || (currentLang === 'RU' ? 'Пока никто не атаковал ваш гарнизон.' : 'No attacks on your garrison yet.')}</div>`;
+        return;
+    }
+    const trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:14px; height:14px;" alt="Trophy">';
+    attacks.forEach(atk => {
+        const isLossForPlayer = atk.result === 'win';
+        const delta = Math.abs(Math.floor(atk.trophyChange || 0));
+        const deltaClass = isLossForPlayer ? 'loss' : 'win';
+        const deltaSign = isLossForPlayer ? '-' : '+';
+        const timeStr = atk.ts ? new Date(atk.ts * 1000).toLocaleTimeString().slice(0, 5) : '';
+        const row = document.createElement('div');
+        row.className = 'arena-inbox-row';
+        row.innerHTML = `
+            <div>
+                <div class="inbox-attacker-name">${escapeHtml(atk.attackerName || '???')}</div>
+                <div class="inbox-attack-meta">${timeStr} • <span class="inbox-attack-delta ${deltaClass}">${deltaSign}${delta} ${trIcon}</span></div>
+            </div>
+            <button class="inbox-revenge-btn" data-revenge-uid="${escapeHtml(atk.attackerUid || '')}">${I18N[currentLang]?.arena_inbox_revenge || (currentLang === 'RU' ? 'ОТОМСТИТЬ' : 'REVENGE')}</button>`;
+        list.appendChild(row);
+    });
+    list.querySelectorAll('[data-revenge-uid]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const uid = btn.getAttribute('data-revenge-uid');
+            revengeFromInbox(uid);
+        });
+    });
+}
+
+async function revengeFromInbox(attackerUid) {
+    if (!attackerUid) return;
+    closeArenaInbox();
+    const profile = await fetchPlayerProfile(attackerUid);
+    if (!profile) {
+        return pushToast(currentLang === 'RU' ? 'Игрок недоступен для реванша' : 'Player unavailable for revenge');
+    }
+    const myAtkCP = calculateCP(gState.attackFormation, null, false);
+    const rival = {
+        isReal: true,
+        uid: profile.uid,
+        rank: 999,
+        name: profile.name || '???',
+        trophies: Math.floor(profile.trophies || 150),
+        cp: Math.floor(profile.cp || 1000),
+        squad: Array.isArray(profile.defenseSquad) && profile.defenseSquad.length === 3
+            ? profile.defenseSquad
+            : ['f_und_v', 'f_und_c', 'f_und_r'],
+        gain: calculateDynamicTrophyGain(myAtkCP, profile.cp || 1000),
+        isRevenge: true,
+        consecutiveLosses: 0
+    };
+    startActualCombatWithRival(rival);
+}
+
+function closeArenaInbox() {
+    const m = document.getElementById('arena-inbox-modal');
+    if (m) m.style.display = 'none';
+    gState.pendingInboxAttacks = null;
+    clearArenaInboxOnServer();
+}
+
 /* ==========================================================
    АРЕНА И 5 ЛИГ (БРОНЗА, СЕРЕБРО, ЗОЛОТО, ПЛАТИНА, АЛМАЗ)
    ========================================================== */
@@ -5794,12 +5940,17 @@ function renderArena() {
         const setPrefix = I18N[currentLang]?.intel_set_prefix || (currentLang === 'RU' ? 'Сет' : 'Set');
         let synPill = intel.enemySyn.mult > 1 ? `<span class="intel-tag syn">${setPrefix} x${intel.enemySyn.mult === 1.75 ? '3' : '2'}</span>` : '';
 
+        // LIVE-ARENA (v4.7.8): бейдж ОНЛАЙН для живых игроков
+        const liveBadge = lord.isReal
+            ? '<span class="live-online-badge">● ' + (currentLang === 'RU' ? 'ОНЛАЙН' : 'ONLINE') + '</span>'
+            : '';
+
         div.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <div>
                         <span class="arena-rival-title" onclick="inspectArenaRival(${index})">
-                            #${lord.rank} ${lord.name}
+                            #${lord.rank} ${lord.name} ${liveBadge}
                         </span>
                     </div>
                     <div style="font-size:11px; color:var(--text-muted); margin-top:3px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
@@ -5910,6 +6061,11 @@ function startActualCombatWithRival(rival) {
                     gState.lifetimeWins = (gState.lifetimeWins || 0) + 1;
                     gState.ftueArenaDone = true;
 
+                    // LIVE-ARENA (v4.7.8): если соперник живой — уведомляем сервер.
+                    if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
+                        reportArenaAttack(rival.uid, 'win', finalTrophies);
+                    }
+
                     // FIX-ARENA-TROPHY-LOSS: побеждённый соперник ТЕРЯЕТ кубки (как в реальном PvP),
                     // а не бесследно исчезает из списка. Игрок отбирает у него ровно trophyGain
                     // кубков (те же, что сам получил). Если бот в Топ-10 — он опускается в
@@ -6016,6 +6172,11 @@ function startActualCombatWithRival(rival) {
             } else {
                 setClaimHandler(() => {
                     gState.trophies = Math.max(0, (gState.trophies || 0) - trophyLoss);
+
+                    // LIVE-ARENA (v4.7.8): уведомляем сервер о поражении.
+                    if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
+                        reportArenaAttack(rival.uid, 'loss', trophyLoss);
+                    }
 
                     // Соперник НЕ исчезает: он честно забирает кубки и закрепляется в списке под статусом РЕВАНША!
                     if (gState.arenaActiveRivals) {
@@ -12762,6 +12923,12 @@ try {
         // FIX-CLEAN-DIAG: маркер полной инициализации UI — под devLog.
         // В проде молчит, при отладке виден.
         devLog('[LOTA] UI RENDERED — all screens initialized, ready to display');
+
+        // LIVE-ARENA (v4.7.8): проверяем входящие атаки на гарнизон.
+        // Отложенно 3 сек — чтобы дать время всем рендерам и bridge.
+        if (typeof checkArenaInbox === 'function') {
+            setTimeout(checkArenaInbox, 3000);
+        }
 
     })(); // FIX-P9-RACE: закрываем async IIFE ТОЛЬКО после полной инициализации UI.
           // Теперь весь render* и обработчики запускаются с уже загруженным gState —

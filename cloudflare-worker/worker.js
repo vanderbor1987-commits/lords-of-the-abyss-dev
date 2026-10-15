@@ -69,6 +69,7 @@ export default {
         if (path === '/arena/attack') return handleArenaAttack(request, env);
         if (path === '/arena/inbox') return handleArenaInbox(request, env);
         if (path === '/arena/inbox/clear') return handleArenaInboxClear(request, env);
+        if (path === '/arena/profile') return handleArenaProfile(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -451,4 +452,33 @@ async function handleArenaInboxClear(request, env) {
     const uid = auth.userId;
     await env.LOTA_LADDER.put(`inbox:${uid}`, '[]', { expirationTtl: 86400 });
     return json({ ok: true });
+}
+
+/* ==========================================================
+   РОУТ /arena/profile — получить профиль игрока по uid
+   Используется для реванша из журнала атак.
+   ========================================================== */
+
+async function handleArenaProfile(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const targetUid = String(body.targetUid || '');
+    if (!targetUid || targetUid.length > 40) {
+        return json({ ok: false, reason: 'invalid_target' }, 400);
+    }
+
+    const raw = await env.LOTA_LADDER.get(`player:${targetUid}`);
+    if (!raw) return json({ ok: false, reason: 'not_found' }, 404);
+
+    try {
+        const player = JSON.parse(raw);
+        return json({ ok: true, player });
+    } catch (e) {
+        return json({ ok: false, reason: 'corrupted' }, 500);
+    }
 }
