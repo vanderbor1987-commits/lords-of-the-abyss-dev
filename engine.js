@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.4';
+const BUILD_VERSION = '4.8.5';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -4937,7 +4937,7 @@ function renderCards() {
         cardEl.innerHTML = `
             <div class="tcg-art-bg-layer">${artContent}</div>
             <div class="tcg-header">
-                <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
+                <div style="display:flex; align-items:center; gap:3px;">
                     <span class="tcg-tier-badge" style="color:${tierColor};">[${card.tier}]</span>
                     ${_roleHtml}
                 </div>
@@ -6212,7 +6212,9 @@ function renderArena() {
 function inspectArenaRival(index) {
     const rival = cachedArenaRivals[index];
     if (!rival) return;
-    inspectPlayer(rival.name, rival.cp, rival.squad);
+    // FIX-ARENA-INSPECT-STATS: передаём squadMeta для живых игроков, чтобы
+    // модалка разведки показывала реальные звёзды/уровни их защиты.
+    inspectPlayer(rival.name, rival.cp, rival.squad, rival.squadMeta || null);
 }
 
 function inspectLadderRank(rank) {
@@ -6637,7 +6639,7 @@ function getSquadTacticalIntel(enemySquad) {
     };
 }
 
-function inspectPlayer(name, cp, enemyDefenseSquad) {
+function inspectPlayer(name, cp, enemyDefenseSquad, squadMeta = null) {
     const pName = document.getElementById('p-ins-name');
     const pRank = document.getElementById('p-ins-rank');
     const sq = document.getElementById('p-ins-squad');
@@ -6763,8 +6765,14 @@ function inspectPlayer(name, cp, enemyDefenseSquad) {
                     const realCard = gState.deck[hid] || { lvl: 1, stars: 1 };
                     heroLvl = realCard.lvl || 1;
                     heroStars = realCard.stars || 1;
+                } else if (squadMeta && squadMeta[hid]) {
+                    // FIX-ARENA-INSPECT-STATS: для живых соперников используем реальные
+                    // stars/lvl из squadMeta. Раньше здесь падало в getBotCardStats и
+                    // показывало фейк: завышенные звёзды, заниженный уровень.
+                    heroLvl = Math.max(1, Math.min(300, parseInt(squadMeta[hid].lvl, 10) || 1));
+                    heroStars = Math.max(1, Math.min(10, parseInt(squadMeta[hid].stars, 10) || 1));
                 } else {
-                    // Честный расчет статов соперника с учетом ранга конкретного героя
+                    // Боты: честный расчет с учетом ранга конкретного героя
                     const stats = getBotCardStats(name, cp, idx, hid);
                     heroLvl = stats.lvl;
                     heroStars = stats.stars;
@@ -10191,7 +10199,7 @@ function renderCodexUI() {
             <div class="tcg-card ${isOwned ? '' : 'unowned'}" style="height:165px; border-color:${isOwned ? tColor : 'var(--border-metal)'}; cursor:pointer;" onclick="openCardInspect('${h.id}')">
                 <div class="tcg-art-bg-layer">${artContent}</div>
                 <div class="tcg-header">
-                    <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:3px;">
                         <span class="tcg-tier-badge" style="color:${tColor};">[${h.tier}]</span>
                         ${_codexRoleHtml}
                     </div>
