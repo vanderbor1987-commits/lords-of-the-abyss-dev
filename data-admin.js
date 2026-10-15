@@ -35,8 +35,17 @@ let isAdminSession = false;
 function ensureAdminAccess() {
     if (isAdminSession) return;
 
+    // FIX-ADMIN-VK: VK Games перезаписывает URL iframe на launch params,
+    // полностью выкидывая кастомные параметры (?admin=1 физически не доезжает
+    // до нашего скрипта). Для VK-контекста полагаемся только на vk_user_id —
+    // защита железная, т.к. user_id подписан sign и валидируется через P9
+    // (Cloudflare Worker, APP_SECRET). Подделать ID без секрета невозможно.
+    // Для standalone (GH Pages, localhost) ?admin=1 ОБЯЗАТЕЛЕН — там нет подписи,
+    // и любой может подставить vk_user_id=12216517 в URL вручную.
+    const isVk = (typeof isRunningInsideVK === 'function') ? isRunningInsideVK() : false;
     const urlHasAdmin = window.location.search.includes('admin=1');
-    if (!urlHasAdmin) return;
+
+    if (!isVk && !urlHasAdmin) return;
 
     const currentId = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
     if (currentId !== ADMIN_VK_ID) {
@@ -322,7 +331,16 @@ function pickAdminLeague(leagueId) {
 // проверяем доступ (user_id через bridge может прийти позже — см. patч A1).
 (function initAdminOnLoad() {
     if (typeof window === 'undefined') return;
-    if (!window.location.search.includes('admin=1')) return;
+    // FIX-ADMIN-VK: этот IIFE выполняется ДО engine.js, где объявлена
+    // isRunningInsideVK(). Используем безопасную эвристику — к моменту
+    // срабатывания setTimeout (500ms/2000ms) engine.js уже загружен,
+    // и ensureAdminAccess() проверит точные условия сам.
+    const urlHasAdmin = window.location.search.includes('admin=1');
+    const likelyInVk = (window.parent !== window)
+        || window.location.search.includes('vk_app_id')
+        || window.location.search.includes('vk_user_id');
+
+    if (!urlHasAdmin && !likelyInVk) return;
     // Первая попытка — вдруг user_id уже в URL (standalone)
     setTimeout(() => {
         if (typeof ensureAdminAccess === 'function') ensureAdminAccess();
