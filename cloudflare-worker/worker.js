@@ -38,6 +38,33 @@ const NAME_MIN_LEN = 2;
 const NAME_MAX_LEN = 12;
 const NAME_PATTERN = /^[a-zA-Zа-яА-ЯёЁ0-9 \-_]{2,12}$/;
 
+// B4: in-memory rate-limits. Экономят 2 KV-операции на каждый submit/attack.
+// Изолят живёт несколько минут, при переезде Map сбрасывается — для мягкого
+// rate-limit это ОК (мы защищаем от спама, а не от целеустремлённого флуда).
+const submitRateLimits = new Map();
+const attackRateLimits = new Map();
+
+function checkRateLimit(map, uid, cooldownMs) {
+    const now = Date.now();
+    // Периодическая очистка раз в ~1000 записей
+    if (map.size > 1000) {
+        const cutoff = now - 600000;
+        for (const [k, v] of map) if (v < cutoff) map.delete(k);
+    }
+    const last = map.get(uid) || 0;
+    if (now - last < cooldownMs) {
+        return { ok: false, retryIn: cooldownMs - (now - last) };
+    }
+    map.set(uid, now);
+    return { ok: true };
+}
+
+// B4: in-memory кэш sorted:trophies. Живёт в пределах изолята, TTL 60 сек.
+// Раньше sorted читался на КАЖДЫЙ submit + КАЖДЫЙ rivals — теперь на порядок реже.
+let sortedCache = null;
+let sortedCacheTs = 0;
+const SORTED_CACHE_TTL_MS = 60000;
+
 export default {
     async fetch(request, env, ctx) {
         // CORS preflight — VK iframe + GH Pages + Yandex
@@ -207,13 +234,12 @@ async function handleArenaSubmit(request, env) {
 
     const uid = auth.userId;
 
-    // Rate-limit
-    const rlKey = `ratelimit:submit:${uid}`;
-    const lastSubmit = parseInt(await env.LOTA_LADDER.get(rlKey), 10) || 0;
-    const now = Date.now();
-    if (now - lastSubmit < SUBMIT_COOLDOWN_MS) {
-        return json({ ok: false, reason: 'rate_limited', retryIn: SUBMIT_COOLDOWN_MS - (now - lastSubmit) }, 429);
+    // B4: rate-limit в in-memory Map — 0 KV-операций вместо 2.
+    const rlCheck = checkRateLimit(submitRateLimits, uid, SUBMIT_COOLDOWN_MS);
+    if (!rlCheck.ok) {
+        return json({ ok: false, reason: 'rate_limited', retryIn: rlCheck.retryIn }, 429);
     }
+    const now = Date.now();
 
     // Валидация полей
     const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -265,35 +291,60 @@ async function handleArenaSubmit(request, env) {
         updatedAt: now
     };
     await env.LOTA_LADDER.put(playerKey, JSON.stringify(playerData));
-    await env.LOTA_LADDER.put(rlKey, String(now), { expirationTtl: 300 });
+    // B4: ratelimit больше не пишется в KV — держится в in-memory Map.
 
-    // Обновляем sorted:trophies
-    const sorted = await readSortedTrophies(env);
-    const existingIdx = sorted.findIndex(p => p.uid === uid);
-    if (existingIdx >= 0) {
-        sorted[existingIdx] = { uid, name, trophies, cp };
+    // B4: sorted:trophies обновляется не чаще раза в 60 сек.
+    // Это экономит 1 read + 1 write на каждый submit, что критично для free tier.
+    const nowMs = Date.now();
+    const sortedUpdatedAt = parseInt(await env.LOTA_LADDER.get('sorted_updated_at'), 10) || 0;
+    let rank = null;
+    let total = 0;
+
+    if (nowMs - sortedUpdatedAt >= 60000) {
+        const sorted = await readSortedTrophies(env);
+        const existingIdx = sorted.findIndex(p => p.uid === uid);
+        if (existingIdx >= 0) {
+            sorted[existingIdx] = { uid, name, trophies, cp };
+        } else {
+            sorted.push({ uid, name, trophies, cp });
+        }
+        sorted.sort((a, b) => b.trophies - a.trophies);
+        const trimmed = sorted.slice(0, 500);
+        await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(trimmed));
+        await env.LOTA_LADDER.put('sorted_updated_at', String(nowMs), { expirationTtl: 300 });
+        sortedCache = trimmed;
+        sortedCacheTs = nowMs;
+        rank = trimmed.findIndex(p => p.uid === uid) + 1 || null;
+        total = trimmed.length;
     } else {
-        sorted.push({ uid, name, trophies, cp });
+        // Быстрый путь: rank из кэша (может быть чуть устаревшим, но это некритично)
+        const sorted = await readSortedTrophies(env);
+        rank = sorted.findIndex(p => p.uid === uid) + 1 || null;
+        total = sorted.length;
     }
-    sorted.sort((a, b) => b.trophies - a.trophies);
 
-    // Ограничиваем размер: топ-500 игроков
-    const trimmed = sorted.slice(0, 500);
-    await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(trimmed));
-
-    const rank = trimmed.findIndex(p => p.uid === uid) + 1;
-    return json({ ok: true, rank: rank || null, total: trimmed.length });
+    return json({ ok: true, rank: rank, total: total });
 }
 
 async function readSortedTrophies(env) {
+    const now = Date.now();
+    if (sortedCache && (now - sortedCacheTs) < SORTED_CACHE_TTL_MS) {
+        return sortedCache;
+    }
     const raw = await env.LOTA_LADDER.get('sorted:trophies');
-    if (!raw) return [];
+    if (!raw) {
+        sortedCache = [];
+        sortedCacheTs = now;
+        return sortedCache;
+    }
     try {
         const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr : [];
+        sortedCache = Array.isArray(arr) ? arr : [];
     } catch (e) {
-        return [];
+        sortedCache = [];
     }
+    sortedCacheTs = now;
+    return sortedCache;
 }
 
 /* ==========================================================
@@ -371,13 +422,12 @@ async function handleArenaAttack(request, env) {
         return json({ ok: false, reason: 'invalid_trophy_change' }, 400);
     }
 
-    // Rate-limit атак
-    const rlKey = `ratelimit:attack:${attackerUid}`;
-    const lastAttack = parseInt(await env.LOTA_LADDER.get(rlKey), 10) || 0;
-    const now = Date.now();
-    if (now - lastAttack < ATTACK_COOLDOWN_MS) {
-        return json({ ok: false, reason: 'rate_limited' }, 429);
+    // B4: rate-limit атак в in-memory Map — 0 KV-операций вместо 2.
+    const rlAttackCheck = checkRateLimit(attackRateLimits, attackerUid, ATTACK_COOLDOWN_MS);
+    if (!rlAttackCheck.ok) {
+        return json({ ok: false, reason: 'rate_limited', retryIn: rlAttackCheck.retryIn }, 429);
     }
+    const now = Date.now();
 
     // Профиль атакующего — для отображения имени в inbox защитника
     const attackerRaw = await env.LOTA_LADDER.get(`player:${attackerUid}`);
@@ -408,7 +458,12 @@ async function handleArenaAttack(request, env) {
     if (idx >= 0) {
         sorted[idx].trophies = newTrophies;
         sorted.sort((a, b) => b.trophies - a.trophies);
-        await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(sorted.slice(0, 500)));
+        const trimmed = sorted.slice(0, 500);
+        await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(trimmed));
+        await env.LOTA_LADDER.put('sorted_updated_at', String(now), { expirationTtl: 300 });
+        // B4: обновляем in-memory кэш, чтобы rivals сразу видели новые кубки
+        sortedCache = trimmed;
+        sortedCacheTs = now;
     }
 
     // Пишем в inbox защитника
@@ -428,8 +483,7 @@ async function handleArenaAttack(request, env) {
     inbox = inbox.slice(0, INBOX_MAX_ENTRIES);
     await env.LOTA_LADDER.put(inboxKey, JSON.stringify(inbox), { expirationTtl: 30 * 86400 });
 
-    await env.LOTA_LADDER.put(rlKey, String(now), { expirationTtl: 300 });
-
+    // B4: ratelimit теперь в in-memory Map — KV-запись убрана.
     return json({ ok: true });
 }
 

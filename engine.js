@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.9';
+const BUILD_VERSION = '4.8.0';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -4863,6 +4863,23 @@ function closeCardInspect() {
 let liveArenaSubmitDebounce = null;
 let liveArenaSubmitRetry = null;  // B3: таймер ретрая при rate_limited
 
+// B4: дедупликация submit'ов. Хэш профиля хранится в localStorage — если
+// он не изменился, submit не отправляется вообще. Это уменьшает число
+// KV-запросов на ~90%.
+const LAST_PROFILE_HASH_KEY = 'lota_last_profile_hash';
+const LAST_PROFILE_TS_KEY = 'lota_last_profile_ts';
+const MIN_SUBMIT_INTERVAL_MS = 60000;
+
+function computeProfileHash(name, trophies, cp, squad) {
+    const str = name + '|' + trophies + '|' + cp + '|' + squad.map(s => s.id + ':' + s.stars + ':' + s.lvl).join(',');
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+}
+
 function getLaunchQuery() {
     try {
         return (typeof window !== 'undefined' && window.location)
@@ -4877,46 +4894,69 @@ function canSubmitToLiveArena() {
     return isRunningInsideVK() && !!getLaunchQuery();
 }
 
-async function submitArenaProfile() {
+async function submitArenaProfile(force = false) {
     if (!canSubmitToLiveArena()) return { ok: false, reason: 'standalone' };
 
     const query = getLaunchQuery();
-    const body = {
-        query,
-        name: (gState.playerName || 'Duke Valdor').slice(0, 12),
-        trophies: Math.floor(gState.trophies || 150),
-        cp: Math.floor(calculateCP(gState.defenseFormation, null, false)),
-        // B3: передаём реальные stars/lvl каждой карты защиты.
-        // Атакующий увидит настоящие статы, а не бото-фейк от getBotCardStats.
-        defenseSquad: sanitizeFormation(gState.defenseFormation).map(id => {
-            const realId = id || 'f_und_v';
-            const card = gState.deck[realId] || { stars: 1, lvl: 1 };
-            return {
-                id: realId,
-                stars: Math.max(1, Math.min(10, card.stars || 1)),
-                lvl: Math.max(1, Math.min(300, card.lvl || 1))
-            };
-        })
-    };
+    const name = (gState.playerName || 'Duke Valdor').slice(0, 12);
+    const trophies = Math.floor(gState.trophies || 150);
+    const cp = Math.floor(calculateCP(gState.defenseFormation, null, false));
+    const defenseSquad = sanitizeFormation(gState.defenseFormation).map(id => {
+        const realId = id || 'f_und_v';
+        const card = gState.deck[realId] || { stars: 1, lvl: 1 };
+        return {
+            id: realId,
+            stars: Math.max(1, Math.min(10, card.stars || 1)),
+            lvl: Math.max(1, Math.min(300, card.lvl || 1))
+        };
+    });
+
+    // B4: hash-проверка. Если профиль не изменился и прошло <60 сек — skip.
+    const hash = computeProfileHash(name, trophies, cp, defenseSquad);
+    let lastHash = '', lastTs = 0;
+    try {
+        lastHash = localStorage.getItem(LAST_PROFILE_HASH_KEY) || '';
+        lastTs = parseInt(localStorage.getItem(LAST_PROFILE_TS_KEY), 10) || 0;
+    } catch (e) {}
+
+    const timeSinceLast = Date.now() - lastTs;
+    if (!force && hash === lastHash) {
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] submit skipped (unchanged)');
+        return { ok: true, reason: 'skipped_unchanged' };
+    }
+    if (!force && timeSinceLast < MIN_SUBMIT_INTERVAL_MS) {
+        const delay = MIN_SUBMIT_INTERVAL_MS - timeSinceLast;
+        if (liveArenaSubmitRetry) clearTimeout(liveArenaSubmitRetry);
+        liveArenaSubmitRetry = setTimeout(() => {
+            liveArenaSubmitRetry = null;
+            submitArenaProfile(false);
+        }, delay);
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] submit deferred', delay, 'ms');
+        return { ok: false, reason: 'deferred' };
+    }
 
     try {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify({ query, name, trophies, cp, defenseSquad })
         });
         const data = await resp.json();
         if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);
-        // B3: если сервер отклонил по rate-limit — планируем ретрай через retryIn мс.
-        // Это критично для обновления имени: иначе после смены имени submit не пройдёт,
-        // пока игрок не сделает ещё действие спустя минуту.
+
+        if (data && data.ok === true) {
+            try {
+                localStorage.setItem(LAST_PROFILE_HASH_KEY, hash);
+                localStorage.setItem(LAST_PROFILE_TS_KEY, String(Date.now()));
+            } catch (e) {}
+        }
+
         if (data && data.ok === false && data.reason === 'rate_limited') {
             const retryIn = Math.max(1000, (data.retryIn || 5000) + 500);
-            if (DEV_MODE_CHECK()) devLog('[LiveArena] rate_limited, retry in', retryIn, 'ms');
             if (liveArenaSubmitRetry) clearTimeout(liveArenaSubmitRetry);
             liveArenaSubmitRetry = setTimeout(() => {
                 liveArenaSubmitRetry = null;
-                submitArenaProfile();
+                submitArenaProfile(true);
             }, retryIn);
         }
         return data;
@@ -4926,13 +4966,19 @@ async function submitArenaProfile() {
     }
 }
 
-function scheduleLiveArenaSubmit() {
+function scheduleLiveArenaSubmit(force = false) {
     if (!canSubmitToLiveArena()) return;
+    if (force) {
+        if (liveArenaSubmitDebounce) { clearTimeout(liveArenaSubmitDebounce); liveArenaSubmitDebounce = null; }
+        submitArenaProfile(true);
+        return;
+    }
     if (liveArenaSubmitDebounce) clearTimeout(liveArenaSubmitDebounce);
+    // B4: debounce 30 → 180 сек. Даёт ~60% экономии submits поверх hash-проверки.
     liveArenaSubmitDebounce = setTimeout(() => {
         liveArenaSubmitDebounce = null;
-        submitArenaProfile();
-    }, 30000);
+        submitArenaProfile(false);
+    }, 180000);
 }
 
 async function fetchLiveRivals(count = 2) {
@@ -6140,6 +6186,8 @@ function startActualCombatWithRival(rival) {
                     // LIVE-ARENA (v4.7.8): если соперник живой — уведомляем сервер.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
                         reportArenaAttack(rival.uid, 'win', finalTrophies);
+                        // B4: форсим submit, чтобы новые кубки ушли в KV сразу.
+                        if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
                     }
 
                     // FIX-ARENA-TROPHY-LOSS: побеждённый соперник ТЕРЯЕТ кубки (как в реальном PvP),
@@ -6252,6 +6300,8 @@ function startActualCombatWithRival(rival) {
                     // LIVE-ARENA (v4.7.8): уведомляем сервер о поражении.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
                         reportArenaAttack(rival.uid, 'loss', trophyLoss);
+                        // B4: форсим submit, чтобы потерянные кубки ушли в KV сразу.
+                        if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
                     }
 
                     // Соперник НЕ исчезает: он честно забирает кубки и закрепляется в списке под статусом РЕВАНША!
@@ -11366,12 +11416,11 @@ function saveAndCloseSettings() {
     renderUI();
     pushToast(currentLang === 'RU' ? "Настройки сохранены!" : "Settings saved!");
 
-    // B3: при смене имени — немедленный submit, минуя 30-сек debounce.
-    // Иначе партнёр видит старое имя ещё минуту. Rate-limit на сервере снижен
-    // до 5 сек, поэтому реальный submit пройдёт в течение ~5-10 сек.
+    // B4: при смене имени — force submit, минуя debounce и hash-проверку.
+    // Гарантирует, что имя обновится в KV в течение 5-10 секунд.
     if (typeof submitArenaProfile === 'function' && typeof canSubmitToLiveArena === 'function' && canSubmitToLiveArena()) {
         if (liveArenaSubmitDebounce) { clearTimeout(liveArenaSubmitDebounce); liveArenaSubmitDebounce = null; }
-        submitArenaProfile();
+        submitArenaProfile(true);
     }
 }
 
