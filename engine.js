@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.3';
+const BUILD_VERSION = '4.7.4';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -1877,6 +1877,13 @@ function isFtueCompleted() { return (gState.ftueStep || 0) >= 12; }
 // DEV/QA: пропуск обучения одной командой из консоли или URL-параметром ?skipftue=1.
 // Не влияет на обычных игроков — FTUE запускается штатно, пока флаг не выставлен вручную.
 function skipFtue(silent = false) {
+    // FIX-ADMIN-SKIPFTUE-FROZEN: защита изнутри. Пропускаем только в dev-режиме
+    // (localhost / ?debug=1) или при активной админ-сессии (?admin=1 + vk_user_id).
+    // Обычный игрок с F12 получит warn и ничего не произойдёт.
+    if (!IS_DEV_MODE && !(typeof isAdminSession !== 'undefined' && isAdminSession === true)) {
+        console.warn('[Dev] skipFtue недоступна. Требуется dev-режим или админ-сессия.');
+        return;
+    }
     gState.ftueStep = 12;
     gState.ftueTaps = Math.max(15, gState.ftueTaps || 0);
     gState.ftueSummonDone = true;
@@ -1895,6 +1902,11 @@ function skipFtue(silent = false) {
 }
 
 function resetFtue(silent = false) {
+    // FIX-ADMIN-SKIPFTUE-FROZEN: симметричный guard с skipFtue. См. пояснение выше.
+    if (!IS_DEV_MODE && !(typeof isAdminSession !== 'undefined' && isAdminSession === true)) {
+        console.warn('[Dev] resetFtue недоступна. Требуется dev-режим или админ-сессия.');
+        return;
+    }
     gState.ftueStep = 0;
     gState.ftueTaps = 0;
     gState.ftueSummonDone = false;
@@ -1927,15 +1939,16 @@ function resetFtue(silent = false) {
 //   вызовы `skipFtue(false)` из adminSkipFtue() работают корректно.
 if (IS_DEV_MODE) {
     console.log('[LOTA] DEV MODE: skipFtue() / resetFtue() / testAscensionRitual() / testArenaPromote() / testArenaDemote() доступны.');
-} else {
-    // Скрытие dev-команд в проде (VK / GH Pages без ?debug=1).
-    // Используем try/catch на случай, если движок заблокирует присваивание.
-    try { window.skipFtue = undefined; } catch (e) {}
-    try { window.resetFtue = undefined; } catch (e) {}
-    try { window.testAscensionRitual = undefined; } catch (e) {}
-    try { window.testArenaPromote = undefined; } catch (e) {}
-    try { window.testArenaDemote = undefined; } catch (e) {}
 }
+// FIX-ADMIN-SKIPFTUE-FROZEN: НЕ затираем window.skipFtue/resetFtue через undefined.
+// В глобальном скоупе function declaration и window.X — одно и то же, поэтому
+// присваивание undefined убивало саму функцию. Это ломало вызовы из админ-панели
+// (data-admin.js: adminSkipFtue/adminResetFtue): их guard typeof skipFtue === 'function'
+// возвращал false, кнопки молча ничего не делали.
+//
+// Защита от читеров теперь ВНУТРИ самих функций: guard проверяет IS_DEV_MODE
+// или активную isAdminSession. Обычный игрок с F12 вызовет skipFtue() и получит
+// console.warn без эффекта. Админ-панель работает как задумано.
 
 // Автоматический навигатор между вкладками игры
 function resolveFtueViewTarget(targetViewId, activeViewId) {
