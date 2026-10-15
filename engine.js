@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.0';
+const BUILD_VERSION = '4.8.1';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -1483,6 +1483,40 @@ function getFormattedTime(sec) {
     return `${h}:${m}:${s}`;
 }
 
+// R1: человекочитаемая длительность для экспедиций ("2ч 30м").
+function formatExpeditionDuration(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const L = currentLang === 'RU';
+    if (sec >= 86400) {
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        return `${d}${L ? 'д' : 'd'} ${h}${L ? 'ч' : 'h'}`;
+    }
+    if (sec >= 3600) {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        return m > 0 ? `${h}${L ? 'ч' : 'h'} ${m}${L ? 'м' : 'm'}` : `${h}${L ? 'ч' : 'h'}`;
+    }
+    if (sec >= 60) {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return s > 0 ? `${m}${L ? 'м' : 'm'} ${s}${L ? 'с' : 's'}` : `${m}${L ? 'м' : 'm'}`;
+    }
+    return `${sec}${L ? 'с' : 's'}`;
+}
+
+// R1: получить текущую экспедицию героя (для таймера возврата на карте).
+function getHeroExpeditionInfo(heroId) {
+    for (const expId in gState.expeditions) {
+        const exp = gState.expeditions[expId];
+        if (exp && Array.isArray(exp.heroIds) && exp.heroIds.includes(heroId)) {
+            const remainingSec = Math.max(0, Math.floor((exp.endTime - Date.now()) / 1000));
+            return { expId, remainingSec };
+        }
+    }
+    return null;
+}
+
 function getFormattedMidnightCountdown() {
     const now = new Date();
     const midnight = new Date(now);
@@ -1762,6 +1796,19 @@ function getCodexBonus(faction) {
         if (CODEX_MILESTONES[idx]) totalPct += CODEX_MILESTONES[idx].bonusPct;
     });
     return totalPct / 100;
+}
+
+// R2: сокращённое название роли для бейджа на карточках.
+function getHeroRoleLabel(hero) {
+    if (!hero || !hero.role) return null;
+    const roleMap = {
+        'Авангард': { RU: 'АВАНГАРД', EN: 'VANGUARD', cls: 'role-vanguard' },
+        'Главком':  { RU: 'ГЛАВКОМ',  EN: 'COMMANDER', cls: 'role-commander' },
+        'Тыл':      { RU: 'ТЫЛ',      EN: 'REARGUARD', cls: 'role-rearguard' }
+    };
+    const m = roleMap[hero.role];
+    if (!m) return null;
+    return { text: currentLang === 'RU' ? m.RU : m.EN, cls: m.cls };
 }
 
 function formatHeroStars(stars) {
@@ -2443,12 +2490,12 @@ function verifyTapLegitimacy() {
     tapHistory.push(now);
     if (tapHistory.length > 25) tapHistory.shift();
 
-    if (tapHistory.length >= 18) {
+    if (tapHistory.length >= 12) {
         const timeSpan = now - tapHistory[0];
-        if (timeSpan < 650) { triggerFatigue(); return false; }
+        if (timeSpan < 720) { triggerFatigue(); return false; }
         let diffs = [];
         for (let i = 1; i < tapHistory.length; i++) diffs.push(tapHistory[i] - tapHistory[i - 1]);
-        const avg = diffs.reduce((a, b) => a + b) / diffs.length;
+        const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
         const variance = diffs.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / diffs.length;
         if (variance < 0.6) { triggerFatigue(); return false; }
     }
@@ -4099,6 +4146,12 @@ function renderExpeditionsList() {
         const autoStr = currentLang === 'RU' ? 'АВТО' : 'AUTO';
         const chanceStr = currentLang === 'RU' ? 'Шанс' : 'Chance';
         const resStr = currentLang === 'RU' ? 'РЕЗОНАНС' : 'RESONANCE';
+        // R1: длительность экспедиции (для показа ДО отправки).
+        const _rawDur = exp.durationSec || 0;
+        const _effDur = isVipActive() ? Math.floor(_rawDur * 0.5) : _rawDur;
+        const durStr = formatExpeditionDuration(_effDur);
+        const durLabel = currentLang === 'RU' ? 'Длительность' : 'Duration';
+        const vipMark = isVipActive() ? ' <span style="color:var(--gold); font-size:10.5px;">VIP −50%</span>' : '';
 
         let actionHtml = '';
         if (isReady) {
@@ -4116,10 +4169,15 @@ function renderExpeditionsList() {
                 ${speedupsLeft > 0 ? `<img src="assets/icons/icon_ad.webp" class="icon-ad-inline"> ${speedupText} (1/1)` : limitText}
             </button>`;
         }
+        // R3: кнопка досрочного прерывания с пропорциональной наградой.
+        const cancelBtnLabel = currentLang === 'RU' ? 'Отменить' : 'Cancel';
         actionHtml = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:11px; color:var(--gold); font-weight:700;">${I18N[currentLang].exp_in_progress} ${getFormattedTime(leftSec)}</span>
-                    ${speedupControlHtml}
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                    <span style="font-size:11px; color:var(--gold); font-weight:700; white-space:nowrap;">${I18N[currentLang].exp_in_progress} ${getFormattedTime(leftSec)}</span>
+                    <div style="display:flex; gap:4px; align-items:center;">
+                        ${speedupControlHtml}
+                        <button class="btn-action" style="font-size:11px; padding:4px 10px; background:#7f1d1d; border-color:#ef4444; color:#fca5a5;" onclick="cancelExpedition('${exp.id}')">${cancelBtnLabel}</button>
+                    </div>
                 </div>`;
         } else {
             const heroReqStr = currentLang === 'RU'
@@ -4185,6 +4243,9 @@ function renderExpeditionsList() {
                         <b style="color:var(--gold); white-space:nowrap;">+${formatNumber(exp.rewardGold)} ${gI}${bonusText}</b>
                         <b style="color:var(--crystal); white-space:nowrap;">+${exp.rewardCrystals} ${cI}</b>
                         ${exp.relicChance > 0 ? `<span style="color:var(--gold); font-size:11px; white-space:nowrap;">(${chanceStr} ${rI})</span>` : ''}
+                    </div>
+                    <div style="font-size:11px; color:#cbd5e1; margin-top:2px;">
+                        ${durLabel}: <b style="color:#fff;">${durStr}</b>${vipMark}
                     </div>
                 </div>
             </div>
@@ -4412,6 +4473,47 @@ function speedupExpedition(expId) {
 // Защита: множитель уровня и стихийный резонанс умножают ЗОЛОТО
 // MAJOR-M3: reentrancy-guard блокирует двойное нажатие «Забрать» (двойной тап, две вкладки)
 // и гарантирует single-flight начисление награды за одну экспедицию.
+// R3: досрочно прервать экспедицию. Награда — пропорционально прошедшему времени.
+// Кристаллы и реликвии НЕ выдаются (только золото), чтобы не эксплойтить.
+function cancelExpedition(expId) {
+    const config = EXPEDITIONS_CONFIG.find(e => e.id === expId);
+    const expData = gState.expeditions[expId];
+    if (!config || !expData) return;
+
+    const now = Date.now();
+    if (expData.endTime <= now) {
+        return claimExpedition(expId);
+    }
+
+    const totalSec = config.durationSec || 1;
+    const remainingSec = Math.max(0, Math.floor((expData.endTime - now) / 1000));
+    const elapsedSec = Math.max(0, totalSec - remainingSec);
+    const progress = Math.max(0, Math.min(1, elapsedSec / totalSec));
+    const partialGold = Math.floor(config.rewardGold * progress);
+
+    delete gState.expeditions[expId];
+
+    if (partialGold > 0) {
+        gState.gold += partialGold;
+        gState.lifetimeGold += partialGold;
+    }
+
+    playCoinSfx();
+    triggerHaptic('tap');
+    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
+    const cancelStr = currentLang === 'RU' ? 'Экспедиция отменена' : 'Expedition cancelled';
+    if (partialGold > 0) {
+        pushToast(`${cancelStr}: +${formatNumber(partialGold)} ${gI}`);
+    } else {
+        pushToast(cancelStr);
+    }
+
+    saveGame();
+    renderExpeditionsList();
+    renderCards();
+    renderUI();
+}
+
 const claimingExpeditionIds = {};
 function claimExpedition(expId) {
     if (claimingExpeditionIds[expId]) return;
@@ -4803,7 +4905,10 @@ function renderCards() {
         } else if (inDef) {
             statusBadge = `<div class="card-status-pill def-squad">${currentLang === 'RU' ? 'В ОБОРОНЕ' : 'DEFENSE'}</div>`;
         } else if (inExp) {
-            statusBadge = `<div class="card-status-pill exp">${currentLang === 'RU' ? 'В ПОХОДЕ' : 'EXPEDITION'}</div>`;
+            // R1: показываем таймер возврата героя из экспедиции.
+            const _expInfo = (typeof getHeroExpeditionInfo === 'function') ? getHeroExpeditionInfo(card.id) : null;
+            const _timerStr = _expInfo ? formatExpeditionDuration(_expInfo.remainingSec) : '';
+            statusBadge = `<div class="card-status-pill exp">${currentLang === 'RU' ? 'В ПОХОДЕ' : 'EXPEDITION'}${_timerStr ? ' • ' + _timerStr : ''}</div>`;
         } else {
             statusBadge = `<div class="card-status-pill free">${currentLang === 'RU' ? 'СВОБОДЕН' : 'READY'}</div>`;
         }
@@ -4819,10 +4924,15 @@ function renderCards() {
         const artContent = `<img src="assets/heroes/${heroImg}" class="tcg-art-img" loading="lazy" decoding="async" fetchpriority="low" onerror="this.onerror=null; this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='block';"><span class="tcg-art-icon" style="display:none;">${card.icon}</span>`;
         const tierColor = `var(--tier-${(card.tier||'f').toLowerCase()})`;
 
+        const _roleInfo = getHeroRoleLabel(card);
+        const _roleHtml = _roleInfo ? `<span class="tcg-role-badge ${_roleInfo.cls}">${_roleInfo.text}</span>` : '';
         cardEl.innerHTML = `
             <div class="tcg-art-bg-layer">${artContent}</div>
             <div class="tcg-header">
-                <span class="tcg-tier-badge" style="color:${tierColor};">[${card.tier}]</span>
+                <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
+                    ${_roleHtml}
+                    <span class="tcg-tier-badge" style="color:${tierColor};">[${card.tier}]</span>
+                </div>
                 <span class="tcg-stars-row">${formatHeroStars(cardData.stars || 1)}</span>
             </div>
             <div class="tcg-footer-meta">
@@ -7772,6 +7882,46 @@ function scheduleNextDemon() {
     demonSpawnTimer = setTimeout(spawnDemon, 180000);
 }
 
+// R1: процедурный звук появления демона-вестника — нисходящий визг.
+function playDemonAppearSound() {
+    if (gState.isAudioMuted || (gState.sfxVolume || 0) <= 0) return;
+    try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        const curT = ctx.currentTime;
+        const volMult = Math.max(0, Math.min(1, gState.sfxVolume !== undefined ? gState.sfxVolume : 0.8));
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(900, curT);
+        osc.frequency.exponentialRampToValueAtTime(300, curT + 0.5);
+        const peak = 0.16 * volMult;
+        gain.gain.setValueAtTime(0.0001, curT);
+        gain.gain.linearRampToValueAtTime(peak, curT + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, curT + 0.55);
+        osc.start(curT);
+        osc.stop(curT + 0.6);
+
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.type = 'triangle';
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.frequency.setValueAtTime(1400, curT + 0.05);
+        osc2.frequency.exponentialRampToValueAtTime(700, curT + 0.45);
+        const peak2 = 0.08 * volMult;
+        gain2.gain.setValueAtTime(0.0001, curT + 0.05);
+        gain2.gain.linearRampToValueAtTime(peak2, curT + 0.08);
+        gain2.gain.exponentialRampToValueAtTime(0.0001, curT + 0.5);
+        osc2.start(curT + 0.05);
+        osc2.stop(curT + 0.55);
+    } catch(e) {}
+}
+
 function spawnDemon() {
     if (demonActive) return;
     // Страховка от гонки: если игрок только что завершил FTUE, но таймер успел стрельнуть
@@ -7782,6 +7932,8 @@ function spawnDemon() {
 
     demonActive = true;
     demonEl.style.display = 'block';
+    // R1: звук появления — привлекает внимание игрока.
+    playDemonAppearSound();
     const baseTop = 90 + Math.random() * 180;
     demonEl.style.left = '-70px';
     demonEl.style.top = `${baseTop}px`;
@@ -9445,6 +9597,77 @@ function trackQuestProgress(type, amt = 1) {
     renderQuests();
 }
 
+// R3: собрать ВСЕ доступные награды со всех трёх вкладок Заданий одним тапом.
+function claimAllQuests() {
+    let totalGold = 0;
+    let totalCryst = 0;
+    let count = 0;
+
+    // 1. Ежедневные
+    initDailyQuestsIfEmpty();
+    for (const k in gState.dailyQuests) {
+        const dq = gState.dailyQuests[k];
+        if (dq && !dq.claimed && dq.curr >= dq.target) {
+            dq.claimed = true;
+            gState.crystals += dq.rewardC;
+            totalCryst += dq.rewardC;
+            count++;
+        }
+    }
+
+    // 2. Этапные — могут закрыть несколько стадий подряд
+    for (const k in gState.stageQuests) {
+        if (['calendar', 'wheel', 'daily'].includes(k)) continue;
+        const q = gState.stageQuests[k];
+        if (!q) continue;
+        let safety = 20;
+        while (q.curr >= q.target && safety-- > 0) {
+            gState.gold += q.rewardGold;
+            gState.lifetimeGold += q.rewardGold;
+            totalGold += q.rewardGold;
+            q.curr -= q.target;
+            q.stage++;
+            q.target = Math.floor(q.target * 2.2);
+            q.rewardGold = Math.floor(q.rewardGold * 1.8);
+            count++;
+        }
+    }
+
+    // 3. Достижения — каскадные вехи
+    (CASCADING_ACHIEVEMENTS || []).forEach(ach => {
+        let safety = 20;
+        while (safety-- > 0) {
+            const stIdx = gState.achieveStages[ach.id] || 0;
+            if (stIdx >= ach.stages.length) break;
+            if (getCascadeMetric(ach.type) < ach.stages[stIdx]) break;
+            const rC = ach.rewardsC[stIdx];
+            gState.crystals += rC;
+            totalCryst += rC;
+            gState.achieveStages[ach.id] = stIdx + 1;
+            count++;
+        }
+    });
+
+    if (count === 0) {
+        return pushToast(currentLang === 'RU' ? 'Нет готовых наград' : 'No rewards ready');
+    }
+
+    playCoinSfx();
+    triggerHaptic('upgrade');
+    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
+    const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+    const parts = [];
+    if (totalGold > 0) parts.push(`+${formatNumber(totalGold)} ${gI}`);
+    if (totalCryst > 0) parts.push(`+${totalCryst} ${cI}`);
+    const collectStr = currentLang === 'RU' ? 'СОБРАНО' : 'COLLECTED';
+    pushToast(`${collectStr} (${count}): ${parts.join(' • ')}`);
+
+    saveGame();
+    checkNotificationBadges();
+    renderQuests();
+    renderUI();
+}
+
 function claimDailyQuest(type) {
     initDailyQuestsIfEmpty();
     const dq = gState.dailyQuests[type];
@@ -9805,9 +10028,18 @@ function checkNotificationBadges() {
     
     const now = Date.now();
 
-    // 2. Трон: Доступно Великое Возвышение (золотая точка)
+    // R2: Точка на Цитадель — готов Возвышение ИЛИ хватает золота на ап.
     const isAscendReady = (gState.buildings.keep || 1) >= getAscendKeepReq() && (gState.gold || 0) >= getAscendGoldReq();
-    $id('badge-district-keep')?.classList.toggle('active', isAscendReady);
+    const _canUpKeep = (gState.gold || 0) >= getUpgradeCost('keep');
+    $id('badge-district-keep')?.classList.toggle('active', isAscendReady || _canUpKeep);
+
+    // R2: Точка на Шахты — хватает золота на +1 уровень.
+    const _canUpMine = (gState.gold || 0) >= getUpgradeCost('mine');
+    $id('badge-district-mine')?.classList.toggle('active', _canUpMine);
+
+    // R2: Точка на Казармы — хватает золота на +1 уровень.
+    const _canUpBarracks = (gState.gold || 0) >= getUpgradeCost('barracks');
+    $id('badge-district-barracks')?.classList.toggle('active', _canUpBarracks);
 
     // 3. Штаб: Завершена экспедиция ИЛИ готовы вехи Кодекса
     const isExpeditionReady = Object.values(gState.expeditions || {}).some(e => e && e.endTime <= now);
@@ -9935,11 +10167,16 @@ function renderCodexUI() {
         const artContent = `<img src="assets/heroes/${heroImg}" class="tcg-art-img" onerror="this.onerror=null; this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='block';"><span class="tcg-art-icon" style="display:none;">${h.icon}</span>`;
 
         const lockedStr = currentLang === 'RU' ? '[НЕДОСТУПЕН]' : '[LOCKED]';
+        const _codexRoleInfo = getHeroRoleLabel(h);
+        const _codexRoleHtml = _codexRoleInfo ? `<span class="tcg-role-badge ${_codexRoleInfo.cls}">${_codexRoleInfo.text}</span>` : '';
         return `
             <div class="tcg-card ${isOwned ? '' : 'unowned'}" style="height:165px; border-color:${isOwned ? tColor : 'var(--border-metal)'}; cursor:pointer;" onclick="openCardInspect('${h.id}')">
                 <div class="tcg-art-bg-layer">${artContent}</div>
                 <div class="tcg-header">
-                    <span class="tcg-tier-badge" style="color:${tColor};">[${h.tier}]</span>
+                    <div style="display:flex; align-items:center; gap:3px; overflow:hidden; min-width:0;">
+                        ${_codexRoleHtml}
+                        <span class="tcg-tier-badge" style="color:${tColor};">[${h.tier}]</span>
+                    </div>
                     <span class="tcg-stars-row">${isOwned ? formatHeroStars(cardData.stars || 1) : `<span style="font-size:11px; color:var(--text-muted); font-weight:700;">${lockedStr}</span>`}</span>
                 </div>
                 <div class="tcg-footer-meta">

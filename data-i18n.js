@@ -479,6 +479,7 @@ const I18N = {
         quest_claim: 'ЗАБРАТЬ',
         quest_done: 'ВЫПОЛНЕНО',
         quest_in_progress: 'В ПРОЦЕССЕ',
+        quest_claim_all: 'ЗАБРАТЬ ВСЁ',
 
         // Магазин
         shop_title: 'Императорская Сокровищница',
@@ -1022,6 +1023,7 @@ const I18N = {
         quest_claim: 'CLAIM',
         quest_done: 'COMPLETED',
         quest_in_progress: 'IN PROGRESS',
+        quest_claim_all: 'CLAIM ALL',
 
         // Shop
         shop_title: 'Imperial Treasury',
