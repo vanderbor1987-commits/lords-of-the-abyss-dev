@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.7.4';
+const BUILD_VERSION = '4.7.5';
 const BUILD_DATE = '15.10.2026';
 
 // ==========================================================
@@ -8264,6 +8264,17 @@ function addToBookmarksVK() {
 // Причина идентична FIX-262-BOOKMARK: п. 2.6.2 правил VK Mini Apps не разрешает
 // выдачу бонусов за эту соцмеханику. Кнопка оставлена как действие.
 function addToHomeScreenVK() {
+    // FIX-HOMESCREEN-FEEDBACK: iOS-пре-флайт. VKWebAppAddToHomeScreen не поддерживается
+    // на iPhone — Apple блокирует создание ярлыков мини-аппами на уровне ОС.
+    // Раньше игрок тыкал кнопку и не получал никакой обратной связи. Теперь — подсказка.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+        pushToast(currentLang === 'RU'
+            ? 'На iPhone: Меню Safari → Поделиться → На экран «Домой»'
+            : 'On iPhone: Safari menu → Share → Add to Home Screen');
+        return;
+    }
+
     if (isRunningInsideVK()) {
         if (!window.vkBridge) {
             pushToast(currentLang === 'RU' ? 'Нет связи с VK. Проверьте соединение' : 'VK connection unavailable. Check your connection');
@@ -8271,16 +8282,35 @@ function addToHomeScreenVK() {
         }
         window.vkBridge.send('VKWebAppAddToHomeScreen')
             .then(data => {
-                if (data && data.result && !gState.hasAddedToHome) {
-                    gState.hasAddedToHome = true;
-                    triggerHaptic('upgrade');
-                    pushToast(currentLang === 'RU' ? 'Иконка добавлена на экран!' : 'Icon added to home!');
-                    saveGame();
-                    renderPlatformRewardsUI();
+                // FIX-HOMESCREEN-FEEDBACK: разбираем три исхода — success / result:false / отсутствие result.
+                // Раньше тихо игнорировали result:false — игрок думал, что кнопка сломана.
+                if (data && data.result === true) {
+                    if (!gState.hasAddedToHome) {
+                        gState.hasAddedToHome = true;
+                        triggerHaptic('upgrade');
+                        pushToast(currentLang === 'RU' ? 'Иконка добавлена на экран!' : 'Icon added to home!');
+                        saveGame();
+                        renderPlatformRewardsUI();
+                    } else {
+                        pushToast(currentLang === 'RU' ? 'Иконка уже добавлена!' : 'Icon already added!');
+                    }
+                } else {
+                    // MIUI / EMUI / ColorOS требуют явного разрешения «Создание ярлыков» для VK.
+                    // Отправляем игрока в настройки — точный путь подсказан ниже.
+                    pushToast(currentLang === 'RU'
+                        ? 'Не удалось. Разрешите VK создавать ярлыки: Настройки → Приложения → ВКонтакте → Разрешения → Создание ярлыков'
+                        : 'Failed. Allow VK to create shortcuts: Settings → Apps → VK → Permissions → Create shortcuts');
                 }
             })
-            .catch(() => {});
+            .catch(err => {
+                // FIX-HOMESCREEN-FEEDBACK: раньше стоял catch(() => {}) — игрок не получал ни успеха, ни ошибки.
+                console.warn('[VK Bridge] AddToHomeScreen error:', err);
+                pushToast(currentLang === 'RU'
+                    ? 'Ошибка добавления. Проверьте разрешения VK-приложения.'
+                    : 'Add error. Check VK app permissions.');
+            });
     } else {
+        // Standalone fallback — эмуляция для GH Pages / localhost
         if (!gState.hasAddedToHome) {
             gState.hasAddedToHome = true;
             triggerHaptic('tap');
@@ -12134,9 +12164,13 @@ function initSwipeRightClose() {
     let isHorizontalSwipe = false;
     let isTracking = false;
 
-    const SWIPE_MIN_DIST = 80;
+    // FIX-SWIPE-XIAOMI: EDGE_MARGIN 20 → 50. MIUI имеет более широкую зону edge-swipe
+    // (40-60px), чем стоковый Android. Свайпы, начинающиеся ближе к краю, система
+    // перехватывала раньше, чем наш код видел их. SWIPE_MIN_DIST 80 → 60 — снижаем
+    // порог длины, чтобы короткие жесты на Xiaomi проходили.
+    const SWIPE_MIN_DIST = 60;
     const SWIPE_MAX_TIME = 800;
-    const EDGE_MARGIN = 20;
+    const EDGE_MARGIN = 50;
 
     const getActiveModalId = () => {
         for (const id in MODAL_CLOSERS_SWIPE) {
@@ -12152,39 +12186,39 @@ function initSwipeRightClose() {
         return active;
     };
 
-    document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1) { isTracking = false; return; }
-        if (e.touches[0].clientX < EDGE_MARGIN) { isTracking = false; return; }
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
+    const onSwipeStart = (x, y) => {
+        if (x < EDGE_MARGIN) { isTracking = false; if (IS_DEV_MODE) console.log('[Swipe] too close to edge x=' + x); return; }
+        touchStartX = x;
+        touchStartY = y;
         touchStartTime = Date.now();
         isTracking = true;
         isHorizontalSwipe = false;
-    }, { passive: true });
+    };
 
-    document.addEventListener('touchmove', (e) => {
-        if (!isTracking || e.touches.length !== 1) return;
-        const dx = e.touches[0].clientX - touchStartX;
-        const dy = e.touches[0].clientY - touchStartY;
+    const onSwipeMove = (x, y) => {
+        if (!isTracking) return;
+        const dx = x - touchStartX;
+        const dy = y - touchStartY;
         if (Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 15) {
             isHorizontalSwipe = true;
         } else if (Math.abs(dy) > 15) {
             isHorizontalSwipe = false;
         }
-    }, { passive: true });
+    };
 
-    document.addEventListener('touchend', (e) => {
+    const onSwipeEnd = (x, y) => {
         if (!isTracking) return;
         isTracking = false;
-        if (!isHorizontalSwipe) return;
-        const touch = e.changedTouches[0];
-        if (!touch) return;
-        const dx = touch.clientX - touchStartX;
-        const dy = Math.abs(touch.clientY - touchStartY);
+        if (!isHorizontalSwipe) {
+            if (IS_DEV_MODE) console.log('[Swipe] end (not horizontal)');
+            return;
+        }
+        const dx = x - touchStartX;
+        const dy = Math.abs(y - touchStartY);
         const dt = Date.now() - touchStartTime;
-        if (dx < SWIPE_MIN_DIST) return;
-        if (dt > SWIPE_MAX_TIME) return;
-        if (dy > 80) return;
+        if (dx < SWIPE_MIN_DIST) { if (IS_DEV_MODE) console.log('[Swipe] too short dx=' + dx); return; }
+        if (dt > SWIPE_MAX_TIME) { if (IS_DEV_MODE) console.log('[Swipe] too slow dt=' + dt); return; }
+        if (dy > 80) { if (IS_DEV_MODE) console.log('[Swipe] too vertical dy=' + dy); return; }
 
         const modalId = getActiveModalId();
         if (modalId) {
@@ -12200,7 +12234,33 @@ function initSwipeRightClose() {
             if (typeof triggerHaptic === 'function') triggerHaptic('tap');
             navigate('citadel-view');
         }
-    }, { passive: true });
+    };
+
+    // FIX-SWIPE-XIAOMI: capture:true ловит события ДО того, как промежуточные слои
+    // VK WebView успеют погасить их через stopPropagation.
+    document.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) { isTracking = false; return; }
+        onSwipeStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true, capture: true });
+
+    document.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 1) return;
+        onSwipeMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true, capture: true });
+
+    document.addEventListener('touchend', (e) => {
+        const touch = e.changedTouches[0];
+        if (!touch) return;
+        onSwipeEnd(touch.clientX, touch.clientY);
+    }, { passive: true, capture: true });
+
+    // FIX-SWIPE-XIAOMI: touchcancel приходит, когда система (MIUI) перехватывает жест.
+    // Раньше мы это игнорировали и висели в isTracking = true до следующего touchstart.
+    document.addEventListener('touchcancel', () => {
+        if (IS_DEV_MODE && isTracking) console.log('[Swipe] touchcancel — system stole gesture');
+        isTracking = false;
+        isHorizontalSwipe = false;
+    }, { passive: true, capture: true });
 }
 
 // FIX-SWIPE-RIGHT-VIEW: свайп вправо в любом месте подэкрана возвращает
@@ -12216,9 +12276,10 @@ function initSwipeRightToCloseView() {
     let isHorizontalSwipe = false;
     let isTracking = false;
 
-    const SWIPE_MIN_DIST = 80;
+    // FIX-SWIPE-XIAOMI: те же улучшения, что и в initSwipeRightClose — см. пояснение выше.
+    const SWIPE_MIN_DIST = 60;
     const SWIPE_MAX_TIME = 800;
-    const EDGE_MARGIN = 20;
+    const EDGE_MARGIN = 50;
 
     const getActiveSubview = () => {
         const active = document.querySelector('.view-tab.active');
@@ -12234,36 +12295,33 @@ function initSwipeRightToCloseView() {
         return false;
     };
 
-    document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1) { isTracking = false; return; }
+    const onStart = (x, y) => {
         const subview = getActiveSubview();
         if (!subview || isAnyModalOpen()) { isTracking = false; return; }
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
+        touchStartX = x;
+        touchStartY = y;
         touchStartTime = Date.now();
         isTracking = touchStartX > EDGE_MARGIN;
         isHorizontalSwipe = false;
-    }, { passive: true });
+    };
 
-    document.addEventListener('touchmove', (e) => {
-        if (!isTracking || e.touches.length !== 1) return;
-        const dx = e.touches[0].clientX - touchStartX;
-        const dy = e.touches[0].clientY - touchStartY;
+    const onMove = (x, y) => {
+        if (!isTracking) return;
+        const dx = x - touchStartX;
+        const dy = y - touchStartY;
         if (Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 15) {
             isHorizontalSwipe = true;
         } else if (Math.abs(dy) > 15) {
             isHorizontalSwipe = false;
         }
-    }, { passive: true });
+    };
 
-    document.addEventListener('touchend', (e) => {
+    const onEnd = (x, y) => {
         if (!isTracking) return;
         isTracking = false;
         if (!isHorizontalSwipe) return;
-        const touch = e.changedTouches[0];
-        if (!touch) return;
-        const dx = touch.clientX - touchStartX;
-        const dy = Math.abs(touch.clientY - touchStartY);
+        const dx = x - touchStartX;
+        const dy = Math.abs(y - touchStartY);
         const dt = Date.now() - touchStartTime;
         if (dx < SWIPE_MIN_DIST) return;
         if (dt > SWIPE_MAX_TIME) return;
@@ -12273,7 +12331,28 @@ function initSwipeRightToCloseView() {
         if (isAnyModalOpen()) return;
         if (typeof triggerHaptic === 'function') triggerHaptic('tap');
         navigate('citadel-view');
-    }, { passive: true });
+    };
+
+    document.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) { isTracking = false; return; }
+        onStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true, capture: true });
+
+    document.addEventListener('touchmove', (e) => {
+        if (e.touches.length !== 1) return;
+        onMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true, capture: true });
+
+    document.addEventListener('touchend', (e) => {
+        const touch = e.changedTouches[0];
+        if (!touch) return;
+        onEnd(touch.clientX, touch.clientY);
+    }, { passive: true, capture: true });
+
+    document.addEventListener('touchcancel', () => {
+        isTracking = false;
+        isHorizontalSwipe = false;
+    }, { passive: true, capture: true });
 }
 
 function initHardwareBackNavigation() {
