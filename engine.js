@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.5';
+const BUILD_VERSION = '5.3.6';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5579,10 +5579,14 @@ function openArenaLadderModal() {
     }
 
     // B6: асинхронно подтягиваем живых топ-10, затем перерисовываем.
-    // fetchLiveTop10 имеет throttle 120 сек — частые открытия модалки не спамят Worker.
+    // v5.3.6: синхронизируем header Арены — иначе при свежем live данные
+    // header показывал старый rank, а таблица уже новый.
     if (typeof fetchLiveTop10 === 'function') {
         fetchLiveTop10().then(list => {
-            if (list && list.length > 0) renderLeaderboard();
+            if (list && list.length > 0) {
+                renderLeaderboard();
+                if (typeof renderArena === 'function') renderArena();
+            }
         });
     }
 
@@ -7024,13 +7028,17 @@ function getCurrentUnifiedRank() {
 
     const pool = [];
     const botNames = new Set();
-    for (let r = 1; r <= 10; r++) {
-        const bot = (typeof getBotByRank === 'function') ? getBotByRank(r) : null;
-        if (!bot) continue;
-        const bName = String(bot.name || '').toLowerCase();
-        if (botNames.has(bName)) continue;
+    // v5.3.6: итерируем arenaTopTenBots напрямую, а не через getBotByRank(r).
+    // getBotByRank при myRank в топ-10 возвращает одного и того же бота для двух
+    // разных r (сдвиг индекса botIndex), из-за чего в пуле появлялся дубль по имени.
+    const _botsArr = Array.isArray(gState.arenaTopTenBots) ? gState.arenaTopTenBots : [];
+    for (let i = 0; i < _botsArr.length; i++) {
+        const b = _botsArr[i];
+        if (!b) continue;
+        const bName = String(b.name || '').toLowerCase();
+        if (!bName || botNames.has(bName)) continue;
         botNames.add(bName);
-        pool.push({ uid: 'bot_' + r, trophies: Math.floor(bot.trophies || 0), isMe: false });
+        pool.push({ uid: 'bot_' + i, trophies: Math.floor(b.trophies || 0), isMe: false });
     }
 
     const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
@@ -7086,14 +7094,23 @@ function renderLeaderboard() {
     // живые из liveTopCache и игрок — в одном пуле, сорт по кубкам, топ-10 на вывод.
     // Оба игрока с равными кубками видны одновременно.
 
+    // v5.3.6 FIX: pool строится из arenaTopTenBots напрямую с dedup по имени.
+    // Раньше через getBotByRank(r) при myRank в топ-10 один и тот же бот возвращался
+    // для двух r (shift botIndex), в топ-10 таблицы появлялись дубли-близнецы.
     const pool = [];
-    for (let r = 1; r <= 10; r++) {
-        const bot = getBotByRank(r);
+    const _botSeenForPool = new Set();
+    const _botsArrForPool = Array.isArray(gState.arenaTopTenBots) ? gState.arenaTopTenBots : [];
+    for (let i = 0; i < _botsArrForPool.length; i++) {
+        const b = _botsArrForPool[i];
+        if (!b) continue;
+        const _bNameKey = String(b.name || '').toLowerCase();
+        if (!_bNameKey || _botSeenForPool.has(_bNameKey)) continue;
+        _botSeenForPool.add(_bNameKey);
         pool.push({
-            uid: 'bot_' + r,
-            name: escapeHtml(bot.name),
-            trophies: Math.floor(bot.trophies || 0),
-            cp: bot.cp,
+            uid: 'bot_' + i,
+            name: escapeHtml(b.name),
+            trophies: Math.floor(b.trophies || 0),
+            cp: b.cp,
             isMe: false,
             isReal: false
         });
@@ -12762,6 +12779,14 @@ function navigate(viewId) {
         renderLeaderboard();
         renderBattleHistory();
         checkSeasonCeremony();
+        // v5.3.6: на входе в Арену подтягиваем живой топ-10 для единого rank.
+        // Иначе header показывает rank без живых, а таблица — с ними.
+        if (typeof fetchLiveTop10 === 'function') {
+            fetchLiveTop10().then(() => {
+                renderArena();
+                renderLeaderboard();
+            });
+        }
         if (typeof fetchLiveRivals === 'function') {
             fetchLiveRivals(2).then(list => {
                 if (list && list.length > 0) renderArena();
