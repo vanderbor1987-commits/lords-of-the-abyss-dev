@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.0';
+const BUILD_VERSION = '5.2.1';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -6274,23 +6274,45 @@ function renderArena() {
     if (cacheFresh && liveCache.length > 0) {
         const myAtkCP = calculateCP(gState.attackFormation, null, false);
         const myTrophies = Math.floor(gState.trophies || 150);
-        const maxToMerge = Math.min(liveCache.length, rivalsData.length - 1);
-        // B5: показываем живого только если разница кубков ≤30. Иначе оставляем
-        // бота в ячейке — фарм слабых/сильных экономически бессмыслен, а в UI
-        // это выглядело как баг («#2 BalTaZaR 310 кубков» при моих 782).
         const TROPHY_GAP_LIMIT = 30;
-        for (let i = 0; i < maxToMerge; i++) {
-            const lp = liveCache[i];
-            if (!lp || !lp.uid || lp.uid === myUid) continue;
+
+        // Дедуп по uid: в KV могут быть 2+ профиля с одинаковым ником (несколько устройств).
+        // Без этого один и тот же игрок показывался в списке 2-3 раза подряд.
+        const seenUids = new Set([myUid]);
+        const uniqueLive = [];
+        for (const lp of liveCache) {
+            if (!lp || !lp.uid) continue;
+            if (seenUids.has(lp.uid)) {
+                if (DEV_MODE_CHECK()) devLog('[LiveArena] dedup skip uid=' + lp.uid);
+                continue;
+            }
+            seenUids.add(lp.uid);
             const theirTrophies = Math.floor(lp.trophies || 150);
             if (Math.abs(theirTrophies - myTrophies) > TROPHY_GAP_LIMIT) {
                 if (DEV_MODE_CHECK()) devLog('[LiveArena] skip ' + lp.name + ' (gap=' + Math.abs(theirTrophies - myTrophies) + '>30)');
                 continue;
             }
+            uniqueLive.push(lp);
+        }
 
-            const bot = rivalsData[i];
-            // B3: разбираем defenseSquad двух форматов (строки или объекты).
-            // squad — массив id (для боевых логик), squadMeta — {id: {stars, lvl}}.
+        // Живые вставляются не в «первые слоты», а на позицию, соответствующую их кубкам.
+        // Для каждого живого ищем бота с минимальной |Δ кубков| среди ещё не занятых.
+        // Так BalTaZaR со 300 кубками при твоих 274 встанет на ~#650, а не на #675.
+        const usedSlots = new Set();
+        for (const lp of uniqueLive) {
+            const theirTrophies = Math.floor(lp.trophies || 150);
+            let bestIdx = -1;
+            let bestDiff = Infinity;
+            for (let i = 0; i < rivalsData.length; i++) {
+                if (usedSlots.has(i)) continue;
+                const rivalTr = Math.floor(rivalsData[i].trophies || 0);
+                const diff = Math.abs(rivalTr - theirTrophies);
+                if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+            }
+            if (bestIdx < 0) continue;
+            usedSlots.add(bestIdx);
+
+            const bot = rivalsData[bestIdx];
             const squadIds = [];
             const squadMeta = {};
             if (Array.isArray(lp.defenseSquad) && lp.defenseSquad.length === 3) {
@@ -6310,17 +6332,14 @@ function renderArena() {
             } else {
                 squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
             }
-            rivalsData[i] = {
+            rivalsData[bestIdx] = {
                 isReal: true,
                 uid: lp.uid,
-                // FIX-LIVE-RANK: rank берётся от бота, которого заменили (позиция в ЛОКАЛЬНОМ
-                // ладдере: myRank-2/-1/+1). Раньше стоял lp.rank из KV — это ранг среди ВСЕХ
-                // живых (глобально по всем лигам), из-за чего живой с малым числом кубков
-                // отображался как "#3", хотя в ладдере он на #996. Логика боя и репорта
-                // атаки от rank не зависит — правка чисто визуальная.
+                // FIX-LIVE-RANK: rank от бота, которого заменили — живой встаёт на позицию,
+                // соответствующую его кубкам в локальном ладдере, а не в топ-1 слот.
                 rank: bot.rank,
                 name: lp.name || 'Неизвестный',
-                trophies: Math.floor(lp.trophies || 150),
+                trophies: theirTrophies,
                 cp: Math.floor(lp.cp || 1000),
                 squad: squadIds,
                 squadMeta: squadMeta,
@@ -6329,7 +6348,7 @@ function renderArena() {
                 consecutiveLosses: 0
             };
         }
-        if (DEV_MODE_CHECK()) devLog('[LiveArena] merged', maxToMerge, 'live players into rivals');
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] merged', uniqueLive.length, 'live players into rivals');
     }
 
     cachedArenaRivals = rivalsData;
