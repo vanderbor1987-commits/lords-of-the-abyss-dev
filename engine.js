@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.2';
+const BUILD_VERSION = '4.9.3';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -4973,13 +4973,12 @@ function renderCards() {
             <div class="tcg-art-bg-layer">${artContent}</div>
             <div class="tcg-header">
                 <div style="display:flex; align-items:center; gap:3px;">
-                    <span class="tcg-tier-badge" style="color:${tierColor};">[${card.tier}]</span>
                     ${_roleHtml}
                 </div>
                 <span class="tcg-stars-row">${formatHeroStars(cardData.stars || 1)}</span>
             </div>
             <div class="tcg-footer-meta">
-                <div class="tcg-name" style="color:${tierColor};">${card.name[currentLang] || card.name['EN']}</div>
+                <div class="tcg-name" style="color:${tierColor};"><span class="tcg-tier-badge" style="color:${tierColor}; margin-right:3px;">[${card.tier}]</span>${card.name[currentLang] || card.name['EN']}</div>
                 <div class="tcg-stats">${currentLang === 'RU' ? 'Ур.' : 'Lvl'} ${formatHeroLevel(cardData.lvl)} | ${cpUnit}: +${formatNumber(getHeroCP(card.id))}</div>
                 ${statusBadge}
             </div>`;
@@ -10332,13 +10331,12 @@ function renderCodexUI() {
                 <div class="tcg-art-bg-layer">${artContent}</div>
                 <div class="tcg-header">
                     <div style="display:flex; align-items:center; gap:3px;">
-                        <span class="tcg-tier-badge" style="color:${tColor};">[${h.tier}]</span>
                         ${_codexRoleHtml}
                     </div>
                     <span class="tcg-stars-row">${isOwned ? formatHeroStars(cardData.stars || 1) : `<span style="font-size:11px; color:var(--text-muted); font-weight:700;">${lockedStr}</span>`}</span>
                 </div>
                 <div class="tcg-footer-meta">
-                    <div class="tcg-name" style="color:${tColor}; font-size:11px;">${h.name[currentLang] || h.name['EN']}</div>
+                    <div class="tcg-name" style="color:${tColor}; font-size:11px;"><span class="tcg-tier-badge" style="color:${tColor}; margin-right:3px;">[${h.tier}]</span>${h.name[currentLang] || h.name['EN']}</div>
                     <div class="tcg-stats" style="font-size:11px;">${isOwned ? `${currentLang === 'RU' ? 'Ур.' : 'Lvl'} ${cardData.lvl} • +${formatNumber(getHeroCP(h.id))} ${cpUnit}` : (currentLang === 'RU' ? 'Не открыт' : 'Locked')}</div>
                 </div>
             </div>`;
