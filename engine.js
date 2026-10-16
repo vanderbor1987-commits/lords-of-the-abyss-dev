@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.13';
+const BUILD_VERSION = '5.3.14';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -1553,6 +1553,49 @@ function getFormattedMidnightCountdown() {
     return `${String(Math.floor(diff / 3600)).padStart(2, '0')}:${String(Math.floor((diff % 3600) / 60)).padStart(2, '0')}:${String(diff % 60).padStart(2, '0')}`;
 }
 
+// v5.3.14: лёгкая защита сейва от ручной правки localStorage.
+// FNV-1a в два прохода — быстрый, стабильный хеш. Ключ 'LOTA-v31' в исходнике,
+// опытный читер прочитает и пересчитает. Ловим только массового ленивого читера.
+function _ckHash(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    let h2 = 0xdeadbeef;
+    for (let i = str.length - 1; i >= 0; i--) {
+        h2 ^= str.charCodeAt(i);
+        h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+    }
+    return ((h ^ h2) >>> 0).toString(36);
+}
+
+function computeSaveChecksum() {
+    const _deckKeys = Object.keys(gState.deck || {}).sort().join(',');
+    const payload = [
+        Math.floor(gState.gold || 0),
+        Math.floor(gState.crystals || 0),
+        Math.floor(gState.relics || 0),
+        Math.floor(gState.relicsFromAscend || 0),
+        Math.floor(gState.tickets || 0),
+        Math.floor(gState.trophies || 0),
+        Math.floor(gState.lifetimeGold || 0),
+        Math.floor(gState.lifetimeWins || 0),
+        Math.floor(gState.dungeonFloor || 1),
+        Math.floor(gState.worldBossMaxHp || 0),
+        Math.floor(gState.buildings?.keep || 1),
+        Math.floor(gState.buildings?.mine || 1),
+        Math.floor(gState.buildings?.barracks || 0),
+        _deckKeys,
+        (gState.usedPromoCodes || []).slice().sort().join(','),
+        (gState.claimedChronicles || []).slice().sort().join(','),
+        (gState.abyssPassFreeClaimed || []).slice().sort().join(','),
+        (gState.abyssPassVipClaimed || []).slice().sort().join(','),
+        (gState.saveVersion || 31)
+    ].join('|');
+    return _ckHash(payload + '|LOTA-v31');
+}
+
 function saveGame(immediateCloud = false) {
     // FIX-SAVE-RACE: до завершения loadGame() писать нельзя — gState содержит
     // дефолтное (FTUE) состояние, и ранняя запись стирает реальный сейв.
@@ -1569,6 +1612,8 @@ function saveGame(immediateCloud = false) {
 
     gState.lastTickTime = Date.now();
     try {
+        // v5.3.14: пересчитываем checksum перед сохранением.
+        gState._ck = computeSaveChecksum();
         const payload = JSON.stringify(gState);
         localStorage.setItem(SAVE_KEY, payload);
         PlatformBridge.queueCloudSave(immediateCloud);
@@ -1702,6 +1747,31 @@ function loadGame() {
     } catch(e) {}
 
     wasLoadedFromEmptyStorage = wasEmpty;
+
+    // v5.3.14: проверка checksum + sanity.
+    // Mismatch _ck → save подменён вне saveGame (DevTools → Local Storage).
+    // Sanity: crystals > 5M при lifetimeGold < crystals*100 — нереально, значит F12-edit.
+    // Никаких сбросов — только флаг _suspicious, уходит в submit.
+    if (!wasEmpty) {
+        try {
+            const _rawCk = localStorage.getItem(SAVE_KEY);
+            if (_rawCk) {
+                const _parsedCk = JSON.parse(_rawCk);
+                if (_parsedCk && typeof _parsedCk._ck === 'string' && _parsedCk._ck.length > 0) {
+                    const _currCk = computeSaveChecksum();
+                    if (_currCk !== _parsedCk._ck) {
+                        gState._suspicious = true;
+                        gState._suspiciousAt = Date.now();
+                        console.warn('[LOTA] Save integrity check failed — flagged as suspicious');
+                    }
+                }
+                if ((gState.crystals || 0) > 5000000 && (gState.lifetimeGold || 0) < ((gState.crystals || 0) * 100)) {
+                    gState._suspicious = true;
+                    gState._suspiciousAt = Date.now();
+                }
+            }
+        } catch (e) {}
+    }
 
     // MAJOR-M10: нормализация построений — защита от мусорных сейвов (null / удалённые id героев).
     // Гарантирует чистое состояние до первого вызова calculateCP, getFormationSynergy и renderFormationSlots.
@@ -5187,7 +5257,11 @@ async function submitArenaProfile(force = false) {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, name, trophies, cp, defenseSquad })
+            body: JSON.stringify({
+                query, name, trophies, cp, defenseSquad,
+                // v5.3.14: флаг suspicion — уходит в KV, пригодится для блокировки в ладдере.
+                suspicious: !!gState._suspicious
+            })
         });
         const data = await resp.json();
         if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);

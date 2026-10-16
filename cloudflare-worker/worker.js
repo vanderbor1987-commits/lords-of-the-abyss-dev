@@ -293,6 +293,9 @@ async function handleArenaSubmit(request, env) {
         trophies,
         cp,
         defenseSquad,
+        // v5.3.14: флаг suspicion от клиента (checksum mismatch / фантастический баланс).
+        // Пока только логируется — в будущем можно исключать из ладдера.
+        suspicious: !!body.suspicious,
         updatedAt: now
     };
     // v4.9.0: TTL 90 дней — ключ самоочищается, если игрок не заходит.
