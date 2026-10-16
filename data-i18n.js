@@ -71,7 +71,9 @@ const I18N = {
         // Настройки
         settings_title: 'НАСТРОЙКИ',
         settings_tab_profile: 'ПРОФИЛЬ',
-        settings_tab_system: 'СИСТЕМА И ЗВУК',
+        settings_tab_system: 'СИСТЕМА',
+        settings_tab_platform: 'ПЛАТФОРМА',
+        settings_sec_legal: 'ПРАВОВАЯ ИНФОРМАЦИЯ:',
         settings_sec_avatar: 'АВАТАР ЛОРДА:',
         settings_sec_nick: 'ИМЯ ПОВЕЛИТЕЛЯ:',
         settings_sec_titles: 'ДОСТУПНЫЕ ТИТУЛЫ:',
@@ -626,7 +628,9 @@ const I18N = {
         // Settings
         settings_title: 'SETTINGS',
         settings_tab_profile: 'PROFILE',
-        settings_tab_system: 'SYSTEM & AUDIO',
+        settings_tab_system: 'SYSTEM',
+        settings_tab_platform: 'PLATFORM',
+        settings_sec_legal: 'LEGAL INFORMATION:',
         settings_sec_avatar: 'LORD AVATAR:',
         settings_sec_nick: 'LORD NAME:',
         settings_sec_titles: 'AVAILABLE TITLES:',

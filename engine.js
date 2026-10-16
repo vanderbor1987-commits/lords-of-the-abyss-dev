@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.1.0';
+const BUILD_VERSION = '5.2.0';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -11641,10 +11641,13 @@ function getLordTitleData() {
 function toggleSettingsTab(tab) {
     document.getElementById('btn-tab-settings-profile')?.classList.toggle('active', tab === 'profile');
     document.getElementById('btn-tab-settings-system')?.classList.toggle('active', tab === 'system');
+    document.getElementById('btn-tab-settings-platform')?.classList.toggle('active', tab === 'platform');
     const pPane = document.getElementById('settings-tab-profile');
     const sPane = document.getElementById('settings-tab-system');
+    const plPane = document.getElementById('settings-tab-platform');
     if (pPane) pPane.style.display = tab === 'profile' ? 'flex' : 'none';
     if (sPane) sPane.style.display = tab === 'system' ? 'flex' : 'none';
+    if (plPane) plPane.style.display = tab === 'platform' ? 'flex' : 'none';
     playSfx(400, 'sine', 0.04);
 }
 
