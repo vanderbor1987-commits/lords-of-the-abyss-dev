@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.8';
+const BUILD_VERSION = '4.8.9';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -9279,6 +9279,27 @@ function renderDailyCalendarGrid() {
     const isViewingCurrentWeek = activeCalendarViewWeek === curRealWeek;
     const actBox = document.getElementById('cal-action-buttons');
     if (actBox) actBox.style.display = (canClaimToday && isViewingCurrentWeek) ? 'flex' : 'none';
+
+    // v4.8.9 FIX-CALENDAR-BTN-UNLOCK: разблокировка кнопок Забрать/Удвоить.
+    // ПРОБЛЕМА: btn-cal-claim/btn-cal-double — статичные элементы HTML.
+    // claimDailyReward() ставит им disabled = true, но НЕ сбрасывает обратно.
+    // Раньше баг не проявлялся, потому что игрок перезагружал страницу —
+    // HTML пересоздавался, disabled уходил в дефолт false.
+    // Теперь: вкладка живёт через полночь → checkDailyReset() сбрасывает
+    // флаги, isDailyCalendarReady() снова true, actBox показывается,
+    // но кнопки остаются серыми с вчерашнего клейма → клик не проходит.
+    // Разблокировка идёт именно здесь — renderDailyCalendarGrid вызывается
+    // из openDailyCalendarModal(), после успешного клейма, при смене недели.
+    const _calBtnClaim = document.getElementById('btn-cal-claim');
+    const _calBtnDouble = document.getElementById('btn-cal-double');
+    if (canClaimToday && isViewingCurrentWeek) {
+        if (_calBtnClaim) _calBtnClaim.disabled = false;
+        if (_calBtnDouble) _calBtnDouble.disabled = false;
+        // Страховка от залипшего флага: если прошлый rewarded-видео оборвался
+        // между disabled = true и action() — флаг остался true и блокировал
+        // повторные попытки до F5. Сбрасываем при каждом рендере с готовым днём.
+        isClaimingDaily = false;
+    }
 }
 
 let isClaimingDaily = false;
