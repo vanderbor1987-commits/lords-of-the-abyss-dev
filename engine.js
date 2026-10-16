@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.2';
+const BUILD_VERSION = '5.2.3';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5338,9 +5338,14 @@ async function checkArenaInbox() {
     if (!attacks || attacks.length === 0) return;
     gState.pendingInboxAttacks = attacks;
     // v4.9.6: дублируем входящие PvP-атаки в журнал сражений на Арене.
-    // Раньше реальные нападения жили только в модалке «Журнал атак».
+    // FIX-INBOX-HISTORY-DEDUP: дедуп по (attackerUid + ts) — иначе при каждом
+    // переоткрытии игры одни и те же атаки перезаписывались в журнал заново.
+    if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
     const _trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="Trophy">';
     attacks.slice(0, 5).forEach(atk => {
+        const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
+        if (gState._seenInboxKeys[dedupKey]) return;
+        gState._seenInboxKeys[dedupKey] = 1;
         const isLossForPlayer = atk.result === 'win';
         const delta = Math.abs(Math.floor(atk.trophyChange || 0));
         const timeStr = atk.ts ? new Date(atk.ts * 1000).toLocaleTimeString().slice(0, 5) : '';
@@ -5353,6 +5358,11 @@ async function checkArenaInbox() {
             text: `${isLossForPlayer ? '-' : '+'}${delta} ${_trIcon}`
         });
     });
+    // Обрезаем кэш дедупа — не больше 200 последних ключей
+    const _keys = Object.keys(gState._seenInboxKeys);
+    if (_keys.length > 200) {
+        _keys.slice(0, _keys.length - 200).forEach(k => delete gState._seenInboxKeys[k]);
+    }
     if (gState.battleHistory.length > 8) gState.battleHistory.length = 8;
     renderBattleHistory();
     saveGame();
@@ -6129,6 +6139,36 @@ function calculateDynamicTrophyGain(playerCP, oppCP) {
     }
 }
 
+// FIX-LEADERBOARD-UNIFIED-RANK: универсальная версия calculatePlayerRank
+// для произвольного числа кубков. Нужна для корректного размещения живых
+// в таблице лидеров по единой формуле. Для игрока — calculatePlayerRank(),
+// для живых — эта функция с их trophies.
+function calculatePlayerRankByTrophies(playerTrophies) {
+    ensureTopTenBots();
+    const curLeagueId = gState.arenaLeague || 'bronze';
+    const leagueTrophies = {
+        bronze: { minTr: 150, maxTr: 800 },
+        silver: { minTr: 800, maxTr: 1500 },
+        gold: { minTr: 1500, maxTr: 2300 },
+        platinum: { minTr: 2300, maxTr: 3000 },
+        diamond: { minTr: 3000, maxTr: 3700 }
+    };
+    const cfg = leagueTrophies[curLeagueId] || leagueTrophies.bronze;
+    const pTr = Math.max(cfg.minTr, Math.floor(playerTrophies || cfg.minTr));
+    const bots = gState.arenaTopTenBots || [];
+    let topRank = 1;
+    for (let i = 0; i < bots.length; i++) {
+        if (pTr < bots[i].trophies) topRank = i + 2;
+    }
+    if (topRank <= 10) return topRank;
+    const bot10Tr = bots[9] ? bots[9].trophies : Math.floor(cfg.maxTr * 0.78);
+    if (pTr <= cfg.minTr) return 1000;
+    const span = Math.max(1, bot10Tr - cfg.minTr);
+    const progress = Math.max(0, Math.min(1, (bot10Tr - pTr) / span));
+    const subRank = 11 + Math.floor(Math.pow(progress, 1.2) * (1000 - 11));
+    return Math.max(11, Math.min(1000, subRank));
+}
+
 function calculatePlayerRank() {
     ensureTopTenBots();
     const curLeagueId = gState.arenaLeague || 'bronze';
@@ -6254,8 +6294,11 @@ function renderArena() {
     if (hasInvalidRivals) {
         generateArenaRivals();
     } else {
-        // Синхронизация кубков ботов Топ-10 без мутации их закрепленных рангов
+        // Синхронизация кубков ботов Топ-10 без мутации их закрепленных рангов.
+        // FIX-SYNC-SKIP-LIVE: пропускаем живых (isReal) — иначе кубки живого временно
+        // перезаписывались кубками бота, которого он заменяет.
         gState.arenaActiveRivals.forEach(riv => {
+            if (riv.isReal) return;
             if (riv.rank <= 10 && gState.arenaTopTenBots) {
                 const targetIdx = Math.max(0, Math.min(9, riv.rank < myRank ? riv.rank - 1 : riv.rank - 2));
                 const topBot = gState.arenaTopTenBots[targetIdx];
@@ -6355,7 +6398,10 @@ function renderArena() {
         if (DEV_MODE_CHECK()) devLog('[LiveArena] merged', uniqueLive.length, 'live players into rivals');
     }
 
-    cachedArenaRivals = rivalsData;
+    // FIX-CACHED-RIVALS-COPY: копия массива, а не ссылка на gState.arenaActiveRivals.
+    // Иначе мутации (замена элемента на живого) сохранялись в сейв и всплывали
+    // после перезагрузки как «призраки» живых с устаревшими данными.
+    cachedArenaRivals = rivalsData.slice();
 
     rivalsData.forEach((lord, index) => {
         const div = document.createElement('div');
@@ -6512,10 +6558,13 @@ function startActualCombatWithRival(rival) {
                     gState.lifetimeWins = (gState.lifetimeWins || 0) + 1;
                     gState.ftueArenaDone = true;
 
-                    // LIVE-ARENA (v4.7.8): если соперник живой — уведомляем сервер.
+                    // LIVE-ARENA: уведомляем сервер ТОЛЬКО базовым trophyGain (без x2).
+                    // Раньше отправлялся finalTrophies (trophyGain * 2), превышал TROPHY_CHANGE_MAX=50
+                    // на Worker'е и атака отклонялась с invalid_trophy_change.
+                    // Сервер всё равно пересчитывает trophyChange сам — клиентское значение валидируется,
+                    // но не используется. Отправляем trophyGain (16..32) — гарантированно влезает.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
-                        reportArenaAttack(rival.uid, 'win', finalTrophies);
-                        // B4: форсим submit, чтобы новые кубки ушли в KV сразу.
+                        reportArenaAttack(rival.uid, 'win', trophyGain);
                         if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
                     }
 
@@ -6721,59 +6770,63 @@ function renderLeaderboard() {
     if (_lastLeaderboardKey === cacheKey) return;
     _lastLeaderboardKey = cacheKey;
 
-    // B6: объединённый пул — живые из liveTopCache + боты 1-10 + сам игрок.
-    // Сортируем по кубкам desc, берём первые 10 как отображаемый ладдер.
-    // Место игрока в этом ладдере — честная позиция в объединённом пуле.
+    // FIX-LEADERBOARD-UNIFIED-RANK: rank в таблице приходит из единого источника —
+    // calculatePlayerRank для игрока и живых, фиксированные позиции из arenaTopTenBots
+    // для ботов 1-10. Свободная сортировка по кубкам давала расхождение:
+    // игрок с 332 кубками получал разный rank в таблице и в calculatePlayerRank.
     const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+    const myUnifiedRank = myRank; // единый rank игрока (топ-10 или 11..1000)
 
-    const botsPool = [];
+    // Базовые 10 слотов — боты. Живые и игрок подменяют слоты, соответствующие их rank.
+    const topSlots = [];
     for (let r = 1; r <= 10; r++) {
         const bot = getBotByRank(r);
-        botsPool.push({
+        topSlots.push({
+            rank: r,
             name: escapeHtml(bot.name),
             trophies: Math.floor(bot.trophies || 0),
             cp: bot.cp,
-            squad: bot.squad,
             isMe: false,
             isReal: false
         });
     }
 
-    const livePool = [];
+    // Игрок в топ-10: подменяем слот своего rank
+    if (myUnifiedRank <= 10) {
+        topSlots[myUnifiedRank - 1] = {
+            rank: myUnifiedRank,
+            name: cleanPlayerName,
+            trophies: Math.floor(myTrophies),
+            cp: calculateCP(gState.defenseFormation, null, false),
+            isMe: true,
+            isReal: false
+        };
+    }
+
+    // Живые в топ-10: вычисляем их rank по той же формуле, что и для игрока.
+    // Упрощение: используем calculatePlayerRankByTrophies(lp.trophies).
     const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
-    if (liveCache.length > 0) {
+    if (typeof calculatePlayerRankByTrophies === 'function') {
         for (const lp of liveCache) {
-            if (!lp || !lp.uid) continue;
-            if (lp.uid === myUid) continue; // себя добавим отдельно с флагом isMe
-            livePool.push({
-                name: escapeHtml(String(lp.name || '???').slice(0, 12)),
-                trophies: Math.floor(lp.trophies || 0),
-                cp: Math.floor(lp.cp || 0),
-                squad: null,
-                isMe: false,
-                isReal: true
-            });
+            if (!lp || !lp.uid || lp.uid === myUid) continue;
+            const liveRank = calculatePlayerRankByTrophies(lp.trophies);
+            if (liveRank >= 1 && liveRank <= 10 && !topSlots[liveRank - 1].isMe) {
+                topSlots[liveRank - 1] = {
+                    rank: liveRank,
+                    name: escapeHtml(String(lp.name || '???').slice(0, 12)),
+                    trophies: Math.floor(lp.trophies || 0),
+                    cp: Math.floor(lp.cp || 0),
+                    isMe: false,
+                    isReal: true
+                };
+            }
         }
     }
 
+    const topTen = topSlots;
+    const meInTop = myUnifiedRank <= 10;
+    const myRealRank = myUnifiedRank;
     const myDisplayTrophies = Math.floor(myTrophies);
-    const me = {
-        name: cleanPlayerName,
-        trophies: myDisplayTrophies,
-        cp: calculateCP(gState.defenseFormation, null, false),
-        squad: gState.defenseFormation,
-        isMe: true,
-        isReal: false
-    };
-
-    const allPlayers = [...livePool, ...botsPool, me];
-    allPlayers.sort((a, b) => b.trophies - a.trophies);
-
-    const topTen = allPlayers.slice(0, 10).map((p, idx) => ({ ...p, rank: idx + 1 }));
-
-    const myUnifiedIdx = allPlayers.findIndex(p => p.isMe);
-    const myRealRank = myUnifiedIdx >= 0 ? (myUnifiedIdx + 1) : 999;
-    const meInTop = myRealRank <= 10;
 
     let html = '';
     topTen.forEach(p => {
