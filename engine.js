@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.10';
+const BUILD_VERSION = '5.3.11';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5111,8 +5111,8 @@ const LAST_PROFILE_HASH_KEY = 'lota_last_profile_hash';
 const LAST_PROFILE_TS_KEY = 'lota_last_profile_ts';
 const MIN_SUBMIT_INTERVAL_MS = 60000;
 
-function computeProfileHash(name, trophies, cp, squad) {
-    const str = name + '|' + trophies + '|' + cp + '|' + squad.map(s => s.id + ':' + s.stars + ':' + s.lvl).join(',');
+function computeProfileHash(name, trophies, cp, squad, crystals) {
+    const str = name + '|' + trophies + '|' + cp + '|' + squad.map(s => s.id + ':' + s.stars + ':' + s.lvl).join(',') + '|c' + (crystals || 0);
     let h = 2166136261;
     for (let i = 0; i < str.length; i++) {
         h ^= str.charCodeAt(i);
@@ -5156,7 +5156,9 @@ async function submitArenaProfile(force = false) {
     });
 
     // B4: hash-проверка. Если профиль не изменился и прошло <60 сек — skip.
-    const hash = computeProfileHash(name, trophies, cp, defenseSquad);
+    // v5.3.11: включаем crystals в submit — на них опирается sync на другом устройстве.
+    const _crystalsForSync = Math.max(0, Math.floor(gState.crystals || 0));
+    const hash = computeProfileHash(name, trophies, cp, defenseSquad, _crystalsForSync);
     let lastHash = '', lastTs = 0;
     try {
         lastHash = localStorage.getItem(LAST_PROFILE_HASH_KEY) || '';
@@ -5183,7 +5185,7 @@ async function submitArenaProfile(force = false) {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, name, trophies, cp, defenseSquad })
+            body: JSON.stringify({ query, name, trophies, cp, defenseSquad, crystals: _crystalsForSync })
         });
         const data = await resp.json();
         if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);
@@ -5304,6 +5306,41 @@ function getOrCreateDeviceId() {
     }
 }
 
+// v5.3.11: sync кристаллов из KV при открытии Алтаря.
+// Закрывает RNG-дубль Варианта C: после ролла на устройстве A кристаллы
+// отправляются на Worker. Устройство B при заходе в Алтарь читает player:<uid>,
+// видит меньше серверных чем локальных → подтягивает серверные.
+// Не перезаписываем, если серверные >= локальных — там IAP-покупки,
+// потерять их нельзя. Работает только в VK-контексте (нужен sign).
+let _crystalSyncInFlight = false;
+async function syncCrystalsFromServer() {
+    if (!canSubmitToLiveArena()) return;
+    if (_crystalSyncInFlight) return;
+    _crystalSyncInFlight = true;
+    try {
+        const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+        if (!myUid) return;
+        const profile = await fetchPlayerProfile(myUid);
+        if (!profile || typeof profile.crystals !== 'number') return;
+        const srvCryst = Math.max(0, Math.floor(profile.crystals));
+        const locCryst = Math.max(0, Math.floor(gState.crystals || 0));
+        // Подтягиваем только если серверные МЕНЬШЕ локальных (следы ролла на другом устройстве).
+        // Если больше — расхождение объясняется pending-submit, submit заберёт локальные.
+        if (srvCryst < locCryst) {
+            const diff = locCryst - srvCryst;
+            gState.crystals = srvCryst;
+            saveGame();
+            renderUI();
+            pushToast(currentLang === 'RU'
+                ? `Кристаллы синхронизированы: -${diff} (призыв с другого устройства)`
+                : `Crystals synced: -${diff} (summon from another device)`);
+        }
+    } catch (e) {
+    } finally {
+        _crystalSyncInFlight = false;
+    }
+}
+
 // v5.3.8: запрос лока призыва у Worker'а. При сетевой ошибке возвращает ok:true
 // (offline fallback — крутим локально, чтобы не блокировать игру без сети).
 async function requestSummonLock() {
@@ -5327,6 +5364,11 @@ async function requestSummonLock() {
 // v5.3.8: обёртка над summonGacha с проверкой лока.
 // Вызывается из кнопок Алтаря вместо summonGacha.
 async function summonGachaWithLock(type, count = 1) {
+    // v5.3.11: перед роллом — подтягиваем кристаллы из KV (если были роллы
+    // на другом устройстве — серверные меньше локальных, синкаем).
+    if (typeof syncCrystalsFromServer === 'function') {
+        await syncCrystalsFromServer();
+    }
     const lock = await requestSummonLock();
     if (!lock.ok && lock.reason === 'summon_locked') {
         const retryIn = Math.max(1, Math.ceil((lock.retryIn || 60000) / 1000));
@@ -12891,6 +12933,10 @@ function navigate(viewId) {
     }
 
     if (viewId === 'dungeon-view') renderDungeon();
+    // v5.3.11: при входе в Алтарь — sync кристаллов из KV.
+    if (viewId === 'altar-view' && typeof syncCrystalsFromServer === 'function') {
+        syncCrystalsFromServer();
+    }
     if (viewId === 'arena-view') {
         // LIVE-ARENA (v4.7.6): подтягиваем живых соперников асинхронно,
         // затем перерисовываем список. Первый рендер идёт с кэшем (если есть),

@@ -293,6 +293,10 @@ async function handleArenaSubmit(request, env) {
         trophies,
         cp,
         defenseSquad,
+        // v5.3.11: crystals сохраняются для синхронизации между устройствами.
+        // Клиент отправляет в submit — второе устройство при заходе в Алтарь
+        // подтянет их и не сможет крутить за старые (защита от RNG-дубля).
+        crystals: Math.max(0, Math.min(50000000, parseInt(body.crystals, 10) || 0)),
         updatedAt: now
     };
     // v4.9.0: TTL 90 дней — ключ самоочищается, если игрок не заходит.
@@ -591,6 +595,8 @@ async function handleArenaProfile(request, env) {
 
     try {
         const player = JSON.parse(raw);
+        // v5.3.11: клиент подтягивает кристаллы для защиты от RNG-дубля призыва.
+        // Поле приходит только если submit включал crystals — иначе undefined.
         return json({ ok: true, player });
     } catch (e) {
         return json({ ok: false, reason: 'corrupted' }, 500);
