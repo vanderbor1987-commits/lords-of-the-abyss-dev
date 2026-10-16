@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.3';
+const BUILD_VERSION = '5.3.4';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -6981,19 +6981,35 @@ function renderLeaderboard() {
     }
 
     const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
-    const seenLive = new Set([myUid]);
+    // v5.3.4 FIX-LEADERBOARD-DEDUP-BY-NAME: живой игрок и бот из humanNicknames
+    // могут иметь одинаковое имя (напр. 'Мститель'). Раньше dedup был только по uid —
+    // живой от бота с тем же именем не отсекался, в топ-10 появлялись дубли.
+    // Теперь живые занимают свои имена в Set, ботов с такими именами пропускаем.
+    const seenLiveUids = new Set([myUid]);
+    const seenNames = new Set([cleanPlayerName.toLowerCase()]);
+    const liveInserted = [];
     for (const lp of liveCache) {
-        if (!lp || !lp.uid || seenLive.has(lp.uid)) continue;
-        seenLive.add(lp.uid);
-        pool.push({
+        if (!lp || !lp.uid || seenLiveUids.has(lp.uid)) continue;
+        seenLiveUids.add(lp.uid);
+        const _lpName = String(lp.name || '???').slice(0, 12);
+        const _lpNameKey = _lpName.toLowerCase();
+        if (seenNames.has(_lpNameKey)) continue;
+        seenNames.add(_lpNameKey);
+        liveInserted.push({
             uid: lp.uid,
-            name: escapeHtml(String(lp.name || '???').slice(0, 12)),
+            name: escapeHtml(_lpName),
             trophies: Math.floor(lp.trophies || 0),
             cp: Math.floor(lp.cp || 0),
             isMe: false,
             isReal: true
         });
     }
+    // Боты 1-10: пропускаем тех, чьё имя совпадает с уже вставленным живым.
+    // (сначала строим botPool, потом — pool с живыми и игроком)
+    const botPoolFiltered = pool.filter(b => !seenNames.has(String(b.name || '').toLowerCase()));
+    pool.length = 0;
+    pool.push(...botPoolFiltered);
+    pool.push(...liveInserted);
 
     pool.push({
         uid: myUid || 'me',
@@ -7016,9 +7032,10 @@ function renderLeaderboard() {
     const topTen = pool.slice(0, 10).map((p, idx) => ({ ...p, rank: idx + 1 }));
     const meIdx = pool.findIndex(p => p.isMe);
     const meInTop = meIdx >= 0 && meIdx < 10;
-    // Для нижней секции (если не в топ-10) используем глобальный calculatePlayerRank —
-    // он даёт настоящий рейтинг, а не «индекс в маленьком пуле из 14 элементов».
-    const myRealRank = meInTop ? (meIdx + 1) : myUnifiedRank;
+    // v5.3.4 FIX-LEADERBOARD-HONEST-RANK: rank в подвале = честная позиция в объединённом пуле.
+    // Раньше fallback шёл на myUnifiedRank (глобальная формула) — она не знает про живых,
+    // и давала rank, не согласованный с топ-10 таблицей (игрок #9 в подвале, но в топ-10 его нет).
+    const myRealRank = meIdx >= 0 ? (meIdx + 1) : myUnifiedRank;
     const myDisplayTrophies = Math.floor(myTrophies);
 
     let html = '';
