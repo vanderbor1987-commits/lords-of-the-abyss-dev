@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.6';
+const BUILD_VERSION = '5.3.0';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5343,28 +5343,35 @@ async function fetchPlayerProfile(targetUid) {
 }
 
 // v5.2.4: молчаливый sync без показа модалки. Применяет ±trophyChange к gState.trophies
-// для новых атак (по дедуп-ключу). Вызывается раз в 5 минут из основного тика —
-// пока игрок в игре, атаки живых обновляют его кубки без перезахода.
+// для новых атак (по дедуп-ключу). Вызывается раз в 60 сек из основного тика.
+// v5.3.0: reentrancy-guard — медленный Worker + тик не дают двух параллельных запросов.
+let _silentInboxBusy = false;
 async function silentInboxSync() {
     if (!canSubmitToLiveArena()) return;
-    const attacks = await fetchArenaInbox();
-    if (!attacks || attacks.length === 0) return;
-    if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
-    let _deltaSum = 0, _applied = 0;
-    attacks.forEach(atk => {
-        const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
-        if (gState._seenInboxKeys[dedupKey]) return;
-        gState._seenInboxKeys[dedupKey] = 1;
-        _deltaSum += Math.floor(atk.trophyChange || 0);
-        _applied++;
-    });
-    if (_applied > 0) {
-        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
-        saveGame();
-        renderUI();
-        renderArena();
-        renderLeaderboard();
-        if (DEV_MODE_CHECK()) devLog('[LiveArena] silent sync applied', _applied, 'delta', _deltaSum);
+    if (_silentInboxBusy) return;
+    _silentInboxBusy = true;
+    try {
+        const attacks = await fetchArenaInbox();
+        if (!attacks || attacks.length === 0) return;
+        if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
+        let _deltaSum = 0, _applied = 0;
+        attacks.forEach(atk => {
+            const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
+            if (gState._seenInboxKeys[dedupKey]) return;
+            gState._seenInboxKeys[dedupKey] = 1;
+            _deltaSum += Math.floor(atk.trophyChange || 0);
+            _applied++;
+        });
+        if (_applied > 0) {
+            gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
+            saveGame();
+            renderUI();
+            renderArena();
+            renderLeaderboard();
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] silent sync applied', _applied, 'delta', _deltaSum);
+        }
+    } finally {
+        _silentInboxBusy = false;
     }
 }
 
@@ -5839,10 +5846,18 @@ function claimSeasonCeremony() {
     }
     if (data.heroReward && HEROES_CATALOG[data.heroReward]) {
         const hid = data.heroReward;
+        // v5.3.0 FIX-SEASON-MAX-HERO-COMP: при MAX 10★ выдаём компенсацию 1500 C,
+        // как в промокодах. Раньше Math.min(10, stars+1) молча терял награду.
         if (!gState.deck[hid]) {
             gState.deck[hid] = { stars: 1, lvl: 1 };
+        } else if ((gState.deck[hid].stars || 1) < 10) {
+            gState.deck[hid].stars = (gState.deck[hid].stars || 1) + 1;
         } else {
-            gState.deck[hid].stars = Math.min(10, (gState.deck[hid].stars || 1) + 1);
+            gState.crystals += 1500;
+            const _cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+            setTimeout(() => pushToast(currentLang === 'RU'
+                ? `Трофей лиги уже MAX 10★: +1500 ${_cI} компенсации`
+                : `League trophy already MAX 10★: +1500 ${_cI} compensation`), 200);
         }
     }
 
@@ -6628,14 +6643,28 @@ function startActualCombatWithRival(rival) {
                     gState.lifetimeWins = (gState.lifetimeWins || 0) + 1;
                     gState.ftueArenaDone = true;
 
-                    // LIVE-ARENA: уведомляем сервер ТОЛЬКО базовым trophyGain (без x2).
-                    // Раньше отправлялся finalTrophies (trophyGain * 2), превышал TROPHY_CHANGE_MAX=50
-                    // на Worker'е и атака отклонялась с invalid_trophy_change.
-                    // Сервер всё равно пересчитывает trophyChange сам — клиентское значение валидируется,
-                    // но не используется. Отправляем trophyGain (16..32) — гарантированно влезает.
+                    // v5.3.0 FIX-PVP-ASYNC-ROLLBACK: ждём ответа сервера перед submit.
+                    // Раньше reportArenaAttack и submitArenaProfile(true) шли параллельно —
+                    // при отказе Worker'а (rate_limited, target_too_far, target_not_found)
+                    // локальные +trophies всё равно уходили в KV как безосновательная награда.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
-                        reportArenaAttack(rival.uid, 'win', trophyGain);
-                        if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
+                        const _finalTrophiesWin = finalTrophies;
+                        reportArenaAttack(rival.uid, 'win', trophyGain).then(resp => {
+                            if (resp && resp.ok) {
+                                if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
+                            } else {
+                                // Откат: атака не зафиксирована, возвращаем награду из локального state.
+                                gState.trophies = Math.max(0, (gState.trophies || 0) - _finalTrophiesWin);
+                                saveGame();
+                                renderUI();
+                                renderArena();
+                                renderLeaderboard();
+                                const _rsn = (resp && resp.reason) || 'network';
+                                pushToast(currentLang === 'RU'
+                                    ? `Сервер отклонил атаку (${_rsn}). Кубки возвращены.`
+                                    : `Server rejected attack (${_rsn}). Trophies refunded.`);
+                            }
+                        });
                     }
 
                     // FIX-ARENA-TROPHY-LOSS: побеждённый соперник ТЕРЯЕТ кубки (как в реальном PvP),
@@ -6745,11 +6774,21 @@ function startActualCombatWithRival(rival) {
                 setClaimHandler(() => {
                     gState.trophies = Math.max(0, (gState.trophies || 0) - trophyLoss);
 
-                    // LIVE-ARENA (v4.7.8): уведомляем сервер о поражении.
+                    // v5.3.0 FIX-PVP-ASYNC-ROLLBACK-LOSS: аналогично победной ветке.
+                    // При отказе Worker'а — возвращаем потерянные кубки игроку.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
-                        reportArenaAttack(rival.uid, 'loss', trophyLoss);
-                        // B4: форсим submit, чтобы потерянные кубки ушли в KV сразу.
-                        if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
+                        const _lossAmount = trophyLoss;
+                        reportArenaAttack(rival.uid, 'loss', _lossAmount).then(resp => {
+                            if (resp && resp.ok) {
+                                if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
+                            } else {
+                                gState.trophies = Math.min(3700, (gState.trophies || 0) + _lossAmount);
+                                saveGame();
+                                renderUI();
+                                renderArena();
+                                renderLeaderboard();
+                            }
+                        });
                     }
 
                     // Соперник НЕ исчезает: он честно забирает кубки и закрепляется в списке под статусом РЕВАНША!
@@ -12148,11 +12187,13 @@ function saveAndCloseSettings() {
     renderUI();
     pushToast(currentLang === 'RU' ? "Настройки сохранены!" : "Settings saved!");
 
-    // B4: при смене имени — force submit, минуя debounce и hash-проверку.
-    // Гарантирует, что имя обновится в KV в течение 5-10 секунд.
-    if (typeof submitArenaProfile === 'function' && typeof canSubmitToLiveArena === 'function' && canSubmitToLiveArena()) {
+    // v5.3.0 FIX-SAVE-NICK-SUBMIT-SCHEDULE: через schedule вместо force-submit.
+    // Раньше submitArenaProfile(true) обходил _inboxSyncPending — если игрок сразу
+    // после boot меняет имя, кубки уходили в KV без inbox-sync (возможный откат
+    // серверных изменений от PvP). scheduleLiveArenaSubmit уважает флаг.
+    if (typeof scheduleLiveArenaSubmit === 'function' && typeof canSubmitToLiveArena === 'function' && canSubmitToLiveArena()) {
         if (liveArenaSubmitDebounce) { clearTimeout(liveArenaSubmitDebounce); liveArenaSubmitDebounce = null; }
-        submitArenaProfile(true);
+        scheduleLiveArenaSubmit(false);
     }
 }
 
@@ -13066,6 +13107,25 @@ setInterval(() => {
     if (window._silentInboxTimer >= 60) {
         window._silentInboxTimer = 0;
         if (typeof silentInboxSync === 'function') silentInboxSync();
+    }
+
+    // v5.3.0 FIX-LIVE-RIVALS-AUTO-REFRESH: раз в 90 сек обновляем живых соперников,
+    // пока игрок на Арене. Иначе liveRivalsCache устаревает через 120 сек и живые
+    // пропадают из списка до перехода на другую вкладку и обратно.
+    if (document.querySelector('.view-tab.active')?.id === 'arena-view') {
+        if (!window._liveRivalsTimer) window._liveRivalsTimer = 0;
+        window._liveRivalsTimer++;
+        if (window._liveRivalsTimer >= 90) {
+            window._liveRivalsTimer = 0;
+            gState.liveRivalsCacheTs = 0;
+            if (typeof fetchLiveRivals === 'function') {
+                fetchLiveRivals(2).then(list => {
+                    if (list && list.length > 0) renderArena();
+                });
+            }
+        }
+    } else {
+        window._liveRivalsTimer = 0;
     }
 }, 1000);
 
