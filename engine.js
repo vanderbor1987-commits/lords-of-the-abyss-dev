@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.9';
+const BUILD_VERSION = '5.3.10';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -2539,13 +2539,22 @@ function triggerFatigue() {
     setTimeout(() => { fatigueActive = false; }, 3000);
 }
 
+// v5.3.10 MULTI-TOUCH: отслеживаем активные указатели (пальцы).
+// pointerdown приходит на каждое касание, но 30ms throttle и общий tapHistory
+// отбрасывали второй/третий палец. При multi-touch fatigue-проверка пропускается.
+const _activeTapPointers = new Set();
 const tapNode = document.getElementById('tap-node');
 if (tapNode) {
     tapNode.addEventListener('pointerdown', (e) => {
-        if (!verifyTapLegitimacy()) return;
-        const now = performance.now();
-        if (now - lastTap < 30) return;
-        lastTap = now;
+        _activeTapPointers.add(e.pointerId);
+        const _isMultiTouch = _activeTapPointers.size > 1;
+        if (!_isMultiTouch && !verifyTapLegitimacy()) {
+            _activeTapPointers.delete(e.pointerId);
+            return;
+        }
+        // 30ms throttle убран: pointerdown не повторяется на один палец,
+        // а для multi-touch throttle ошибочно отбрасывал одновременные касания.
+        lastTap = performance.now();
 
         if (!isFtueCompleted() && gState.ftueStep === 0) {
             gState.ftueTaps = (gState.ftueTaps || 0) + 1;
@@ -2600,6 +2609,12 @@ if (tapNode) {
         renderFtue();
         renderUI();
     });
+
+    // v5.3.10: чистим активные указатели при отпускании/отмене касания.
+    const _releasePointer = (e) => _activeTapPointers.delete(e.pointerId);
+    tapNode.addEventListener('pointerup', _releasePointer);
+    tapNode.addEventListener('pointercancel', _releasePointer);
+    tapNode.addEventListener('pointerleave', _releasePointer);
 }
 
 function spawnGoldFloatingText(x, y, textHtml, isCrit) {
@@ -13021,7 +13036,8 @@ function applyLanguage(lang) {
     setTip('pill-army', tips.army);
     setTip('pill-cryst', tips.crystals);
     setTip('pill-relics', tips.relics);
-    setTip('tap-node', tips.frenzy);
+    // v5.3.10: тултип снят с кнопки тапа. При активном тапе (2-3 пальца)
+    // long-press случайно срабатывал и показывал спам из-за multi-touch.
     setTip('slot-0', tips.slot_0);
     setTip('slot-1', tips.slot_1);
     setTip('slot-2', tips.slot_2);
@@ -13736,6 +13752,8 @@ function initMobileLongPressTooltips() {
         }
         const target = e.target.closest('[title]');
         if (!target) return;
+        // v5.3.10: исключаем активно-тапаемые игровые зоны — там тултип мешает.
+        if (target.id === 'tap-node' || target.closest('.citadel-bottom-tap-zone')) return;
         const text = target.getAttribute('title');
         if (!text) return;
 
