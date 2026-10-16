@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.11';
+const BUILD_VERSION = '5.3.12';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -127,6 +127,10 @@ let gState = {
     // UX-настройка: скрыть красные точки уведомлений у зданий (Шахты/Казармы + сигнал прокачки Цитадели).
     // Возвышение на Цитадели (isAscendReady) — критичный сигнал, остаётся видимым всегда.
     hideBuildingBadges: false,
+    // v5.3.12: флаг активной IAP-покупки. Пока true — syncCrystalsFromServer
+    // не подтягивает серверные кристаллы (иначе покупка удаляется до submit'а).
+    // Снимается после успешного submitArenaProfile с текущими кристаллами.
+    _iapPendingSync: false,
     musicVolume: 0.35,
     sfxVolume: 0.8,
     hasFirstPurchaseDone: false,
@@ -5195,6 +5199,8 @@ async function submitArenaProfile(force = false) {
                 localStorage.setItem(LAST_PROFILE_HASH_KEY, hash);
                 localStorage.setItem(LAST_PROFILE_TS_KEY, String(Date.now()));
             } catch (e) {}
+            // v5.3.12: успешный submit — кристаллы на сервере актуальны, флаг IAP снимается.
+            if (gState._iapPendingSync) gState._iapPendingSync = false;
         }
 
         if (data && data.ok === false && data.reason === 'rate_limited') {
@@ -5316,6 +5322,9 @@ let _crystalSyncInFlight = false;
 async function syncCrystalsFromServer() {
     if (!canSubmitToLiveArena()) return;
     if (_crystalSyncInFlight) return;
+    // v5.3.12: пока IAP-покупка не подтверждена submit'ом — не синкаем.
+    // Иначе купленные кристаллы удаляются, потому что серверные ещё старые.
+    if (gState._iapPendingSync) return;
     _crystalSyncInFlight = true;
     try {
         const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
@@ -10322,6 +10331,8 @@ function executePurchase(itemKeyOverride = null) {
         const isDouble = !gState.firstDoubleClaimed[key];
         const gain = isDouble ? base * 2 : base;
         gState.crystals += gain;
+        // v5.3.12: помечаем IAP-покупку — до успешного submit sync не трогает кристаллы.
+        gState._iapPendingSync = true;
         if (isDouble) {
             gState.firstDoubleClaimed[key] = true;
             pushToast(`x2 БОНУС ПЕРВОЙ ПОКУПКИ: +${formatNumber(gain)} ${cI}`);
@@ -10382,6 +10393,13 @@ function executePurchase(itemKeyOverride = null) {
     saveGame();
     renderCards();
     renderUI();
+    // v5.3.12: форсим submit сразу после IAP-покупки. Кристаллы уходят в KV
+    // до того, как sync на этом же или другом устройстве мог бы их откатить.
+    if (typeof submitArenaProfile === 'function'
+        && typeof canSubmitToLiveArena === 'function'
+        && canSubmitToLiveArena()) {
+        submitArenaProfile(true);
+    }
     // T-C: снимаем guard ПОСЛЕ сохранения — при краше между начислением и saveGame
     // следующий запуск подберёт незавершённое состояние через T-D (флаг после начисления)
     isPurchasing = false;
