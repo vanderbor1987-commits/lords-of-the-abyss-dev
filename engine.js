@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.3';
+const BUILD_VERSION = '4.9.4';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -3522,6 +3522,19 @@ const TIER_BASE_CP = {
 const UPGRADE_REFERENCE_CP = 100; // эталон для формулы стоимости
 const UPGRADE_CP_EXPONENT = 0.7;  // степень: 0.7 → F дешевле SSS в 8 раз
 
+// v4.9.4: кап уровня зависит от тира.
+// F-A — фоновый костяк для мид-гейма, потолок 200. Без Мастерства.
+// S+ — эндгейм-прогрессия, потолок 300 через Мастерство M1–M100.
+const TIER_CAP_LVL = {
+    'F': 200, 'E': 200, 'D': 200, 'C': 200, 'B': 200, 'A': 200,
+    'S': 300, 'SS': 300, 'SSS': 300
+};
+function getTierCap(heroId) {
+    const hero = HEROES_CATALOG[heroId];
+    if (!hero) return MAX_TOTAL_LVL;
+    return TIER_CAP_LVL[hero.tier] || MAX_TOTAL_LVL;
+}
+
 // Динамический стык стоимости на 100 уровне
 const COST_AT_LVL_100 = Math.floor(100 * Math.pow(1.14, 99));
 // Стык на 200 — точка входа в Мастерство (M1)
@@ -3544,7 +3557,7 @@ function formatHeroLevel(lvl) {
 //   эффективность золота одинакова на любом тире и уровне.
 //   Прокачка до MAX: F ≈ 500k, S ≈ 1.5M, SSS ≈ 4.1M.
 function getHeroLevelUpgradeCost(lvl, heroCP = null) {
-    const base = 18 * lvl;
+    const base = 100 * lvl * lvl;
     if (heroCP === null) return base;
     const mult = Math.pow(Math.max(1, heroCP) / UPGRADE_REFERENCE_CP, UPGRADE_CP_EXPONENT);
     return Math.floor(base * mult);
@@ -3738,7 +3751,9 @@ function calculateBatchUpgradeCost(currentLvl, countOrMax, availableBudget = nul
     let totalCost = 0;
     let levelsToAdd = 0;
     let tempLvl = currentLvl;
-    const maxLvl = (currentLvl < MAX_BASE_LVL) ? MAX_BASE_LVL : MAX_TOTAL_LVL;
+    const globalMax = (currentLvl < MAX_BASE_LVL) ? MAX_BASE_LVL : MAX_TOTAL_LVL;
+    const tierMax = heroId ? getTierCap(heroId) : globalMax;
+    const maxLvl = Math.min(globalMax, tierMax);
     const budget = (availableBudget !== null) ? availableBudget : (gState.gold || 0);
     const targetAdd = (countOrMax === 'max') ? (maxLvl - currentLvl) : countOrMax;
 
@@ -3779,11 +3794,13 @@ function updateInspectUpgradeButton() {
         if (cycleBtn) cycleBtn.style.display = 'inline-block';
     const card = gState.deck[activeInspectHeroId];
 
-    if (card.lvl >= MAX_TOTAL_LVL) {
+    const _tierCap = getTierCap(activeInspectHeroId);
+    if (card.lvl >= _tierCap) {
         btn.disabled = true;
-        btn.innerText = currentLang === 'RU'
-            ? `МАКСИМАЛЬНЫЙ УРОВЕНЬ (M${MAX_MASTERY_LVL})`
-            : `MAX LEVEL (M${MAX_MASTERY_LVL})`;
+        const _isMasteryTier = _tierCap > MAX_BASE_LVL;
+        btn.innerText = _isMasteryTier
+            ? (currentLang === 'RU' ? `МАКСИМАЛЬНЫЙ УРОВЕНЬ (M${MAX_MASTERY_LVL})` : `MAX LEVEL (M${MAX_MASTERY_LVL})`)
+            : (currentLang === 'RU' ? `МАКСИМУМ ДЛЯ РАНГА ${HEROES_CATALOG[activeInspectHeroId].tier}` : `MAX FOR RANK ${HEROES_CATALOG[activeInspectHeroId].tier}`);
         btn.style.background = '#273347';
         btn.style.borderColor = '#334155';
         btn.style.color = 'var(--text-muted)';
@@ -3794,7 +3811,8 @@ function updateInspectUpgradeButton() {
 
     // Герой ровно на 200 — показываем «ВОЙТИ В МАСТЕРСТВО»
     // Если денег меньше стоимости M1 — кнопка серая с динамической ценой
-    if (card.lvl === MAX_BASE_LVL) {
+    // v4.9.4: модалка Мастерства только для S+.
+    if (card.lvl === MAX_BASE_LVL && getTierCap(activeInspectHeroId) > MAX_BASE_LVL) {
         const m1Cost = getHeroUpgradeCost(activeInspectHeroId, MAX_BASE_LVL);
         const canAffordM1 = (gState.gold || 0) >= m1Cost;
         const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
@@ -3849,7 +3867,7 @@ function upgradeSelectedHeroLevel() {
 
     // G4: герой ровно на 200 и не пробуждён — открываем модалку вместо апгрейда.
     // Игрок явно подтверждает вход в Мастерство или отменяет действие.
-    if (card.lvl === MAX_BASE_LVL && !isMasteryAwakened(activeInspectHeroId)) {
+    if (card.lvl === MAX_BASE_LVL && !isMasteryAwakened(activeInspectHeroId) && getTierCap(activeInspectHeroId) > MAX_BASE_LVL) {
         openMasteryModal(activeInspectHeroId);
         return;
     }
@@ -4782,8 +4800,8 @@ function renderSquadSlot(boxId, hid, roleName, roleClass) {
                     <div style="font-size:11.5px; font-weight:900; color:${tColor}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-shadow:0 1px 3px #000;">[${h.tier}] ${h.name[currentLang] || h.name['EN']}</div>
                     <div style="font-size:11px; font-weight:700; color:#fff; margin-top:1px; text-shadow:0 1px 2px #000;">${currentLang === 'RU' ? 'Ур.' : 'Lvl'}${formatHeroLevel(card.lvl)} • +${formatNumber(getHeroCP(hid))} ${cpUnit}</div>
                     <div class="slot-quick-upg-wrap">
-                        <button class="slot-lvlup-btn ${((gState.gold || 0) >= getHeroUpgradeCost(hid, card.lvl || 1) && (card.lvl || 1) < MAX_TOTAL_LVL) ? 'can-afford' : ''}" onclick="event.stopPropagation(); quickUpgradeSquadHero('${hid}')" ${(card.lvl || 1) >= MAX_TOTAL_LVL || (gState.gold || 0) < getHeroUpgradeCost(hid, card.lvl || 1) ? 'disabled' : ''}>
-                            ${(card.lvl || 1) >= MAX_TOTAL_LVL ? 'MAX' : `${I18N[currentLang]?.slot_lvlup_prefix || (currentLang === 'RU' ? '+1 Ур.' : '+1 Lvl')} (${formatNumber(getHeroUpgradeCost(hid, card.lvl || 1))} <img src="assets/icons/gold.webp" class="res-icon-inline" style="width:11px; height:11px;">)`}
+                        <button class="slot-lvlup-btn ${((gState.gold || 0) >= getHeroUpgradeCost(hid, card.lvl || 1) && (card.lvl || 1) < getTierCap(hid)) ? 'can-afford' : ''}" onclick="event.stopPropagation(); quickUpgradeSquadHero('${hid}')" ${(card.lvl || 1) >= getTierCap(hid) || (gState.gold || 0) < getHeroUpgradeCost(hid, card.lvl || 1) ? 'disabled' : ''}>
+                            ${(card.lvl || 1) >= getTierCap(hid) ? 'MAX' : `${I18N[currentLang]?.slot_lvlup_prefix || (currentLang === 'RU' ? '+1 Ур.' : '+1 Lvl')} (${formatNumber(getHeroUpgradeCost(hid, card.lvl || 1))} <img src="assets/icons/gold.webp" class="res-icon-inline" style="width:11px; height:11px;">)`}
                         </button>
                     </div>
                 </div>
@@ -4810,7 +4828,7 @@ function quickUpgradeSquadHero(hid) {
     }
 
     // G5: герой ровно на 200 и не пробуждён — открываем модалку
-    if ((card.lvl || 1) === MAX_BASE_LVL && !isMasteryAwakened(hid)) {
+    if ((card.lvl || 1) === MAX_BASE_LVL && !isMasteryAwakened(hid) && getTierCap(hid) > MAX_BASE_LVL) {
         openMasteryModal(hid);
         return;
     }
