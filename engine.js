@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.16';
+const BUILD_VERSION = '5.3.17';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -6688,9 +6688,19 @@ function renderArena() {
         // Живые вставляются не в «первые слоты», а на позицию, соответствующую их кубкам.
         // Для каждого живого ищем бота с минимальной |Δ кубков| среди ещё не занятых.
         // Так BalTaZaR со 300 кубками при твоих 274 встанет на ~#650, а не на #675.
+        // v5.3.17 FIX-LIVE-TROPHY-SYNC: подтягиваем свежие кубки/имя из liveTopCache.
+        // Раньше liveRivalsCache и liveTopCache жили раздельно — один игрок
+        // показывался с разными кубками в списке соперников и в таблице лидеров.
+        const _topCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
+        const _topByUid = {};
+        for (const t of _topCache) if (t && t.uid) _topByUid[t.uid] = t;
         const usedSlots = new Set();
         for (const lp of uniqueLive) {
-            const theirTrophies = Math.floor(lp.trophies || 150);
+            const _topMatch = _topByUid[lp.uid];
+            const theirTrophies = Math.floor((_topMatch && _topMatch.trophies != null ? _topMatch.trophies : lp.trophies) || 150);
+            if (_topMatch && _topMatch.name) lp.name = _topMatch.name;
+            lp.trophies = theirTrophies;
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] merge live: ' + lp.name + ' tr=' + theirTrophies);
             let bestIdx = -1;
             let bestDiff = Infinity;
             for (let i = 0; i < rivalsData.length; i++) {
@@ -6722,14 +6732,18 @@ function renderArena() {
             } else {
                 squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
             }
-            // v5.3.7 FIX-RIVAL-RANK-UNIFIED: rank живого = его unified rank
-            // (та же формула, что в шапке и таблице). Раньше показывался номер слота
-            // бота, которого заменили — BalTaZaR #7 в списке vs #8 в таблице при 682 кубках.
-            const _unifiedRank = (typeof getUnifiedRankForRival === 'function') ? getUnifiedRankForRival(lp.uid) : null;
+            // v5.3.17 FIX-LIVE-RANK-GLOBAL: rank живого = честный глобальный rank
+            // через calculatePlayerRankByTrophies (та же формула, что у игрока в шапке).
+            // Раньше использовался getUnifiedRankForRival — он считал позицию в маленьком
+            // пуле из 10 ботов + живых (11-15 элементов), давал #12 для Камилл с 323 кубками,
+            // хотя её настоящий rank в бронзе — ~#599.
+            const _liveGlobalRank = (typeof calculatePlayerRankByTrophies === 'function')
+                ? calculatePlayerRankByTrophies(lp.trophies)
+                : bot.rank;
             rivalsData[bestIdx] = {
                 isReal: true,
                 uid: lp.uid,
-                rank: _unifiedRank || bot.rank,
+                rank: _liveGlobalRank,
                 name: lp.name || 'Неизвестный',
                 trophies: theirTrophies,
                 cp: Math.floor(lp.cp || 1000),
@@ -6785,11 +6799,15 @@ function renderArena() {
         // Воркер валидирует name паттерном NAME_PATTERN, но клиент обязан экранировать
         // на выходе. Одна строка — закрывает дыру при любом сбое валидации на сервере.
         const _safeLordName = escapeHtml(lord.name || '??');
+        // v5.3.17: живого из списка соперников можно кликнуть для просмотра профиля.
+        const _titleClickHandler = lord.isReal
+            ? `inspectLiveLadderRival('${lord.uid}')`
+            : `inspectArenaRival(${index})`;
         div.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <div>
-                        <span class="arena-rival-title" onclick="inspectArenaRival(${index})">
+                        <span class="arena-rival-title" onclick="${_titleClickHandler}">
                             ${_rankLabel} ${_safeLordName} ${liveBadge}
                         </span>
                     </div>
