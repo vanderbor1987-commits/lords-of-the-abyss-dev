@@ -750,7 +750,7 @@ const DAILY_CALENDAR_REWARDS = [
     { day: 4, gold: 3000, crystals: 50, relics: 0, hero: null },
     { day: 5, gold: 5000, crystals: 75, relics: 0, hero: null },
     { day: 6, gold: 8000, crystals: 100, relics: 0, hero: null },
-    { day: 7, gold: 10000, crystals: 150, relics: 1, hero: 'ss_und_r' },
+    { day: 7, gold: 10000, crystals: 150, relics: 0, hero: 'ss_und_r' },
     // НЕДЕЛЯ 2: МАРШ ЛЕГИОНОВ (Дни 8–14)
     { day: 8, gold: 10000, crystals: 100, relics: 0, hero: null },
     { day: 9, gold: 12000, crystals: 120, relics: 0, hero: null },
@@ -758,7 +758,7 @@ const DAILY_CALENDAR_REWARDS = [
     { day: 11, gold: 18000, crystals: 180, relics: 0, hero: null },
     { day: 12, gold: 20000, crystals: 200, relics: 0, hero: null },
     { day: 13, gold: 25000, crystals: 250, relics: 0, hero: null },
-    { day: 14, gold: 25000, crystals: 300, relics: 1, hero: 'ss_dem_v' },
+    { day: 14, gold: 25000, crystals: 300, relics: 0, hero: 'ss_dem_v' },
     // НЕДЕЛЯ 3: ТАЙНЫ ГЛУБИН (Дни 15–21)
     { day: 15, gold: 30000, crystals: 250, relics: 0, hero: null },
     { day: 16, gold: 35000, crystals: 280, relics: 0, hero: null },
@@ -766,7 +766,7 @@ const DAILY_CALENDAR_REWARDS = [
     { day: 18, gold: 45000, crystals: 350, relics: 0, hero: null },
     { day: 19, gold: 50000, crystals: 400, relics: 0, hero: null },
     { day: 20, gold: 60000, crystals: 450, relics: 0, hero: null },
-    { day: 21, gold: 50000, crystals: 500, relics: 1, hero: 'ss_lig_c' },
+    { day: 21, gold: 50000, crystals: 500, relics: 0, hero: 'ss_lig_c' },
     // НЕДЕЛЯ 4: АБСОЛЮТНЫЙ ПАНТЕОН (Дни 22–28)
     { day: 22, gold: 70000, crystals: 500, relics: 0, hero: null },
     { day: 23, gold: 80000, crystals: 550, relics: 0, hero: null },
@@ -785,9 +785,9 @@ const EXPEDITIONS_CONFIG = [
     // 8% за 16ч на exp_5 при параллельной отправке — слишком щедро для "премиального"
     // ресурса. Новое: exp_5 = 3%, exp_4 = 1.5%, exp_3 = 0.7%. Плюс бонус моно-отряда
     // снижен с +4% до +1% (см. claimExpedition в engine.js).
-    { id: 'exp_5', title: { RU: 'Сердце Первородной Бездны', EN: 'Heart of the Void' }, durationSec: 57600, requiredHeroes: 5, rewardGold: 3500, rewardCrystals: 40, relicChance: 0.03 },
-    { id: 'exp_4', title: { RU: 'Пепельные Разломы', EN: 'Ashen Rifts' }, durationSec: 28800, requiredHeroes: 4, rewardGold: 1800, rewardCrystals: 20, relicChance: 0.015 },
-    { id: 'exp_3', title: { RU: 'Астральный Лабиринт', EN: 'Astral Labyrinth' }, durationSec: 14400, requiredHeroes: 3, rewardGold: 850, rewardCrystals: 10, relicChance: 0.007 },
+    { id: 'exp_5', title: { RU: 'Сердце Первородной Бездны', EN: 'Heart of the Void' }, durationSec: 57600, requiredHeroes: 5, rewardGold: 3500, rewardCrystals: 40, relicChance: 0.008 },
+    { id: 'exp_4', title: { RU: 'Пепельные Разломы', EN: 'Ashen Rifts' }, durationSec: 28800, requiredHeroes: 4, rewardGold: 1800, rewardCrystals: 20, relicChance: 0.004 },
+    { id: 'exp_3', title: { RU: 'Астральный Лабиринт', EN: 'Astral Labyrinth' }, durationSec: 14400, requiredHeroes: 3, rewardGold: 850, rewardCrystals: 10, relicChance: 0.002 },
     { id: 'exp_2', title: { RU: 'Катакомбы Склепа', EN: 'Crypt Catacombs' }, durationSec: 7200, requiredHeroes: 2, rewardGold: 400, rewardCrystals: 6, relicChance: 0 },
     { id: 'exp_1', title: { RU: 'Дозор Глубин', EN: 'Depths Patrol' }, durationSec: 3600, requiredHeroes: 1, rewardGold: 180, rewardCrystals: 2, relicChance: 0 }
 ];
@@ -813,14 +813,36 @@ const geometricRewards = (base, ratio, count) => {
     return result;
 };
 
+// v4.9.7: хелперы для каскадных достижений.
+const geometricStages = (start, end, count) => {
+    if (count < 2) return [end];
+    const ratio = Math.pow(end / start, 1 / (count - 1));
+    const result = [];
+    let prev = 0;
+    for (let i = 0; i < count; i++) {
+        const v = Math.ceil(start * Math.pow(ratio, i));
+        if (v > prev) { result.push(v); prev = v; }
+    }
+    while (result.length < count) result.push(end);
+    return result.slice(0, count);
+};
+
+const geometricRewards = (base, ratio, count) => {
+    const result = [];
+    for (let i = 0; i < count; i++) {
+        result.push(Math.round(base * Math.pow(ratio, i)));
+    }
+    return result;
+};
+
 const CASCADING_ACHIEVEMENTS = [
-    { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: geometricStages(2000, 50000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
-    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: geometricStages(100, 100000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: geometricStages(2000, 100000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: geometricStages(100, 20000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_k', title: { RU: 'Неприступная Крепость', EN: 'Impregnable Keep' }, descTemplate: { RU: 'Улучшите Цитадель до Уровня {val}', EN: 'Citadel to Lvl {val}' }, type: 'highest_keep', stages: [5, 7, 9, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 46, 47, 48, 49, 50], rewardsC: geometricRewards(10, 1.20, 20) },
     { id: 'ach_ar', title: { RU: 'Гладиатор Арены', EN: 'Arena Gladiator' }, descTemplate: { RU: 'Одержите {val} побед на Арене', EN: 'Win {val} Arena duels' }, type: 'lifetime_wins', stages: geometricStages(5, 20000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_c', title: { RU: 'Повелитель Душ', EN: 'Lord of Souls' }, descTemplate: { RU: 'Разблокируйте {val} героев в Штабе', EN: 'Unlock {val} champions' }, type: 'cards_count', stages: [5, 10, 20, 35, 50, 70, 84], rewardsC: [15, 25, 50, 100, 200, 400, 800] },
-    { id: 'ach_asc', title: { RU: 'Владыка Вечности', EN: 'Eternal Overlord' }, descTemplate: { RU: 'Накопите {val} Реликвий Возвышения', EN: 'Accumulate {val} Relics' }, type: 'total_relics', stages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30], rewardsC: geometricRewards(10, 1.20, 20) },
-    { id: 'ach_dem', title: { RU: 'Охотник на Бесов', EN: 'Imp Hunter' }, descTemplate: { RU: 'Перехватите {val} летучих демонов', EN: 'Intercept {val} courier imps' }, type: 'demon_catches', stages: geometricStages(1, 5000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_asc', title: { RU: 'Владыка Вечности', EN: 'Eternal Overlord' }, descTemplate: { RU: 'Накопите {val} Реликвий Возвышения', EN: 'Accumulate {val} Relics' }, type: 'total_relics', stages: geometricStages(1, 300, 50), rewardsC: geometricRewards(10, 1.15, 50) },
+    { id: 'ach_dem', title: { RU: 'Охотник на Бесов', EN: 'Imp Hunter' }, descTemplate: { RU: 'Перехватите {val} летучих демонов', EN: 'Intercept {val} courier imps' }, type: 'demon_catches', stages: geometricStages(1, 20000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_dung', title: { RU: 'Покоритель Бездны', EN: 'Abyss Conqueror' }, descTemplate: { RU: 'Очистите от скверны {val} этажей', EN: 'Purge {val} Abyss floors' }, type: 'dungeon_floor', stages: geometricStages(5, 300, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_wheel', title: { RU: 'Колесо Фортуны', EN: 'Wheel of Fortune' }, descTemplate: { RU: 'Прокрутите колесо {val} раз', EN: 'Spin the wheel {val} times' }, type: 'wheel_spins', stages: geometricStages(10, 5000, 50), rewardsC: geometricRewards(5, 1.10, 50) }
 ];

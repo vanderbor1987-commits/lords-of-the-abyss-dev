@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.9';
+const BUILD_VERSION = '4.9.10';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5212,6 +5212,36 @@ async function fetchLiveRivals(count = 2) {
     return [];
 }
 
+// B6: глобальный топ-10 живых игроков с Cloudflare Worker.
+// Кэшируется в gState.liveTopCache на 120 сек (проверка по liveTopCacheTs).
+// Worker со своей стороны тоже кэширует sorted:trophies — TTL 60 сек — так что
+// реальных KV-чтений будет ~1 в минуту даже при массовых запросах ладдера.
+async function fetchLiveTop10() {
+    if (!canSubmitToLiveArena()) return [];
+    // Throttle 120 сек, как у fetchLiveRivals — защита от спама при частом открытии модалки
+    if (gState.liveTopCacheTs && (Date.now() - gState.liveTopCacheTs) < 120000 && Array.isArray(gState.liveTopCache)) {
+        return gState.liveTopCache;
+    }
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/arena/top`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, limit: 10 })
+        });
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.players)) {
+            gState.liveTopCache = data.players;
+            gState.liveTopCacheTs = Date.now();
+            if (DEV_MODE_CHECK()) devLog('[LiveArena] top10 fetched:', data.players.length);
+            return data.players;
+        }
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveArena] fetch top10 failed:', e);
+    }
+    return [];
+}
+
 // Обёртка над IS_DEV_MODE с защитой от ReferenceError при раннем вызове
 function DEV_MODE_CHECK() {
     try { return typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE; } catch (e) { return false; }
@@ -5424,6 +5454,15 @@ function openArenaLadderModal() {
     } catch (e) {
         console.warn("[Arena] Ошибка рендера таблицы лидеров:", e);
     }
+
+    // B6: асинхронно подтягиваем живых топ-10, затем перерисовываем.
+    // fetchLiveTop10 имеет throttle 120 сек — частые открытия модалки не спамят Worker.
+    if (typeof fetchLiveTop10 === 'function') {
+        fetchLiveTop10().then(list => {
+            if (list && list.length > 0) renderLeaderboard();
+        });
+    }
+
     const inYandex = isRunningInsideYandex();
     const vkLadderBtn = document.getElementById('btn-arena-vk-ladder');
     if (vkLadderBtn) {
@@ -6628,46 +6667,76 @@ function renderLeaderboard() {
     ensureTopTenBots();
 
     const myTrophies = gState.trophies || 150;
-    // Защита от XSS: ник лорда проходит через escapeHtml один раз при формировании пула данных,
-    // чтобы все последующие вставки в шаблон были безопасны.
+    // Защита от XSS: ник лорда проходит через escapeHtml один раз при формировании пула данных.
     const cleanPlayerName = escapeHtml((gState.playerName || 'Duke Valdor').slice(0, 12));
+    // B6: myRank от ботов используется только для fallback-секции и выбора случайного живого для реванша.
     const myRank = calculatePlayerRank();
 
-    // U3: если ничего значимого не изменилось — не пересобираем innerHTML.
-    // arenaShuffleSeed входит в ключ, чтобы свапы ладдера триггерили перерисовку.
-    const cacheKey = `${myTrophies}|${cleanPlayerName}|${gState.selectedTitleId || ''}|${gState.arenaSeasonWeekId || ''}|${gState.arenaLeague || 'bronze'}|${gState.arenaShuffleSeed || 0}`;
+    // B6: cache key включает liveTopCacheTs — обновление живых триггерит пересборку.
+    const liveTs = gState.liveTopCacheTs || 0;
+    const cacheKey = `${myTrophies}|${cleanPlayerName}|${gState.selectedTitleId || ''}|${gState.arenaSeasonWeekId || ''}|${gState.arenaLeague || 'bronze'}|${gState.arenaShuffleSeed || 0}|${liveTs}`;
     if (_lastLeaderboardKey === cacheKey) return;
     _lastLeaderboardKey = cacheKey;
 
-    // Формируем 100% синхронизированный Топ-10 со строгой нумерацией
-    let topTen = [];
+    // B6: объединённый пул — живые из liveTopCache + боты 1-10 + сам игрок.
+    // Сортируем по кубкам desc, берём первые 10 как отображаемый ладдер.
+    // Место игрока в этом ладдере — честная позиция в объединённом пуле.
+    const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+
+    const botsPool = [];
     for (let r = 1; r <= 10; r++) {
-        if (r === myRank) {
-            topTen.push({
-                rank: r,
-                name: cleanPlayerName,
-                trophies: myTrophies,
-                cp: calculateCP(gState.defenseFormation, null, false),
-                squad: gState.defenseFormation,
-                isMe: true
-            });
-        } else {
-            const bot = getBotByRank(r);
-            topTen.push({
-                rank: r,
-                name: escapeHtml(bot.name),
-                trophies: bot.trophies,
-                cp: bot.cp,
-                squad: bot.squad,
-                isMe: false
+        const bot = getBotByRank(r);
+        botsPool.push({
+            name: escapeHtml(bot.name),
+            trophies: Math.floor(bot.trophies || 0),
+            cp: bot.cp,
+            squad: bot.squad,
+            isMe: false,
+            isReal: false
+        });
+    }
+
+    const livePool = [];
+    const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
+    if (liveCache.length > 0) {
+        for (const lp of liveCache) {
+            if (!lp || !lp.uid) continue;
+            if (lp.uid === myUid) continue; // себя добавим отдельно с флагом isMe
+            livePool.push({
+                name: escapeHtml(String(lp.name || '???').slice(0, 12)),
+                trophies: Math.floor(lp.trophies || 0),
+                cp: Math.floor(lp.cp || 0),
+                squad: null,
+                isMe: false,
+                isReal: true
             });
         }
     }
+
+    const myDisplayTrophies = Math.floor(myTrophies);
+    const me = {
+        name: cleanPlayerName,
+        trophies: myDisplayTrophies,
+        cp: calculateCP(gState.defenseFormation, null, false),
+        squad: gState.defenseFormation,
+        isMe: true,
+        isReal: false
+    };
+
+    const allPlayers = [...livePool, ...botsPool, me];
+    allPlayers.sort((a, b) => b.trophies - a.trophies);
+
+    const topTen = allPlayers.slice(0, 10).map((p, idx) => ({ ...p, rank: idx + 1 }));
+
+    const myUnifiedIdx = allPlayers.findIndex(p => p.isMe);
+    const myRealRank = myUnifiedIdx >= 0 ? (myUnifiedIdx + 1) : 999;
+    const meInTop = myRealRank <= 10;
 
     let html = '';
     topTen.forEach(p => {
         const bgStyle = p.isMe ? 'background:rgba(245,176,65,0.22); border:1.5px solid var(--gold);' : '';
         const nameSuffix = p.isMe ? ` (${currentLang === 'RU' ? 'ВЫ' : 'YOU'})` : '';
+        const liveSuffix = p.isReal ? ' <span class="live-online-badge">● ONLINE</span>' : '';
 
         const trIconSmall = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:14px; height:14px;" alt="Кубок">';
         let rankBadge = '';
@@ -6676,25 +6745,32 @@ function renderLeaderboard() {
         else if (p.rank === 3) rankBadge = `<span style="color:#febb7a; font-weight:900;">#3</span> `;
         else rankBadge = `<span style="color:var(--text-muted);">#${p.rank}</span> `;
 
+        // B6: клик по живому не открывает inspector бота (там другая логика squad) — no-op.
+        // Для себя — гарнизон, для ботов — inspectLadderRank.
+        const clickHandler = p.isMe
+            ? 'inspectMyDefenseProfile()'
+            : (p.isReal ? '' : `inspectLadderRank(${p.rank})`);
+
         html += `
-            <div class="building-card" style="padding:7px 10px; ${bgStyle} cursor:pointer;" onclick="inspectLadderRank(${p.rank})">
-                <span style="font-size:12px; display:inline-flex; align-items:center; gap:4px;"><b>${rankBadge}${p.name}${nameSuffix}</b></span>
+            <div class="building-card" style="padding:7px 10px; ${bgStyle} ${clickHandler ? 'cursor:pointer;' : ''}" ${clickHandler ? `onclick="${clickHandler}"` : ''}>
+                <span style="font-size:12px; display:inline-flex; align-items:center; gap:4px;"><b>${rankBadge}${p.name}${nameSuffix}${liveSuffix}</b></span>
                 <b style="color:var(--gold); font-size:12.5px; display:inline-flex; align-items:center; gap:3px;">${Math.floor(p.trophies).toLocaleString()} ${trIconSmall}</b>
             </div>`;
         });
 
-        // Если игрок не вошел в Топ-10, выводим разделитель и его персональную строку
-        if (myRank > 10) {
+        // Если игрок не вошел в Топ-10 — выводим разделитель и его персональную строку.
+        // B6: зона определяется по myRealRank в объединённом пуле, а не myRank от ботов.
+        if (!meInTop) {
             html += `<div class="ladder-separator">• • •</div>`;
-            const myZoneTag = myRank >= 990 
+            const myZoneTag = myRealRank >= 990 
                 ? `<span style="color:#f87171; font-weight:800; font-size:11px;">${currentLang === 'RU' ? '[ВЫЛЕТ]' : '[DEMOTION]'}</span>`
                 : `<span style="color:var(--gold); font-weight:800; font-size:11px;">${currentLang === 'RU' ? '[УДЕРЖАНИЕ]' : '[RETENTION]'}</span>`;
 
             const trIconSmall = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:14px; height:14px;" alt="Кубок">';
             html += `
             <div class="building-card" style="padding:8px 10px; background:rgba(245,176,65,0.25); border:1.5px solid var(--gold); cursor:pointer;" onclick="inspectMyDefenseProfile()">
-                <span style="font-size:12px; display:inline-flex; align-items:center; gap:4px;"><b><span style="color:var(--text-muted);">#${myRank}</span> ${cleanPlayerName} (${currentLang === 'RU' ? 'ВЫ' : 'YOU'})</b> ${myZoneTag}</span>
-                <b style="color:var(--gold); font-size:13px; display:inline-flex; align-items:center; gap:3px;">${Math.floor(myTrophies).toLocaleString()} ${trIconSmall}</b>
+                <span style="font-size:12px; display:inline-flex; align-items:center; gap:4px;"><b><span style="color:var(--text-muted);">#${myRealRank}</span> ${cleanPlayerName} (${currentLang === 'RU' ? 'ВЫ' : 'YOU'})</b> ${myZoneTag}</span>
+                <b style="color:var(--gold); font-size:13px; display:inline-flex; align-items:center; gap:3px;">${myDisplayTrophies.toLocaleString()} ${trIconSmall}</b>
             </div>`;
         }
 
@@ -8639,7 +8715,7 @@ function buildWheelSvg() {
         { iconImg: 'crystal.webp', label: '+40', isJackpot: false },
         { iconImg: 'shop_tickets.webp', label: '+5', isJackpot: false },
         { iconImg: 'relic.webp', label: '+1', isJackpot: false },
-        { iconImg: 'shop_relics.webp', label: 'S / SSS', isJackpot: true }
+        { iconImg: 'portal_abyss.webp', label: 'S / SSS', isJackpot: true }
     ];
 
     const cx = 150, cy = 150, r = 142;
@@ -8784,10 +8860,10 @@ function spinLuckyWheel() {
         let prizeType = '';
 
         if (roll < 250) { sectorIndex = 0; prizeType = 'gold_1h'; }
-        else if (roll < 490) { sectorIndex = 1; prizeType = 'cryst_25'; }
+        else if (roll < 490) { sectorIndex = 1; prizeType = 'cryst_12'; }
         else if (roll < 670) { sectorIndex = 2; prizeType = 'tickets_2'; }
         else if (roll < 790) { sectorIndex = 3; prizeType = 'gold_4h'; }
-        else if (roll < 890) { sectorIndex = 4; prizeType = 'cryst_80'; }
+        else if (roll < 890) { sectorIndex = 4; prizeType = 'cryst_40'; }
         else if (roll < 959) { sectorIndex = 5; prizeType = 'tickets_5'; }
         else if (roll < 989) { sectorIndex = 6; prizeType = 'relic_1'; }
         else {
@@ -8836,7 +8912,7 @@ function spinLuckyWheel() {
                     const curSec = Math.floor(((360 - deg + 22.5) % 360) / 45);
                     if (curSec !== lastTickSector) {
                         lastTickSector = curSec;
-        playAudioSample('wheel_tick', () => playSfx(750, 'triangle', 0.02));
+        playAudioSample('wheel_tick', () => playSfx(750, 'triangle', 0.045));
         triggerHaptic('tap');
                         const peg = document.getElementById('wheel-pointer-peg');
                         if (peg) {
@@ -8895,12 +8971,15 @@ function claimWheelPrize(type) {
         triggerHaptic('upgrade');
         const hStr = currentLang === 'RU' ? '4ч Шахт' : '4h Mines';
         pushToast(currentLang === 'RU' ? `КУШ: +${formatNumber(amt)} ${gI} (${hStr})` : `JACKPOT: +${formatNumber(amt)} ${gI} (${hStr})`);
-    } else if (type === 'cryst_25') {
+    } else if (type === 'cryst_12' || type === 'cryst_25') {
+        // legacy key 'cryst_25' принят для обратной совместимости с pendingWheelPrize старых сейвов.
+        // Реальная выдача всегда +12 — это историческое значение, сниженное по балансу без переименования.
         gState.crystals += 12;
         playCoinSfx();
         triggerHaptic('upgrade');
         pushToast(currentLang === 'RU' ? `НАГРАДА: +12 ${cI} Кристаллов` : `REWARD: +12 ${cI} Crystals`);
-    } else if (type === 'cryst_80') {
+    } else if (type === 'cryst_40' || type === 'cryst_80') {
+        // legacy key 'cryst_80' принят для обратной совместимости с pendingWheelPrize старых сейвов.
         gState.crystals += 40;
         playCoinSfx();
         triggerHaptic('upgrade');

@@ -97,6 +97,7 @@ export default {
         if (path === '/arena/inbox') return handleArenaInbox(request, env);
         if (path === '/arena/inbox/clear') return handleArenaInboxClear(request, env);
         if (path === '/arena/profile') return handleArenaProfile(request, env);
+        if (path === '/arena/top') return handleArenaTop(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -587,4 +588,36 @@ async function handleArenaProfile(request, env) {
     } catch (e) {
         return json({ ok: false, reason: 'corrupted' }, 500);
     }
+}
+
+/* ==========================================================
+   РОУТ /arena/top — глобальный топ-10 живых игроков.
+
+   B6: используется клиентским renderLeaderboard для подмешивания
+   живых поверх ботов. sorted:trophies уже кэшируется в изоляте
+   Worker'а (readSortedTrophies, TTL 60 сек), поэтому реальных
+   KV-чтений будет ~1 в минуту даже при массовых запросах.
+
+   Writes: 0. Free tier не страдает.
+   ========================================================== */
+
+async function handleArenaTop(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const limit = Math.max(1, Math.min(20, parseInt(body.limit, 10) || 10));
+
+    const sorted = await readSortedTrophies(env);
+    const top = sorted.slice(0, limit).map(p => ({
+        uid: String(p.uid || ''),
+        name: String(p.name || '???').slice(0, 12),
+        trophies: Math.floor(p.trophies || 0),
+        cp: Math.floor(p.cp || 0)
+    }));
+
+    return json({ ok: true, players: top });
 }
