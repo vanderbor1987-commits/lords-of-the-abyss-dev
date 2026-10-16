@@ -813,27 +813,10 @@ const geometricRewards = (base, ratio, count) => {
     return result;
 };
 
-// v4.9.7: хелперы для каскадных достижений.
-const geometricStages = (start, end, count) => {
-    if (count < 2) return [end];
-    const ratio = Math.pow(end / start, 1 / (count - 1));
-    const result = [];
-    let prev = 0;
-    for (let i = 0; i < count; i++) {
-        const v = Math.ceil(start * Math.pow(ratio, i));
-        if (v > prev) { result.push(v); prev = v; }
-    }
-    while (result.length < count) result.push(end);
-    return result.slice(0, count);
-};
-
-const geometricRewards = (base, ratio, count) => {
-    const result = [];
-    for (let i = 0; i < count; i++) {
-        result.push(Math.round(base * Math.pow(ratio, i)));
-    }
-    return result;
-};
+// FIX-DUPLICATE-HELPERS: дублирующий блок geometricStages/geometricRewards удалён.
+// Второй `const geometricStages` вызывал SyntaxError, парсер JS останавливался,
+// HEROES_CATALOG не создавался, игра ломалась после бампа ?v= в index.html.
+// Первый блок (roundFn-вариант, выше) остаётся каноном.
 
 const CASCADING_ACHIEVEMENTS = [
     { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: geometricStages(2000, 100000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
