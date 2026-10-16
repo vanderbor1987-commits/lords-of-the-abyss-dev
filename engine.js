@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.1';
+const BUILD_VERSION = '5.2.2';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5903,9 +5903,13 @@ function getBotByRank(rank) {
 
     const cfg = leagueRanges[curLeagueId] || leagueRanges.bronze;
     const bot10Tr = bots[9] ? bots[9].trophies : Math.floor(cfg.maxTr * 0.78);
-    const maxSubTr = bot10Tr - 5;
-    const subProgress = Math.pow((1000 - rank) / (1000 - 11), 1.5);
-    const trophies = Math.floor(cfg.minTr + subProgress * (maxSubTr - cfg.minTr));
+    // FIX-RANK-TROPHY-SYNC: кубки бота вычисляются обратной формулой к calculatePlayerRank.
+    // Раньше использовались exponent 1.5 и maxSubTr=bot10Tr-5, из-за чего для одного и того же
+    // rank кубки ботов не совпадали с кубками игрока (расхождение ~40 кубков в бронзе).
+    // Следствие: живой игрок с меньшими кубками попадал в слот ВЫШЕ игрока с большими.
+    // Теперь: rank 11 ↔ bot10Tr, rank 1000 ↔ minTr. Монотонно, согласовано с calculatePlayerRank.
+    const subProgress = Math.pow(Math.max(0, Math.min(1, (rank - 11) / 989)), 1 / 1.2);
+    const trophies = Math.max(cfg.minTr, Math.floor(bot10Tr - subProgress * (bot10Tr - cfg.minTr)));
 
     const progress = (1000 - rank) / 999;
     const cp = Math.floor(cfg.minCp + progress * (cfg.maxCp - cfg.minCp));
