@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.1';
+const BUILD_VERSION = '4.9.2';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -3536,18 +3536,15 @@ function formatHeroLevel(lvl) {
     return `${lvl}`;
 }
 
-// v4.9.1: сигнатура расширена вторым аргументом heroCP.
-// Если heroCP не передан — возвращается базовая цена без тир-множителя (для совместимости).
-// Правильные вызовы идут через getHeroUpgradeCost(heroId, lvl) ниже.
+// v4.9.2 FIX-LINEAR-COST: линейная стоимость уровня.
+// ПРОБЛЕМА v4.9.1: экспонента 1.14^lvl давала разницу 4000× между +1 ур.
+//   у F на 89 lvl (6.1M золота) и SSS на 10 lvl (1.6K золота).
+//   Нарушало договорённость «+1M золота = ~+200 CP у всех тиров».
+// РЕШЕНИЕ: cost = 18 × lvl × tierMultiplier. Рост ровный по уровню,
+//   эффективность золота одинакова на любом тире и уровне.
+//   Прокачка до MAX: F ≈ 500k, S ≈ 1.5M, SSS ≈ 4.1M.
 function getHeroLevelUpgradeCost(lvl, heroCP = null) {
-    let base;
-    if (lvl < 100) {
-        base = Math.floor(100 * Math.pow(1.14, lvl - 1));
-    } else if (lvl < MAX_BASE_LVL) {
-        base = Math.floor(COST_AT_LVL_100 * Math.pow(1.05, lvl - 100));
-    } else {
-        base = Math.floor(COST_AT_LVL_200 * Math.pow(1.065, lvl - MAX_BASE_LVL));
-    }
+    const base = 18 * lvl;
     if (heroCP === null) return base;
     const mult = Math.pow(Math.max(1, heroCP) / UPGRADE_REFERENCE_CP, UPGRADE_CP_EXPONENT);
     return Math.floor(base * mult);
