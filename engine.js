@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.19';
+const BUILD_VERSION = '5.3.34';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -1846,9 +1846,8 @@ function loadGame() {
     ========================================================== */
 function getRelicBonus() {
     // FIX-BALANCE v4.7.0: снижен коэффициент с 0.15 до 0.10.
+    // v5.3.23: синхронизированы все UI-упоминания процента с этой константой.
     // r=1 +10%, r=5 +50%, r=10 +100%, r=20 +200%, r=50 +500%.
-    // Линейный рост, но с меньшим наклоном — реликвии не дают двойного
-    // экспоненциального взрыва при стакинге с шахтами и тапами.
     return 1 + ((gState.relics || 0) * 0.10);
 }
 
@@ -2279,10 +2278,16 @@ const FTUE_STEPS_CONFIG = [
                 }
                 return document.getElementById('btn-exp-picker-confirm');
             }
-            const nav = resolveFtueViewTarget('roster-view', view);
+            // v5.3.29: Экспедиции — отдельный экран. Путь: Цитадель → хаб Подземелий → Походы.
+            // v5.3.31: индекс [1] — «Походы Героев» (0=Спуск, 1=Походы, 2=Левиафан).
+            // v5.3.32: targetViewId = expedition-view. Раньше был dungeon-view,
+            // и игрок в самой Бездне получал nav = null + fallback на .district-dungeons
+            // (которого в dungeon-view нет) → фокус ни на что не навешивался.
+            if (view === 'expedition-view') return document.querySelector('#expeditions-list-box .btn-action');
+            if (modals.battleHub) return document.querySelectorAll('#battle-hub-modal .btn-action')[1];
+            const nav = resolveFtueViewTarget('expedition-view', view);
             if (nav) return nav;
-            if (activeRosterTab !== 'expeditions') return document.getElementById('mode-exp-btn');
-            return document.querySelector('#expeditions-list-box .btn-action');
+            return document.querySelector('.district-dungeons');
         }
     },
     // 9: Арена
@@ -2304,7 +2309,8 @@ const FTUE_STEPS_CONFIG = [
         rewardText: '<span class="ftue-reward-chip gold">+5,000 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></span>',
         getTarget: (view, modals) => {
             if (view === 'raid-view') return document.getElementById('btn-raid-attack');
-            if (modals.battleHub) return document.querySelectorAll('#battle-hub-modal .btn-action')[1];
+            // v5.3.31: индекс [2] — «Мировой Левиафан» (0=Спуск, 1=Походы, 2=Левиафан).
+            if (modals.battleHub) return document.querySelectorAll('#battle-hub-modal .btn-action')[2];
             const nav = resolveFtueViewTarget('raid-view', view);
             if (nav) return nav;
             return document.querySelector('.district-dungeons');
@@ -2466,6 +2472,17 @@ function nudgeFtueGoal(step) {
             tapBtn.classList.add('ftue-focus-target');
         }
         pushToast(currentLang === 'RU' ? 'Тапайте по кнопке «Дань и Ополчение» внизу!' : 'Tap the "Tribute & Militia" button below!');
+    } else if (step === 8) {
+        // v5.3.32: Экспедиции — тап по «ВЫПОЛНЯЙТЕ УКАЗ» принудительно возвращает
+        // игрока на путь: Цитадель → Подземелья → Походы. Если он забрёл в Бездну,
+        // Арену или Штаб — выкидываем в Цитадель, дальше фокус подсветит район Подземелий.
+        const _active = document.querySelector('.view-tab.active')?.id || 'citadel-view';
+        if (_active !== 'citadel-view' && _active !== 'expedition-view') {
+            navigate('citadel-view');
+            pushToast(currentLang === 'RU' ? 'Возвращаемся в Цитадель...' : 'Returning to Citadel...');
+        } else {
+            updateFtueFocus();
+        }
     } else {
         updateFtueFocus();
     }
@@ -4617,9 +4634,7 @@ function confirmExpeditionDeployment() {
     playCoinSfx();
     pushToast(currentLang === 'RU' ? "Экспедиция отправлена!" : "Expedition deployed!");
     closeExpHeroPicker();
-    if (!isFtueCompleted()) {
-        closeExpeditionsModal();
-    }
+    // v5.3.27: оставляем игрока в Бездне, чтобы он увидел запущенный поход.
     saveGame();
     renderExpeditionsList();
     renderCards();
@@ -4795,12 +4810,9 @@ function selectRosterTab(tabKey) {
     requestAnimationFrame(() => {
         checkCodexNotifications();
     });
-    const tabs = ['cards', 'formation', 'expeditions', 'codex'];
+    const tabs = ['cards', 'formation', 'codex'];
     tabs.forEach(t => {
-        let btnId = `btn-roster-tab-${t}`;
-        if (t === 'expeditions') btnId = 'mode-exp-btn';
-        if (t === 'codex') btnId = 'mode-codex-btn';
-
+        const btnId = (t === 'codex') ? 'mode-codex-btn' : `btn-roster-tab-${t}`;
         const btn = document.getElementById(btnId);
         const pane = document.getElementById(`roster-pane-${t}`);
         if (btn) btn.classList.toggle('active', t === tabKey);
@@ -4811,20 +4823,19 @@ function selectRosterTab(tabKey) {
 
     if (tabKey === 'cards') renderCards();
     else if (tabKey === 'formation') renderFormationSlots();
-    else if (tabKey === 'expeditions') renderExpeditionsList();
     else if (tabKey === 'codex') renderCodexUI();
 
     checkCodexNotifications();
     if (!isFtueCompleted()) updateFtueFocus();
 }
 
+// v5.3.29: Экспедиции — отдельный экран (по аналогии с Ареной и Рейдом).
 function openExpeditionsModal() {
-    openRosterFrom('citadel-view');
-    selectRosterTab('expeditions');
+    navigate('expedition-view');
 }
 
 function closeExpeditionsModal() {
-    selectRosterTab('formation');
+    navigate('citadel-view');
 }
 
 function openCodexModal() {
@@ -4988,6 +4999,9 @@ function quickUpgradeSquadHero(hid) {
 }
 
 function renderFormationSlots() {
+    const _sig = _getFormationRenderSig();
+    if (_sig === _lastRenderFormationSig) return;
+    _lastRenderFormationSig = _sig;
     const cpUnit = currentLang === 'RU' ? 'БМ' : 'CP';
 
     // 1. АТАКА
@@ -5056,9 +5070,70 @@ function toggleRosterLvlSort() {
     renderCards();
 }
 
+function _countCodexClaimedAll() {
+    const c = gState.codexClaimed || {};
+    let n = 0;
+    for (const f in c) n += (c[f] && c[f].length) || 0;
+    return n;
+}
+
+function _getRosterRenderSig() {
+    const deck = gState.deck || {};
+    const keys = Object.keys(deck);
+    let lvlSum = 0, starsSum = 0;
+    for (let i = 0; i < keys.length; i++) {
+        const card = deck[keys[i]];
+        lvlSum += (card && card.lvl) || 1;
+        starsSum += (card && card.stars) || 1;
+    }
+    const expKeys = Object.keys(gState.expeditions || {}).sort().join(',');
+    return `r1|${currentLang}|${activeRosterFactionFilter}|${activeRosterSortMode}|${activeRosterTierDesc}|${activeRosterLvlDesc}|${keys.length}|${lvlSum}|${starsSum}|${(gState.attackFormation||[]).join(',')}|${(gState.defenseFormation||[]).join(',')}|${expKeys}|${_countCodexClaimedAll()}`;
+}
+
+function _getFormationRenderSig() {
+    const formLvl = (form) => (form||[]).map(id => id && gState.deck[id] ? (gState.deck[id].lvl||1) : 0).join(',');
+    return `f1|${currentLang}|${(gState.attackFormation||[]).join(',')}|${(gState.defenseFormation||[]).join(',')}|${formLvl(gState.attackFormation)}|${formLvl(gState.defenseFormation)}|${gState.relics||0}|${gState.trophies||0}|${(gState.buildings && gState.buildings.keep)||1}|${gState.selectedTitleId||''}|${_countCodexClaimedAll()}`;
+}
+
+function _getCodexRenderSig() {
+    const deck = gState.deck || {};
+    const keys = Object.keys(deck);
+    let starsSum = 0;
+    for (let i = 0; i < keys.length; i++) starsSum += (deck[keys[i]] && deck[keys[i]].stars) || 1;
+    const claimed = (gState.codexClaimed && gState.codexClaimed[activeCodexFaction]) || [];
+    return `c1|${currentLang}|${activeCodexFaction}|${keys.length}|${starsSum}|${claimed.join(',')}`;
+}
+
+// Лёгкое обновление состояния кнопок апгрейда в слотах Построения.
+// Вызывается из refreshCurrentView, когда renderFormationSlots был скипнут
+// из-за сигнатуры, но золото накопилось — кнопки должны активироваться.
+function updateSquadButtonsAffordability() {
+    const gold = gState.gold || 0;
+    const formations = [
+        { form: gState.attackFormation, prefix: 'slot-' },
+        { form: gState.defenseFormation, prefix: 'slot-def-' }
+    ];
+    formations.forEach(({ form, prefix }) => {
+        (form || []).forEach((hid, idx) => {
+            if (!hid || !gState.deck[hid]) return;
+            const btn = document.querySelector(`#${prefix}${idx} .slot-lvlup-btn`);
+            if (!btn) return;
+            const card = gState.deck[hid];
+            const cap = getTierCap(hid);
+            const lvl = card.lvl || 1;
+            const canAfford = lvl < cap && gold >= getHeroUpgradeCost(hid, lvl);
+            btn.classList.toggle('can-afford', canAfford);
+            btn.disabled = !canAfford;
+        });
+    });
+}
+
 function renderCards() {
     const c = document.getElementById('cards-container');
     if (!c) return;
+    const _sig = _getRosterRenderSig();
+    if (_sig === _lastRenderCardsSig) return;
+    _lastRenderCardsSig = _sig;
     c.innerHTML = '';
 
     // В КАРТОТЕКЕ отображаются ТОЛЬКО те герои, которыми реально владеет игрок!
@@ -6817,7 +6892,7 @@ function renderArena() {
                         <span>• ${currentLang === 'RU' ? 'Награда:' : 'Spoils:'} <b style="color:var(--gold);">+${lord.gain} ${trIcon}</b> <b style="color:var(--gold);">+${formatNumber(lord.gain * 25)} ${gI}</b></span>
                     </div>
                 </div>
-                <button class="btn-action btn-arena-battle" onclick="startArenaCombatByIndex(${index})">${I18N[currentLang].btn_to_battle}</button>
+                <button class="btn-action btn-arena-battle" onclick="startArenaCombatByIndex(${index})" title="${escapeHtml((I18N[currentLang].tips && I18N[currentLang].tips.arena_battle) || '')}">${I18N[currentLang].btn_to_battle}</button>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
                 <div class="opp-mini-squad">${heroesBadges} ${synPill}</div>
@@ -7205,6 +7280,17 @@ function renderBattleHistory() {
 // (боты — раз в 45 сек через simulateLivingLadder, игрок — при победе/смене титула),
 // но renderLeaderboard вызывается раз в секунду из тика. Ключ — хэш из 6 полей.
 let _lastLeaderboardKey = '';
+
+// v5.3.20 FIX-ROSTER-CACHE: сигнатуры тяжёлых рендеров Штаба.
+// refreshCurrentView() дёргает renderCards/renderFormationSlots/renderCodexUI
+// каждые 3 секунды из throttled-тикера. Раньше каждый вызов пересобирал DOM
+// 84 TCG-карт (или 21 кодекса, или 6 слотов) — микрофризы каждые 3 сек на
+// слабых Android, сброс lazy-images, сброс скролла. Теперь: сигнатура → skip,
+// если state не изменился. Форсированные вызовы (смена языка, фильтр,
+// сортировка, апгрейд) ломают сигнатуру естественно.
+let _lastRenderCardsSig = '';
+let _lastRenderFormationSig = '';
+let _lastRenderCodexSig = '';
 
 // v5.3.5 UNIFIED-LADDER: единый источник rank игрока для отображения (шапка Арены,
 // таблица лидеров, генератор соперников). Собирает пул: 10 ботов + живые из liveTopCache
@@ -8359,7 +8445,7 @@ function openLeviathanTriumphOverlay() {
     const _relicValEl = document.getElementById('raid-triumph-relic-val');
     if (_relicValEl) {
         if (gState.lastRaidRelicGot) {
-            _relicValEl.innerHTML = '+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> (+15% ко всему)';
+            _relicValEl.innerHTML = '+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> (+10% ко всему)';
             _relicValEl.style.color = 'var(--gold)';
         } else {
             _relicValEl.innerHTML = (currentLang === 'RU' ? 'не выпала (шанс 15%)' : 'not dropped (15% chance)');
@@ -9687,7 +9773,7 @@ function claimWheelPrize(type) {
         playCoinSfx();
         triggerHaptic('legendary');
         const allStr = currentLang === 'RU' ? 'ко всему' : 'to all';
-        pushToast(currentLang === 'RU' ? `ДАР ВЕЧНОСТИ: +1 ${rI} (+15% ${allStr})` : `ETERNITY GIFT: +1 ${rI} (+15% ${allStr})`);
+        pushToast(currentLang === 'RU' ? `ДАР ВЕЧНОСТИ: +1 ${rI} (+10% ${allStr})` : `ETERNITY GIFT: +1 ${rI} (+10% ${allStr})`);
     } else if (type === 's_champion') {
         const sPool = ['s_dem_c', 's_cha_r', 's_lig_v', 's_und_c'];
         const heroId = sPool[Math.floor(Math.random() * sPool.length)];
@@ -10427,8 +10513,8 @@ function executePurchase(itemKeyOverride = null) {
         gState.relics += r;
         // L6: локализация тоста реликвий и приписки «+N% ко всему»
         const relicReward = currentLang === 'RU'
-            ? `+${r} ${rI} Реликвий (+${r * 15}% ко всему)`
-            : `+${r} ${rI} Relics (+${r * 15}% to all)`;
+            ? `+${r} ${rI} Реликвий (+${r * 10}% ко всему)`
+            : `+${r} ${rI} Relics (+${r * 10}% to all)`;
         pushToast(relicReward);
     }
     else if (SHOP_ITEMS_CATALOG[key]?.hours) {
@@ -10763,7 +10849,7 @@ function navigateToQuestAction(kind, key) {
         'daily:arena': () => navigate('arena-view'),
         'daily:dungeon': () => navigate('dungeon-view'),
         'daily:raid': () => navigate('raid-view'),
-        'daily:expedition': () => openRosterFrom('citadel-view', 'expeditions'),
+        'daily:expedition': () => openExpeditionsModal(),
         'daily:demon': () => navigate('citadel-view'),
         // STAGE
         'stage:tap': () => navigate('citadel-view'),
@@ -10771,7 +10857,7 @@ function navigateToQuestAction(kind, key) {
         'stage:upgrade': () => { navigate('citadel-view'); openBuildingModal('keep'); },
         'stage:summon': () => navigate('altar-view'),
         'stage:demon': () => navigate('citadel-view'),
-        'stage:expedition': () => openRosterFrom('citadel-view', 'expeditions'),
+        'stage:expedition': () => openExpeditionsModal(),
         'stage:hero_lvl': () => openRosterFrom('citadel-view', 'cards'),
         'stage:dungeon': () => navigate('dungeon-view'),
         'stage:raid': () => navigate('raid-view'),
@@ -10781,10 +10867,11 @@ function navigateToQuestAction(kind, key) {
         'achievement:ach_a': () => { navigate('citadel-view'); openBuildingModal('barracks'); },
         'achievement:ach_k': () => { navigate('citadel-view'); openBuildingModal('keep'); },
         'achievement:ach_ar': () => navigate('arena-view'),
-        'achievement:ach_c': () => openRosterFrom('citadel-view', 'cards'),
+        'achievement:ach_c': () => navigate('altar-view'),
         'achievement:ach_asc': () => { navigate('citadel-view'); openBuildingModal('keep'); },
         'achievement:ach_dem': () => navigate('citadel-view'),
-        'achievement:ach_dung': () => navigate('dungeon-view')
+        'achievement:ach_dung': () => navigate('dungeon-view'),
+        'achievement:ach_wheel': () => openLuckyWheelModal()
     };
     const fn = routes[kind + ':' + key];
     if (typeof fn === 'function') fn();
@@ -11045,10 +11132,10 @@ function checkNotificationBadges() {
     // 3. Штаб: Завершена экспедиция ИЛИ готовы вехи Кодекса
     const isExpeditionReady = Object.values(gState.expeditions || {}).some(e => e && e.endTime <= now);
     const codexReady = isCodexRewardReady();
-    $id('badge-district-roster')?.classList.toggle('active', isExpeditionReady || codexReady);
+    // v5.3.27: экспедиции переехали в Бездну — значок Штаба теперь только от Кодекса.
+    $id('badge-district-roster')?.classList.toggle('active', codexReady);
     $id('badge-tab-exp')?.classList.toggle('active', isExpeditionReady);
     $id('badge-tab-codex')?.classList.toggle('active', codexReady);
-    $id('badge-exp-ready')?.classList.toggle('active', isExpeditionReady);
 
     // 4. Подземелья: Лампочка активна СТРОГО когда готов удар по Левиафану или есть неизученные Хроники
     const raidCooldown = getRaidCooldownMs ? getRaidCooldownMs() : 300000;
@@ -11061,13 +11148,18 @@ function checkNotificationBadges() {
     // по Левиафану. Раньше пульсировала и при непрочитанных Хрониках — игрок
     // думал что "энергия есть" хотя мог быть 0/10. Хроники теперь дают точку
     // только внутри хаба подземелий (badge-hub-dungeon).
-    $id('badge-district-dungeons')?.classList.toggle('active', isRaidStrikeReady);
-
-    // FIX-BADGE-HUB v4.7.0: маркер на "Спуск в Бездну" в хабе больше не пульсирует
-    // от непрочитанных Хроник — игрок читал его как "есть энергия", хотя энергия 0/10.
-    // Хроники остаются доступны через кнопку "ХРОНИКИ" в самой вкладке Бездны.
-    // Маркер хаба Рейда (badge-hub-raid) работает как раньше — только на готовый удар.
-    $id('badge-hub-raid')?.classList.toggle('active', isRaidStrikeReady);
+    // v5.3.29: пульсы в хабе Подземелий.
+    // Спуск — при наличии энергии. Левиафан — при готовом ударе. Походы — при готовой экспедиции.
+    const _hubDungeonPulse = (gState.dungeonStamina || 0) > 0;
+    const _hubRaidPulse = isRaidStrikeReady;
+    const _hubExpPulse = isExpeditionReady;
+    $id('badge-hub-dungeon')?.classList.toggle('active', _hubDungeonPulse);
+    $id('badge-hub-raid')?.classList.toggle('active', _hubRaidPulse);
+    $id('badge-hub-exp')?.classList.toggle('active', _hubExpPulse);
+    // Иконка Подземелий на карте Цитадели пульсирует если пульсирует любая карточка внутри хаба.
+    $id('badge-district-dungeons')?.classList.toggle('active', _hubDungeonPulse || _hubRaidPulse || _hubExpPulse);
+    // v5.3.28: значок на карточке Походов пульсирует при готовой экспедиции.
+    $id('badge-hub-exp')?.classList.toggle('active', isExpeditionReady);
 
     const abyssInfoEl = $id('hub-abyss-info');
     if (abyssInfoEl) {
@@ -11078,6 +11170,25 @@ function checkNotificationBadges() {
         } else {
             abyssInfoEl.className = 'hub-status-pill energy';
             abyssInfoEl.innerHTML = `${eIcon} ${gState.dungeonStamina || 0}/10`;
+        }
+    }
+
+    // v5.3.28: карточка Походов в хабе Бездны — живой статус (готово/N в пути/свободно).
+    const expInfoEl = $id('hub-exp-info');
+    if (expInfoEl) {
+        const _exps = Object.values(gState.expeditions || {});
+        const _readyCount = _exps.filter(e => e && e.endTime <= now).length;
+        const _busyCount = _exps.filter(e => e && e.endTime > now).length;
+        if (_readyCount > 0) {
+            expInfoEl.className = 'hub-status-pill raid-ready';
+            expInfoEl.innerText = (I18N[currentLang] && I18N[currentLang].hub_exp_status_ready) || 'ГОТОВО';
+        } else if (_busyCount > 0) {
+            expInfoEl.className = 'hub-status-pill energy';
+            const tpl = (I18N[currentLang] && I18N[currentLang].hub_exp_status_busy) || '{n} в пути';
+            expInfoEl.innerText = tpl.replace('{n}', _busyCount);
+        } else {
+            expInfoEl.className = 'hub-status-pill';
+            expInfoEl.innerText = (I18N[currentLang] && I18N[currentLang].hub_exp_status_free) || 'СВОБОДНО';
         }
     }
 
@@ -11132,6 +11243,9 @@ function renderCodexUI() {
     const tabsBox = document.getElementById('codex-faction-tabs');
     const contentBox = document.getElementById('codex-content-box');
     if (!tabsBox || !contentBox) return;
+    const _sig = _getCodexRenderSig();
+    if (_sig === _lastRenderCodexSig) return;
+    _lastRenderCodexSig = _sig;
 
     if (!gState.codexClaimed) gState.codexClaimed = { light: [], undead: [], chaos: [], demon: [] };
 
@@ -11233,10 +11347,7 @@ function renderCodexUI() {
     // Дублирует внутренние точки, но делает подсветку моментальной и безусловной.
     const overallReady = isCodexRewardReady();
     document.getElementById('badge-tab-codex')?.classList.toggle('active', overallReady);
-    const rosterDistrict = document.getElementById('badge-district-roster');
-    const now = Date.now();
-    const isExpReady = Object.values(gState.expeditions || {}).some(e => e && e.endTime <= now);
-    rosterDistrict?.classList.toggle('active', overallReady || isExpReady);
+    document.getElementById('badge-district-roster')?.classList.toggle('active', overallReady);
     checkCodexNotifications();
 }
 
@@ -11282,10 +11393,12 @@ function checkCodexNotifications() {
     const ready = isCodexRewardReady();
     // U16: горячие бейджи через кэш $id (функция вызывается из тика и из 4+ мест UI)
     $id('badge-tab-codex')?.classList.toggle('active', ready);
+    // v5.3.27: экспедиции переехали в Бездну → значок Штаба только от Кодекса,
+    // а таб ПОХОДОВ теперь живёт внутри #dungeon-view и сигналит отдельно.
+    $id('badge-district-roster')?.classList.toggle('active', ready);
     const now = Date.now();
     const isExpeditionReady = Object.values(gState.expeditions || {}).some(e => e && e.endTime <= now);
     $id('badge-tab-exp')?.classList.toggle('active', isExpeditionReady);
-    $id('badge-district-roster')?.classList.toggle('active', isExpeditionReady || ready);
 }
 
 /* ==========================================================
@@ -11469,7 +11582,7 @@ function claimAbyssPassReward(lvl, isVipTrack) {
             const rI = '<img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">';
             const culmStr = currentLang === 'RU' ? 'КУЛЬМИНАЦИЯ ПРОПУСКА' : 'PASS CLIMAX';
             const forStr = currentLang === 'RU' ? 'навсегда' : 'forever';
-            pushToast(`${culmStr}: +1 ${rI} (+15% ${forStr})!`);
+            pushToast(`${culmStr}: +1 ${rI} (+10% ${forStr})!`);
         } else if (lvl === 10) {
             gState.tickets = (gState.tickets || 0) + 10;
             const tI = '<img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T">';
@@ -11877,9 +11990,9 @@ function executeGrandAscensionRitual() {
 
         if (eraBadge) eraBadge.innerText = currentLang === 'RU' ? `ЭПОХА #${eraNum} ЗАВЕРШЕНА` : `ERA #${eraNum} CONCLUDED`;
         if (totalRelicsEl) totalRelicsEl.innerHTML = `${newRelics} <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">`;
-        const bonusPct = newRelics * 15;
+        const bonusPct = newRelics * 10;
         if (multEl) multEl.innerText = currentLang === 'RU' ? `+${bonusPct}% ко всем сферам` : `+${bonusPct}% to all realms`;
-        if (descEl) descEl.innerText = currentLang === 'RU' ? `+15% ко всей мощи и добыче навсегда (Всего: +${bonusPct}%)` : `+15% to all power & income lifetime (Total: +${bonusPct}%)`;
+        if (descEl) descEl.innerText = currentLang === 'RU' ? `+10% ко всей мощи и добыче навсегда (Всего: +${bonusPct}%)` : `+10% to all power & income lifetime (Total: +${bonusPct}%)`;
 
         // Фаза 3: Явление Реликвии (650 мс)
         setTimeout(() => {
@@ -11910,7 +12023,7 @@ function completeAscensionRitual() {
     navigate('citadel-view');
 
     const rI = '<img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">';
-    pushToast(currentLang === 'RU' ? `Империя возрождена! +1 ${rI} (+${gState.relics * 15}% навсегда)!` : `Empire reborn! +1 ${rI} (+${gState.relics * 15}% forever)!`);
+    pushToast(currentLang === 'RU' ? `Империя возрождена! +1 ${rI} (+${gState.relics * 10}% навсегда)!` : `Empire reborn! +1 ${rI} (+${gState.relics * 10}% forever)!`);
 
     // Запрос отзыва в момент триумфального завершения ритуала
     if (typeof PlatformBridge !== 'undefined' && PlatformBridge.checkAndPromptReview) {
@@ -13010,6 +13123,13 @@ function updateAdButtonText() {
 let rosterReturnView = 'citadel-view';
 
 function openRosterFrom(sourceView, targetTab = 'formation') {
+    // v5.3.27: экспедиции переехали в Бездну → прозрачный редирект.
+    if (targetTab === 'expeditions') {
+        rosterReturnView = sourceView;
+        navigate('dungeon-view');
+        selectDungeonTab('expeditions');
+        return;
+    }
     rosterReturnView = sourceView;
     navigate('roster-view');
     selectRosterTab(targetTab);
@@ -13041,6 +13161,7 @@ function navigate(viewId) {
     }
 
     if (viewId === 'dungeon-view') renderDungeon();
+    if (viewId === 'expedition-view') renderExpeditionsList();
     if (viewId === 'arena-view') {
         // LIVE-ARENA (v4.7.6): подтягиваем живых соперников асинхронно,
         // затем перерисовываем список. Первый рендер идёт с кэшем (если есть),
@@ -13197,14 +13318,111 @@ function applyLanguage(lang) {
     setTip('btn-dung-farm', tips.dung_farm);
     setTip('btn-ad-footer', tips.ad_footer);
 
-    setTipQuery('.district-mine .district-hitbox', I18N[currentLang].mine_name);
-    setTipQuery('.district-keep .district-hitbox', I18N[currentLang].keep_name);
-    setTipQuery('.district-barracks .district-hitbox', I18N[currentLang].barracks_name);
-    setTipQuery('.district-altar .district-hitbox', I18N[currentLang].altar);
-    setTipQuery('.district-roster .district-hitbox', I18N[currentLang].roster);
-    setTipQuery('.district-dungeons .district-hitbox', I18N[currentLang].dungeon);
-    setTipQuery('.district-arena .district-hitbox', I18N[currentLang].arena);
-    setTipQuery('.district-market .district-hitbox', I18N[currentLang].shop);
+    // v5.3.22: расширенные тултипы для кнопок внутри локаций
+    setTip('btn-main-menu', tips.main_menu);
+    setTip('btn-preloader-sound', tips.preloader_sound);
+    setTip('btn-preloader-lang', tips.preloader_lang);
+    setTip('ui-vip-tag', tips.vip_tag);
+
+    // Бездна
+    setTip('btn-dung-attack', tips.dung_attack);
+    setTip('btn-dung-farm', tips.dung_farm);
+    setTip('btn-dung-refill', tips.dung_refill);
+
+    // Рейд
+    setTip('btn-raid-attack', tips.raid_attack);
+
+    // Арена
+    setTip('btn-arena-refresh', tips.arena_refresh);
+    setTip('btn-arena-vk-ladder', tips.arena_vk_ladder);
+    setTip('btn-arena-yandex-ladder', tips.arena_yandex_ladder);
+
+    // Бой
+    setTip('btn-battle-skip', tips.battle_skip);
+    setTip('btn-battle-speed', tips.battle_speed);
+    setTip('btn-battle-close', tips.battle_claim);
+    setTip('btn-battle-double', tips.battle_double);
+
+    // Прокачка героя
+    setTip('btn-levelup-hero', tips.hero_levelup);
+    setTip('btn-lvl-cycle', tips.hero_lvl_cycle);
+
+    // Возвышение
+    setTip('btn-ascend', tips.ascend_open);
+    setTip('btn-ascend-auto-spend', tips.ascend_auto);
+    setTip('btn-ascend-picker-open', tips.ascend_pick);
+
+    // Штаб — сортировка
+    setTip('btn-roster-sort-tier', tips.sort_tier);
+    setTip('btn-roster-sort-lvl', tips.sort_lvl);
+
+    // Алтарь — расширенные
+    setTip('btn-sum-g10', tips.altar_basic_10);
+
+    // Квесты / Пропуск / Магазин
+    setTip('btn-quests-claim-all', tips.quests_claim_all);
+    setTip('btn-pass-claim-all', tips.pass_claim_all);
+    setTip('btn-claim-freebie', tips.shop_freebie);
+
+    // Колесо / Календарь
+    setTip('btn-wheel-spin', tips.wheel_spin);
+    setTip('btn-cal-claim', tips.cal_claim);
+    setTip('btn-cal-double', tips.cal_double);
+
+    // v5.3.24: Энергия Бездны и Билеты Арены
+    setTip('dung-stamina-badge', tips.energy);
+    setTipQuery('.arena-tickets-group', tips.arena_tickets);
+
+    // v5.3.25: Табы Штаба
+    setTip('btn-roster-tab-cards', tips.roster_cards);
+    setTip('btn-roster-tab-formation', tips.roster_formation);
+    setTip('mode-exp-btn', tips.roster_expeditions);
+    setTip('mode-codex-btn', tips.roster_codex);
+
+    // v5.3.26: Магазин — тултипы на иконки товаров, не на кнопки с ценой.
+    // Заголовочные паки: тултип на всю карточку товара.
+    const _starterCard = document.getElementById('btn-shop-starter')?.closest('.shop-featured-card');
+    if (_starterCard) _starterCard.setAttribute('title', tips.shop_starter);
+    const _vipCard = document.getElementById('btn-shop-vip')?.closest('.shop-vip-card');
+    if (_vipCard) _vipCard.setAttribute('title', tips.shop_vip);
+
+    // Tile-паки: тултип на кластер иконок внутри карточки (там, где картинка товара).
+    // Кнопка с ценой чистится от title — иначе описание показывалось бы дважды.
+    const _shopTileTips = {
+        'cryst_100': tips.shop_crystal_100,
+        'cryst_350': tips.shop_crystal_350,
+        'cryst_1000': tips.shop_crystal_1000,
+        'cryst_2500': tips.shop_crystal_2500,
+        'cryst_6000': tips.shop_crystal_6000,
+        'cryst_14000': tips.shop_crystal_14000,
+        'tickets_5': tips.shop_tickets_5,
+        'tickets_15': tips.shop_tickets_15,
+        'tickets_50': tips.shop_tickets_50,
+        'gold_warp_2h': tips.shop_gold_2h,
+        'gold_warp_8h': tips.shop_gold_8h,
+        'gold_warp_24h': tips.shop_gold_24h
+    };
+    document.querySelectorAll('.shop-tile-btn').forEach(btn => {
+        const oc = btn.getAttribute('onclick') || '';
+        const m = oc.match(/openBuyConfirm\('([^']+)'/);
+        if (!m || !_shopTileTips[m[1]]) return;
+        btn.removeAttribute('title');
+        const cluster = btn.closest('.shop-tile-card')?.querySelector('.shop-tile-cluster');
+        if (cluster) cluster.setAttribute('title', _shopTileTips[m[1]]);
+    });
+
+    // v5.3.25: Награды Лиг — табы
+    setTip('ltab-bronze', tips.league_bronze);
+    setTip('ltab-silver', tips.league_silver);
+    setTip('ltab-gold', tips.league_gold);
+    setTip('ltab-platinum', tips.league_platinum);
+    setTip('ltab-diamond', tips.league_diamond);
+
+    // v5.3.22 BUILDING-TOOLTIPS: здания получают динамические многострочные
+    // тултипы через refreshBuildingTooltips(). Форсим пересборку (сбрасываем
+    // сигнатуру), чтобы смена языка применилась мгновенно.
+    _lastBuildingTooltipSig = '';
+    refreshBuildingTooltips();
 
     // 3. Динамические подписи блоков и экранов
     const setTxt = (id, str) => { const el = document.getElementById(id); if (el && str) el.innerText = str; };
@@ -13423,6 +13641,133 @@ function toggleLanguage() {
 /* ==========================================================
    ЦЕНТРАЛИЗОВАННЫЙ ТАКТ ЖИВЫХ ТАЙМЕРОВ (LIVE TIMERS)
    ========================================================== */
+// v5.3.22 BUILDING-TOOLTIPS: динамические тултипы для 8 зданий Цитадели.
+// Формирует многострочный title с текущим уровнем, текущим эффектом,
+// следующим эффектом и стоимостью апгрейда. Обновляется в тик через
+// dirty-check сигнатуру (уровни зданий + relics + язык) — пересобираем
+// title только когда состояние реально изменилось.
+let _lastBuildingTooltipSig = '';
+function refreshBuildingTooltips() {
+    const _sig = `${currentLang}|${(gState.buildings&&gState.buildings.mine)||1}|${(gState.buildings&&gState.buildings.keep)||1}|${(gState.buildings&&gState.buildings.barracks)||0}|${gState.relics||0}|${(gState.buildings&&gState.buildings.keep)||1 >= getAscendKeepReq() ? 1 : 0}`;
+    if (_sig === _lastBuildingTooltipSig) return;
+    _lastBuildingTooltipSig = _sig;
+
+    const isRU = currentLang === 'RU';
+    const gUnit = isRU ? 'золота/с' : 'gold/s';
+    const aUnit = isRU ? 'воина/с' : 'recruit/s';
+    const gold = isRU ? 'золота' : 'gold';
+    const lvlW = isRU ? 'Ур.' : 'Lvl';
+    const nextW = isRU ? 'Следующий уровень' : 'Next level';
+    const costW = isRU ? 'Стоимость' : 'Cost';
+    const lvlWord = isRU ? 'уровень' : 'level';
+    const bonusW = isRU ? 'Бонус' : 'Bonus';
+    const capWord = isRU ? 'к лимиту армии' : 'to army cap';
+
+    const setT = (sel, txt) => {
+        const el = document.querySelector(sel);
+        if (el) el.setAttribute('title', txt);
+    };
+
+    // Шахты
+    {
+        const lvl = (gState.buildings && gState.buildings.mine) || 1;
+        const cur = getIncomeRate(lvl);
+        const nxt = getIncomeRate(lvl + 1);
+        const cost = getUpgradeCost('mine');
+        setT('.district-mine .district-hitbox',
+            `${isRU ? 'Золотые Шахты' : 'Gold Mines'} (${lvlW} ${lvl})\n${isRU ? 'Пассивный доход' : 'Passive income'}: +${formatNumber(cur)} ${gUnit}\n${nextW}: +${formatNumber(nxt)} ${gUnit}\n${costW}: ${formatNumber(cost)} ${gold}`);
+    }
+
+    // Цитадель
+    {
+        const lvl = (gState.buildings && gState.buildings.keep) || 1;
+        const cur = lvl * 30;
+        const nxt = (lvl + 1) * 30;
+        const cost = getUpgradeCost('keep');
+        let txt = `${isRU ? 'Цитадель' : 'Citadel'} (${lvlW} ${lvl})\n${bonusW}: +${cur}% ${capWord}\n${nextW}: +${nxt}% ${capWord}\n${costW}: ${formatNumber(cost)} ${gold}`;
+        const ascendReq = getAscendKeepReq();
+        if (lvl >= ascendReq) {
+            txt += isRU ? '\n\n◆ Доступно Великое Возвышение' : '\n\n◆ Grand Ascension available';
+        } else if (ascendReq - lvl <= 3) {
+            txt += isRU ? `\n\nВозвышение с Ур. ${ascendReq}` : `\n\nAscension at ${lvlW} ${ascendReq}`;
+        }
+        setT('.district-keep .district-hitbox', txt);
+    }
+
+    // Казармы
+    {
+        const lvl = (gState.buildings && gState.buildings.barracks) || 0;
+        const relicMult = getRelicBonus();
+        const cur = Math.floor(lvl * 1 * relicMult);
+        const nxt = Math.floor((lvl + 1) * 1 * relicMult);
+        const cost = getUpgradeCost('barracks');
+        if (lvl === 0) {
+            setT('.district-barracks .district-hitbox',
+                `${isRU ? 'Казармы Легиона' : 'Legion Barracks'}\n${isRU ? 'Не построены.' : 'Not built.'}\n${isRU ? 'Постройте для автонайма воинов' : 'Build for auto-recruitment'}\n${costW}: ${formatNumber(cost)} ${gold}`);
+        } else {
+            setT('.district-barracks .district-hitbox',
+                `${isRU ? 'Казармы Легиона' : 'Legion Barracks'} (${lvlW} ${lvl})\n${isRU ? 'Автонайм' : 'Auto-recruit'}: +${formatNumber(cur)} ${aUnit}\n${nextW}: +${formatNumber(nxt)} ${aUnit}\n${costW}: ${formatNumber(cost)} ${gold}`);
+        }
+    }
+
+    // Алтарь
+    {
+        const now = Date.now();
+        const basicReady = (now - (gState.lastFreeBasicSummon || 0)) >= 8 * 3600 * 1000;
+        const eliteReady = (now - (gState.lastFreeEliteSummon || 0)) >= 48 * 3600 * 1000;
+        let txt = isRU ? 'Алтарь Призыва' : 'Summon Altar';
+        txt += isRU ? '\nБазовый призыв: F–A ранги (10 Кристаллов)' : '\nBasic: Ranks F–A (10 Crystals)';
+        txt += isRU ? '\nЭлитный призыв: D–SSS ранги (100 Кристаллов)' : '\nElite: Ranks D–SSS (100 Crystals)';
+        if (basicReady) txt += isRU ? '\n\n◆ Бесплатный базовый призыв готов!' : '\n\n◆ Free basic summon ready!';
+        if (eliteReady) txt += isRU ? '\n◆ Бесплатный элитный призыв готов!' : '\n◆ Free elite summon ready!';
+        setT('.district-altar .district-hitbox', txt);
+    }
+
+    // Штаб
+    {
+        const busy = Object.values(gState.expeditions || {}).length;
+        let txt = isRU ? 'Штаб Легиона' : 'Legion HQ';
+        txt += isRU ? '\nКартотека · Построение · Походы · Кодекс' : '\nArchive · Formation · Expeditions · Codex';
+        if (busy > 0) txt += isRU ? `\n\nАктивных походов: ${busy}` : `\n\nActive expeditions: ${busy}`;
+        setT('.district-roster .district-hitbox', txt);
+    }
+
+    // Подземелья
+    {
+        const floor = gState.dungeonFloor || 1;
+        const energy = gState.dungeonStamina || 0;
+        const raidReady = !gState.isRaidDefeatedThisWeek && (gState.worldBossHp || 0) > 0;
+        let txt = isRU ? 'Подземелья Бездны' : 'Abyss Dungeons';
+        txt += isRU ? `\nБездна: этаж ${floor}, энергия ${energy}/10` : `\nAbyss: floor ${floor}, energy ${energy}/10`;
+        txt += isRU ? '\nМировой Левиафан: рейд недели' : '\nWorld Leviathan: weekly raid';
+        if (raidReady && energy >= 10) txt += isRU ? '\n\n◆ Готовы к бою!' : '\n\n◆ Combat ready!';
+        setT('.district-dungeons .district-hitbox', txt);
+    }
+
+    // Арена
+    {
+        const trophies = gState.trophies || 150;
+        const tickets = gState.tickets || 0;
+        const league = getCurrentLeague();
+        const leagueName = league.name[currentLang] || league.name['EN'];
+        let txt = isRU ? 'Арена Лордов' : 'Lords Arena';
+        txt += `\n${leagueName}`;
+        txt += isRU ? `\nКубки: ${Math.floor(trophies).toLocaleString()}` : `\nTrophies: ${Math.floor(trophies).toLocaleString()}`;
+        txt += isRU ? `\nБилеты: ${tickets}/10` : `\nTickets: ${tickets}/10`;
+        setT('.district-arena .district-hitbox', txt);
+    }
+
+    // Магазин
+    {
+        const freebieReady = !gState.dailyFreebieClaimedToday;
+        let txt = isRU ? 'Императорская Сокровищница' : 'Imperial Treasury';
+        txt += isRU ? '\nНаборы, кристаллы, билеты, золото' : '\nPacks, crystals, tickets, gold';
+        txt += isRU ? '\nЕжедневный дар казны раз в сутки' : '\nDaily Treasury Gift once per day';
+        if (freebieReady) txt += isRU ? '\n\n◆ Ежедневный дар доступен!' : '\n\n◆ Daily gift available!';
+        setT('.district-market .district-hitbox', txt);
+    }
+}
+
 function updateLiveTimers() {
     const midnightStr = getFormattedMidnightCountdown();
     const sundayStr = getTimeUntilSundayMidnight();
@@ -13512,6 +13857,8 @@ function refreshCurrentView() {
     const activeView = document.querySelector('.view-tab.active')?.id || 'citadel-view';
     if (activeView === 'dungeon-view') {
         renderDungeon();
+    } else if (activeView === 'expedition-view') {
+        renderExpeditionsList();
     } else if (activeView === 'raid-view') {
         renderRaidBossUI();
     } else if (activeView === 'arena-view') {
@@ -13520,7 +13867,7 @@ function refreshCurrentView() {
         renderQuests();
     } else if (activeView === 'roster-view') {
         if (activeRosterTab === 'cards') renderCards();
-        else if (activeRosterTab === 'formation') renderFormationSlots();
+        else if (activeRosterTab === 'formation') { renderFormationSlots(); updateSquadButtonsAffordability(); }
         else if (activeRosterTab === 'expeditions') renderExpeditionsList();
         else if (activeRosterTab === 'codex') renderCodexUI();
     }
@@ -13581,6 +13928,7 @@ setInterval(() => {
     }
 
     updateLiveTimers();
+    refreshBuildingTooltips();
     checkDailyReset();
     checkWeeklyRaidReset();
     autoCompleteRaidQuestIfDefeated();
@@ -13912,10 +14260,25 @@ function initMobileLongPressTooltips() {
             activeTooltipEl = document.createElement('div');
             activeTooltipEl.className = 'mobile-longpress-tooltip';
             activeTooltipEl.innerText = text;
-            const touch = e.touches[0];
-            activeTooltipEl.style.left = `${Math.min(window.innerWidth - 180, Math.max(10, touch.clientX - 80))}px`;
-            activeTooltipEl.style.top = `${Math.max(10, touch.clientY - 46)}px`;
+            activeTooltipEl.style.visibility = 'hidden';
+            activeTooltipEl.style.left = '0px';
+            activeTooltipEl.style.top = '0px';
             document.body.appendChild(activeTooltipEl);
+            // v5.3.22 FIX-TIP-CLAMP: теперь после appendChild измеряем реальные
+            // размеры (учитывая длинный многострочный текст) и клэмпим по всем
+            // четырём краям viewport'а. Раньше длинный тултип обрезался снизу.
+            const touch = e.touches[0];
+            const tipW = activeTooltipEl.offsetWidth || 200;
+            const tipH = activeTooltipEl.offsetHeight || 40;
+            const maxLeft = Math.max(10, window.innerWidth - tipW - 10);
+            const maxTop = Math.max(10, window.innerHeight - tipH - 10);
+            const desiredLeft = Math.max(10, Math.min(maxLeft, touch.clientX - tipW / 2));
+            let desiredTop = touch.clientY - 46;
+            if (desiredTop + tipH > window.innerHeight - 10) desiredTop = touch.clientY - tipH - 12;
+            desiredTop = Math.max(10, Math.min(maxTop, desiredTop));
+            activeTooltipEl.style.left = `${desiredLeft}px`;
+            activeTooltipEl.style.top = `${desiredTop}px`;
+            activeTooltipEl.style.visibility = 'visible';
             tooltipActive = true;
             triggerHaptic('tap');
         }, 400);
@@ -13936,6 +14299,112 @@ function initMobileLongPressTooltips() {
         if (tooltipActive) return;
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
     }, { passive: true });
+}
+
+// v5.3.21 FIX-DESKTOP-TOOLTIP: красивый кастомный тултип на ПК (hover)
+// вместо уродливого и медленного нативного браузерного. Визуал — зеркало
+// мобильного лонг-тапного тултипа: тёмная стеклянная плашка, золотая рамка,
+// мягкое свечение. Работает ТОЛЬКО на устройствах с мышью
+// ((hover: hover) and (pointer: fine)) — на тач-устройствах остаётся
+// родной лонг-тап через initMobileLongPressTooltips.
+//
+// Ключевые решения:
+//   • Делегирование через document + closest('[title]') — покрывает все
+//     динамически созданные элементы без перепривязки.
+//   • title временно снимается с элемента на время показа кастомного тултипа,
+//     иначе браузер покажет нативный серый прямоугольник поверх нашего.
+//     Восстанавливается при закрытии — semanтика title для accessibility цела.
+//   • Задержка 180мс — быстрый hover без задержки раздражает, как автоподсказки в IDE.
+//   • Позиция: снизу от элемента по центру; если места нет — сверху.
+//     Клэмп по краям viewport, чтобы плашка не уезжала за экран.
+//   • Пропускаем активно-тапаемые зоны (#tap-node, .citadel-bottom-tap-zone)
+//     и поля ввода — симметрия с мобильным лонг-тапом.
+function initDesktopHoverTooltips() {
+    let _isPointerFine = false;
+    try {
+        _isPointerFine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    } catch (e) {
+        _isPointerFine = !('ontouchstart' in window) && (navigator.maxTouchPoints || 0) === 0;
+    }
+    if (!_isPointerFine) return;
+
+    let showTimer = null;
+    let activeTip = null;
+    let activeTarget = null;
+    let stashedTitle = null;
+
+    const removeTip = () => {
+        if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+        if (activeTip) { activeTip.remove(); activeTip = null; }
+        if (activeTarget && stashedTitle !== null) {
+            activeTarget.setAttribute('title', stashedTitle);
+        }
+        activeTarget = null;
+        stashedTitle = null;
+    };
+
+    const positionTip = (tip, target) => {
+        const rect = target.getBoundingClientRect();
+        const tipRect = tip.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const gap = 8;
+
+        let top = rect.bottom + gap;
+        let left = rect.left + rect.width / 2 - tipRect.width / 2;
+
+        if (top + tipRect.height > vh - 8) {
+            top = rect.top - tipRect.height - gap;
+        }
+        if (left < 8) left = 8;
+        if (left + tipRect.width > vw - 8) left = vw - tipRect.width - 8;
+        if (top < 8) top = 8;
+
+        tip.style.top = `${top}px`;
+        tip.style.left = `${left}px`;
+    };
+
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target && e.target.closest && e.target.closest('[title]');
+        if (!target) return;
+        if (target.id === 'tap-node' || target.closest('.citadel-bottom-tap-zone')) return;
+        const tag = (target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if (target === activeTarget) return;
+
+        removeTip();
+        activeTarget = target;
+        const text = target.getAttribute('title');
+        if (!text) return;
+
+        showTimer = setTimeout(() => {
+            showTimer = null;
+            if (!activeTarget) return;
+            const tip = document.createElement('div');
+            tip.className = 'mobile-longpress-tooltip desktop-hover-tooltip';
+            tip.innerText = text;
+            tip.style.top = '-9999px';
+            tip.style.left = '-9999px';
+            document.body.appendChild(tip);
+            activeTip = tip;
+
+            stashedTitle = text;
+            target.removeAttribute('title');
+
+            positionTip(tip, target);
+        }, 180);
+    }, true);
+
+    document.addEventListener('mouseout', (e) => {
+        if (!activeTarget) return;
+        if (e.target !== activeTarget && !activeTarget.contains(e.target)) return;
+        if (e.relatedTarget && activeTarget.contains(e.relatedTarget)) return;
+        removeTip();
+    }, true);
+
+    window.addEventListener('scroll', removeTip, true);
+    window.addEventListener('blur', removeTip);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) removeTip(); });
 }
 
 // Обработка аппаратной кнопки «Назад» / свайпа «Назад» на Android
@@ -13971,7 +14440,12 @@ const MODAL_CLOSERS_SWIPE = {
     'legal-doc-modal': () => closeLegalDocModal(),
     'chronicles-archive-modal': () => closeChroniclesArchiveModal(),
     'promo-modal': () => closePromoModal(),
-    'mastery-awakening-modal': () => cancelMasteryEntry()
+    'mastery-awakening-modal': () => cancelMasteryEntry(),
+    'cancel-expedition-modal': () => closeCancelExpeditionModal(),
+    'arena-inbox-modal': () => closeArenaInbox(),
+    'arena-live-ladder-modal': () => closeYandexArenaLeaderboard(),
+    'admin-panel-modal': () => closeAdminPanel(),
+    'admin-league-modal': () => closeAdminLeaguePicker()
 };
 
 function initSwipeRightClose() {
@@ -14187,6 +14661,7 @@ function initHardwareBackNavigation() {
             { id: 'player-inspect-modal', close: closePlayerInspect },
             { id: 'card-inspect-modal', close: closeCardInspect },
             { id: 'abyss-pass-modal', close: closeAbyssPassModal },
+            { id: 'mastery-awakening-modal', close: cancelMasteryEntry },
             { id: 'slot-picker-modal', close: closeSlotPicker },
             { id: 'exp-picker-modal', close: closeExpHeroPicker },
             { id: 'settings-modal', close: closeSettingsModal },
@@ -14195,16 +14670,22 @@ function initHardwareBackNavigation() {
             { id: 'main-menu-modal', close: closeMainMenu },
             { id: 'daily-calendar-modal', close: closeDailyCalendarModal },
             { id: 'lucky-wheel-modal', close: closeLuckyWheelModal },
+            { id: 'arena-inbox-modal', close: closeArenaInbox },
+            { id: 'arena-live-ladder-modal', close: closeYandexArenaLeaderboard },
             { id: 'arena-ladder-modal', close: closeArenaLadderModal },
             { id: 'rewards-modal', close: closeRewardsModal },
             { id: 'ascend-modal', close: closeAscendModal },
             { id: 'ascend-hero-picker-modal', close: closeAscendHeroPicker },
             { id: 'demon-modal', close: closeDemonModal },
             { id: 'buy-modal', close: closeBuyModal },
+            { id: 'promo-modal', close: closePromoModal },
             { id: 'hard-reset-modal', close: closeHardResetModal },
+            { id: 'cancel-expedition-modal', close: closeCancelExpeditionModal },
             { id: 'chronicle-modal', close: closeChronicleModal },
             { id: 'legal-doc-modal', close: closeLegalDocModal },
-            { id: 'chronicles-archive-modal', close: closeChroniclesArchiveModal }
+            { id: 'chronicles-archive-modal', close: closeChroniclesArchiveModal },
+            { id: 'admin-league-modal', close: closeAdminLeaguePicker },
+            { id: 'admin-panel-modal', close: closeAdminPanel }
         ];
 
         for (let m of activeModals) {
@@ -14384,6 +14865,7 @@ try {
     applyLanguage(currentLang);
     PlatformBridge.init();
     initMobileLongPressTooltips();
+    initDesktopHoverTooltips();
     initHardwareBackNavigation();
     initSwipeRightClose();
     // v4.8.8: initSwipeRightToCloseView() удалена — её логика полностью дублировала

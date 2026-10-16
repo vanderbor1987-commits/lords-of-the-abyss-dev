@@ -110,30 +110,126 @@ const I18N = {
 
         // Подсказки при наведении мыши (Desktop Tooltips)
         tips: {
-            nick: 'Сменить имя вашего Лорда',
-            audio: 'Включить / Выключить звуковые эффекты',
-            fullscreen: 'Переключить полноэкранный режим',
-            calendar: '28-дневный календарь наград Пантеона',
-            pass: 'Боевой Пропуск Бездны',
-            wheel: 'Колесо Фортуны Бездны',
-            quests: 'Задания и Достижения',
-            ad_footer: 'Бесплатное золото и билеты Арены за просмотр',
-            cp: 'Общая Боевая Мощь легиона (влияет на исход всех битв)',
-            gold: 'Золото Цитадели (добывается в шахтах, тапами и в боях)',
-            army: 'Текущая армия / Максимальная вместимость гарнизона',
-            crystals: 'Кристаллы (для элитного призыва и улучшений)',
-            relics: 'Реликвии Возвышения (+15% ко всей экономике навсегда за штуку)',
-            keep: 'Цитадель: дает +30% к лимиту армии мультипликатором',
-            mine: 'Золотые Шахты: пассивный доход золота каждую секунду',
-            barracks: 'Казармы: непрерывный автоматический найм воинов',
-            slot_0: 'Слот Авангарда: принимает первый физический удар врага',
-            slot_1: 'Слот Лидера: командир отряда, получает бонус +50% к своей мощи',
-            slot_2: 'Слот Тыла: дальнобойная и магическая поддержка за спинами авангарда',
-            frenzy: 'Тапайте быстрее для заполнения шкалы Ярости (x3 доход и найм)!',
-            altar_basic: 'Призыв воинов от ранга F до A за Кристаллы',
-            altar_elite: 'Призыв элитных лордов от D до SSS ранга за Кристаллы',
-            altar_elite_10: 'Призыв 10 элитных лордов со скидкой',
-            dung_farm: 'Мгновенная зачистка пройденного этажа без боя (тратит 1 Энергию)'
+            // HUD — системные кнопки
+            nick: 'Открыть профиль и настройки.\nСменить аватар, имя лорда, титул, звук, язык.',
+            audio: 'Звук: включить / выключить музыку и звуковые эффекты одним тапом.',
+            fullscreen: 'Развернуть игру на весь экран.',
+            main_menu: 'Главное меню: язык, звук, промокод, правовые документы, выход.',
+
+            // HUD — быстрые иконки
+            calendar: '28-дневный календарь наград Пантеона.\nЕжедневно заходите за ресурсами и героями.',
+            pass: 'Боевой Пропуск Бездны.\n30 уровней наград за ежедневный вход.',
+            wheel: 'Колесо Фортуны Бездны.\n1 бесплатное вращение + 2 за рекламу в день.',
+            quests: 'Задания и Достижения.\nЕжедневные задачи, этапные вехи и 50-этапные достижения.',
+            ad_footer: 'Забрать бесплатное золото и 2 билета Арены за просмотр рекламы.',
+
+            // Ресурсы
+            cp: 'Боевая Мощь — суммарная сила легиона.\nОпределяет победу в боях и урон по боссам.',
+            gold: 'Золото — добывается в Шахтах, тапами, за победы и рекламу.\nТратится на апгрейды зданий и героев.',
+            army: 'Армия / Лимит гарнизона.\nУсиливает БМ легиона в Бездне и Рейде. Рекрутируется Казармами и тапами.',
+            crystals: 'Кристаллы Бездны — премиум-валюта.\nТратится на призыв героев и элитные апгрейды.',
+            relics: 'Реликвии Возвышения.\nКаждая даёт +10% ко всей экономике и мощи легиона навсегда.',
+            vip_tag: 'VIP активен: без рекламы, авто-x2 наград, мгновенный бой.',
+
+            // Слоты построения
+            slot_0: 'Авангард — держит линию, принимает первые удары врага.\nТребуется герой с ролью «Авангард».',
+            slot_1: 'Лидер — командир отряда, получает +50% к своей мощи.\nТребуется герой с ролью «Главком» (Лидер).',
+            slot_2: 'Тыл — магия и стрелки, бьёт из-за спины авангарда.\nТребуется герой с ролью «Тыл».',
+
+            // Алтарь
+            altar_basic: 'Базовый призыв ×1 — герои ранга F–A.\nСтоимость: 10 Кристаллов. Раз в 8 ч — бесплатно.',
+            altar_basic_10: 'Базовый призыв ×10 — 10 героев со скидкой 10%.\nСтоимость: 90 Кристаллов вместо 100.',
+            altar_elite: 'Элитный призыв ×1 — шанс на героев S, SS и SSS.\nСтоимость: 100 Кристаллов. Раз в 48 ч — бесплатно.',
+            altar_elite_10: 'Элитный призыв ×10 — 10 героев со скидкой 10%.\nСтоимость: 900 Кристаллов вместо 1,000.',
+
+            // Бездна
+            dung_attack: 'Штурм текущего этажа — бой с Стражем.\nСтоит 1 Энергии Бездны.',
+            dung_farm: 'Быстрый рейд — мгновенная зачистка предыдущего этажа.\nСтоит 1 Энергии. Кристаллов даёт вдвое меньше.',
+            dung_refill: 'Восстановить +5 Энергии за просмотр рекламы.\nЛимит: 3 раза в день.',
+
+            // Рейд
+            raid_attack: 'Сокрушительный удар — нанести урон Левиафану мощью легиона.\nОткат 5 минут (для VIP — 1 минута).',
+            raid_speedup: 'Сократить откат удара вдвое за просмотр рекламы.\nДоступно 1 раз за цикл удара.',
+
+            // Арена
+            arena_refresh: 'Обновить список соперников.\nБилеты не тратит.',
+            arena_ladder: 'Таблица Рейтинга Лиги.\nТоп-10 — повышение, места 990–1000 — вылет.',
+            arena_vk_ladder: 'Открыть нативный рейтинг друзей ВКонтакте.',
+            arena_yandex_ladder: 'Открыть рейтинг живых игроков Яндекс Игр.',
+            arena_inbox: 'Журнал входящих атак на ваш гарнизон.\nМожно мстить обидчикам.',
+            arena_battle: 'Сразиться с выбранным соперником.\nСтоимость: 1 Билет Арены.',
+            energy: 'Энергия Бездны — топливо для штурмов этажей.\nМаксимум 10, восстановление в полночь.\n+5 за рекламу — до 3 раз в день.',
+            arena_tickets: 'Билеты Арены — пропуск на поединок.\nЛимит: 10 в сутки (15 при активном VIP).\n+2 за рекламу, +15/50 в Магазине.',
+
+            // Штаб — табы
+            roster_cards: 'Картотека героев — все ваши бойцы.\nФильтр по стихии, сортировка по рангу и уровню.',
+            roster_formation: 'Построение легиона — отряд Атаки и гарнизон Обороны.\nНастройте три слота: Авангард, Лидер, Тыл.',
+            roster_expeditions: 'Экспедиции в глубины — пассивная добыча золота и кристаллов.\nГерои уходят в поход и возвращаются с наградой.',
+            roster_codex: 'Кодекс Стихий — коллекция 84 героев по 4 фракциям.\nСобирайте вехи за постоянные бонусы к мощи.',
+
+            // Магазин
+            shop_starter: 'Пак Владыки — разовый набор для старта.\nВключает золото (эквивалент 8ч шахт), 250 кристаллов, героя [A] Паладин, 2 Реликвии и 10 билетов Арены.',
+            shop_vip: 'VIP-Статус на 30 дней.\nОтключает рекламу, авто-удваивает все награды, даёт 15 билетов в день и мгновенный бой (0 сек).',
+            shop_crystal_100: 'Пак 100 Кристаллов.\nПервый платёж — авто-удвоение до 200 (разово).',
+            shop_crystal_350: 'Пак 350 Кристаллов.\nПервый платёж — авто-удвоение до 700 (разово).',
+            shop_crystal_1000: 'Пак 1,000 Кристаллов — 10 призывов Бездны.\nПервый платёж — авто-удвоение до 2,000 (разово).',
+            shop_crystal_2500: 'Пак 2,500 Кристаллов — запас на месяцы.\nПервый платёж — авто-удвоение до 5,000 (разово).',
+            shop_crystal_6000: 'Пак 6,000 Кристаллов — крупный запас.\nПервый платёж — авто-удвоение до 12,000 (разово).',
+            shop_crystal_14000: 'Пак 14,000 Кристаллов — максимальный запас.\nПервый платёж — авто-удвоение до 28,000 (разово).',
+            shop_tickets_5: 'Малый пак — 5 Билетов Арены.\nСуммируются сверх суточного лимита (10 или 15 при VIP).',
+            shop_tickets_15: 'Боекомплект — 15 Билетов Арены.\nСуммируются сверх суточного лимита.',
+            shop_tickets_50: 'Арсенал Лиги — 50 Билетов Арены.\nСуммируются сверх суточного лимита. Хватит на длинную серию боёв.',
+            shop_gold_2h: 'Пак 2ч + 60 Кристаллов.\nЗолото эквивалентно 2 часам добычи ваших Шахт (с текущим уровнем).',
+            shop_gold_8h: 'Пак 8ч + 180 Кристаллов.\nЗолото эквивалентно 8 часам добычи ваших Шахт.',
+            shop_gold_24h: 'Пак 24ч + 500 Кристаллов.\nЗолото эквивалентно суткам добычи ваших Шахт — самый выгодный курс.',
+
+            // Награды Лиг
+            league_bronze: 'Бронзовая Лига (150–800 кубков).\nТоп-10 недели — повышение, места 990–1000 — вылета нет (это низшая лига).',
+            league_silver: 'Серебряная Лига (800–1,500 кубков).\nТоп-10 недели — повышение в Золото, места 990–1000 — вылет в Бронзу.',
+            league_gold: 'Золотая Лига (1,500–2,300 кубков).\nТоп-10 недели — повышение в Платину, места 990–1000 — вылет в Серебро.',
+            league_platinum: 'Платиновая Лига (2,300–3,000 кубков).\nТоп-10 недели — повышение в Алмаз, места 990–1000 — вылет в Золото.',
+            league_diamond: 'Алмазная Лига (3,000–3,700 кубков) — высший Пантеон.\nТоп-1 получает SSS-героя и 5 Реликвий. Места 990–1000 — вылет в Платину.',
+
+            // Бой
+            battle_skip: 'Пропустить анимацию боя и сразу увидеть результат.',
+            battle_speed: 'Ускорить анимацию боя в 2 раза.',
+            battle_claim: 'Забрать награду за победу.',
+            battle_double: 'Удвоить награду за просмотр рекламы.',
+
+            // Прокачка героя
+            hero_levelup: 'Прокачать героя на выбранное количество уровней.\nСтоимость зависит от ранга и текущего уровня.',
+            hero_lvl_cycle: 'Переключить множитель прокачки: ×1 / ×5 / ×10 / MAX.',
+            hero_mastery: 'Войти в Мастерство — второй слой прокачки M1–M100.\nДоступно для героев ранга S и выше.',
+
+            // Возвышение
+            ascend_open: 'Великое Возвышение — сброс зданий и армии.\nВзамен: +1 Реликвия (+10% ко всей экономике навсегда).',
+            ascend_auto: 'Автоматически распределить всё излишнее золото по уровням героев.\nОстанется ровно столько, сколько нужно на Возвышение.',
+            ascend_pick: 'Вручную выбрать, в каких героев вложить излишки золота.',
+
+            // Штаб — сортировка
+            sort_tier: 'Сортировать картотеку по рангу героя.',
+            sort_lvl: 'Сортировать картотеку по уровню героя.',
+
+            // Квесты / Пропуск / Магазин
+            quests_claim_all: 'Собрать все доступные награды одним тапом.',
+            pass_claim_all: 'Забрать все готовые награды Боевого Пропуска.',
+            shop_freebie: 'Ежедневный дар казны — золото и кристаллы раз в 24 часа.',
+
+            // Колесо / Календарь
+            wheel_spin: 'Вращение Колеса Фортуны.\n1 бесплатное + 2 за рекламу в день.',
+            cal_claim: 'Забрать сегодняшнюю награду Календаря.',
+            cal_double: 'Удвоить награду Календаря за просмотр рекламы.',
+
+            // Прочее
+            preloader_sound: 'Звук: включить / выключить музыку и эффекты.',
+            preloader_lang: 'Переключить язык интерфейса RU / EN.',
+
+            // Legacy-ключи для обратной совместимости (используются в старом коде)
+            keep: 'Цитадель: +30% к лимиту армии за уровень.\nНа Ур. 5 открывается Великое Возвышение.',
+            mine: 'Золотые Шахты: пассивный доход золота каждую секунду.',
+            barracks: 'Казармы: автоматический найм воинов каждую секунду.',
+            frenzy: 'Тапайте быстрее, чтобы заполнить шкалу Ярости (×2 доход и найм)!',
+            altar_elite_10_legacy: 'Призыв 10 элитных лордов со скидкой 10%.'
         },
 
         // FTUE Туториал (12 шагов до Возвышения)
@@ -187,7 +283,7 @@ const I18N = {
             {
                 chapter: '3. ТРОФЕИ И ВОЙНА',
                 lore: 'Герои, не стоящие в строю, смеют жрать пайки даром? Отправь бездельников в катакомбы. Пусть выковыривают самоцветы и реликвии из глазниц забытых титанов.',
-                task: 'В Штабе откройте «Экспедиции» и отправьте отряд в поход.'
+                task: 'Откройте Цитадель → Подземелья Бездны → Походы Героев и отправьте отряд в поход.'
             },
             {
                 chapter: '3. ТРОФЕИ И ВОЙНА',
@@ -312,6 +408,7 @@ const I18N = {
         dung_farm: 'БЫСТРЫЙ РЕЙД',
         dung_squad_title: 'МОЩЬ ЛЕГИОНА:',
         dungeon_archive_btn: 'ХРОНИКИ',
+        dungeon_tab_descent: 'СПУСК',
         dungeon_total_power: 'Общая Мощь:',
         dungeon_garrison_army: 'Армия в гарнизоне:',
         chronicles_archive_title: 'АРХИВ ХРОНИК БЕЗДНЫ',
@@ -319,6 +416,16 @@ const I18N = {
         hub_headline: 'ПОДЗЕМЕЛЬЯ БЕЗДНЫ',
         hub_desc: 'Выберите рубеж для штурма вашим легионом:',
         hub_dungeon_title: 'Спуск в Бездну',
+        hub_exp_title: 'Походы Героев',
+        hub_exp_desc: 'Экспедиции за золотом, кристаллами и реликвиями',
+        hub_exp_status_ready: 'ГОТОВО',
+        hub_exp_status_busy: '{n} в пути',
+        hub_exp_status_free: 'СВОБОДНО',
+        hub_exp_title: 'Походы Героев',
+        hub_exp_desc: 'Экспедиции за золотом, кристаллами и реликвиями',
+        hub_exp_status_ready: 'ГОТОВО',
+        hub_exp_status_busy: '{n} в пути',
+        hub_exp_status_free: 'СВОБОДНО',
         hub_dungeon_desc: 'Зачистка этажей, фарм армией и боссы',
         hub_raid_title: 'Мировой Левиафан',
         hub_raid_desc: 'Еженедельный босс, сокрушительный удар',
@@ -520,7 +627,7 @@ const I18N = {
         offline_claim: 'Забрать',
         offline_double: 'Удвоить x2',
         modal_ascend_confirm_title: 'ВЕЛИКОЕ ВОЗВЫШЕНИЕ',
-        modal_ascend_warning: 'Внимание! Здания, золото и армия будут сброшены.\n\nВЫ СОХРАНЯЕТЕ НАВСЕГДА:\n• Всех героев, их звезды и уровни\n• Кристаллы и Реликвии\n• Ранг на Арене и прогресс Бездны\n\nВы получите +1 Реликвию (+15% ко всему навсегда)!',
+        modal_ascend_warning: 'Внимание! Здания, золото и армия будут сброшены.\n\nВЫ СОХРАНЯЕТЕ НАВСЕГДА:\n• Всех героев, их звезды и уровни\n• Кристаллы и Реликвии\n• Ранг на Арене и прогресс Бездны\n\nВы получите +1 Реликвию (+10% ко всему навсегда)!',
         modal_ascend_yes: 'ВОЗВЫСИТЬСЯ',
         modal_ascend_no: 'Отмена',
         modal_nick_title: 'Имя вашего Лорда',
@@ -667,30 +774,107 @@ const I18N = {
 
         // Desktop Tooltips
         tips: {
-            nick: 'Change your Lord name',
-            audio: 'Toggle sound effects on / off',
-            fullscreen: 'Toggle fullscreen window',
-            calendar: '28-day Pantheon login calendar rewards',
-            pass: 'Abyss Battle Pass',
-            wheel: 'Void Lucky Wheel',
-            quests: 'Quests & Achievements',
-            ad_footer: 'Free Gold & Arena Tickets for watching',
-            cp: 'Total Combat Power of your legion (determines victory in all battles)',
-            gold: 'Citadel Gold (produced by mines, taps, and spoils)',
-            army: 'Current Army count / Maximum garrison capacity',
-            crystals: 'Void Gemstones (used for elite summons and rare upgrades)',
-            relics: 'Ascension Relics (+15% permanent production boost each)',
-            keep: 'Citadel: provides +30% army capacity multiplier per level',
-            mine: 'Gold Mines: produces passive gold income every second',
-            barracks: 'Barracks: automatically recruits soldiers every second',
-            slot_0: 'Vanguard slot: frontline defender absorbing initial enemy damage',
-            slot_1: 'Commander slot: tactical leader receiving a +50% CP multiplier',
-            slot_2: 'Rearguard slot: ranged artillery and mystical ward support',
-            frenzy: 'Tap rapidly to ignite Frenzy mode (x3 recruits and income)!',
-            altar_basic: 'Summon warriors from Rank F to A for Crystals',
-            altar_elite: 'Summon elite champions from Rank D to SSS for Crystals',
-            altar_elite_10: 'Summon 10 Elite Champions with discount',
-            dung_farm: 'Instant sweep of the previous floor without battle (costs 1 Energy)'
+            nick: 'Open profile and settings.\nChange avatar, lord name, title, sound, language.',
+            audio: 'Sound: toggle music and sound effects with one tap.',
+            fullscreen: 'Expand the game to fullscreen.',
+            main_menu: 'Main menu: language, sound, promo code, legal docs, exit.',
+
+            calendar: '28-day Pantheon reward calendar.\nLog in daily for resources and champions.',
+            pass: 'Abyss Battle Pass.\n30 reward levels for daily logins.',
+            wheel: 'Void Lucky Wheel.\n1 free spin + 2 ad spins per day.',
+            quests: 'Quests & Achievements.\nDaily, milestone quests, and 50-stage achievements.',
+            ad_footer: 'Claim free gold and 2 Arena tickets for watching an ad.',
+
+            cp: 'Combat Power — total legion strength.\nDetermines battle outcome and boss damage.',
+            gold: 'Gold — earned from Mines, taps, victories, and ads.\nSpent on building and hero upgrades.',
+            army: 'Army / Garrison cap.\nBoosts legion CP in Abyss and Raid. Recruited by Barracks and taps.',
+            crystals: 'Void Crystals — premium currency.\nSpent on hero summons and elite upgrades.',
+            relics: 'Ascension Relics.\nEach grants +10% to all economy and legion power forever.',
+            vip_tag: 'VIP active: no ads, auto-x2 rewards, instant combat.',
+
+            slot_0: 'Vanguard — holds the line, absorbs first enemy hits.\nRequires a hero with Vanguard role.',
+            slot_1: 'Commander — squad leader, gains +50% to own power.\nRequires a hero with Commander role.',
+            slot_2: 'Rearguard — magic and ranged, strikes from behind vanguard.\nRequires a hero with Rearguard role.',
+
+            altar_basic: 'Basic summon ×1 — heroes of Rank F–A.\nCost: 10 Crystals. Free every 8 hours.',
+            altar_basic_10: 'Basic summon ×10 — 10 heroes with 10% discount.\nCost: 90 Crystals instead of 100.',
+            altar_elite: 'Elite summon ×1 — chance for S, SS and SSS heroes.\nCost: 100 Crystals. Free every 48 hours.',
+            altar_elite_10: 'Elite summon ×10 — 10 heroes with 10% discount.\nCost: 900 Crystals instead of 1,000.',
+
+            dung_attack: 'Assault current floor — battle with the Guardian.\nCosts 1 Abyss Energy.',
+            dung_farm: 'Quick Sweep — instantly clears the previous floor.\nCosts 1 Energy. Crystals are halved.',
+            dung_refill: 'Restore +5 Energy for watching an ad.\nLimit: 3 per day.',
+
+            raid_attack: 'Devastating Blow — strike the Leviathan with legion power.\nCooldown 5 minutes (VIP: 1 minute).',
+            raid_speedup: 'Halve the strike cooldown for watching an ad.\nAvailable once per strike cycle.',
+
+            arena_refresh: 'Refresh the rival list.\nTickets are not spent.',
+            arena_ladder: 'League Rating table.\nTop-10 — promotion, ranks 990–1000 — demotion.',
+            arena_vk_ladder: 'Open native VK friends leaderboard.',
+            arena_yandex_ladder: 'Open live Yandex Games players leaderboard.',
+            arena_inbox: 'Journal of incoming attacks on your garrison.\nRevenge available.',
+            arena_battle: 'Fight the chosen rival.\nCost: 1 Arena Ticket.',
+            energy: 'Abyss Energy — fuel for floor assaults.\nMax 10, refills at midnight.\n+5 per ad — up to 3 times per day.',
+            arena_tickets: 'Arena Tickets — entry pass for a duel.\nLimit: 10 per day (15 with active VIP).\n+2 per ad, +15/50 in Treasury.',
+
+            roster_cards: 'Hero Archive — all your champions.\nFilter by element, sort by rank and level.',
+            roster_formation: 'Legion Formation — Attack squad and Defense garrison.\nConfigure three slots: Vanguard, Commander, Rearguard.',
+            roster_expeditions: 'Expeditions into the depths — passive gold and crystal farming.\nHeroes go on a journey and return with rewards.',
+            roster_codex: 'Elemental Codex — collection of 84 heroes across 4 factions.\nCollect milestones for permanent power bonuses.',
+
+            shop_starter: 'Overlord Pack — one-time starter bundle.\nIncludes gold (equal to 8h of mines), 250 crystals, [A] Paladin hero, 2 Relics and 10 Arena tickets.',
+            shop_vip: 'VIP Status for 30 days.\nRemoves ads, auto-doubles all rewards, grants 15 daily tickets and instant combat (0s).',
+            shop_crystal_100: 'Pack of 100 Crystals.\nFirst purchase — auto-double to 200 (one-time).',
+            shop_crystal_350: 'Pack of 350 Crystals.\nFirst purchase — auto-double to 700 (one-time).',
+            shop_crystal_1000: 'Pack of 1,000 Crystals — 10 Abyss summons.\nFirst purchase — auto-double to 2,000 (one-time).',
+            shop_crystal_2500: 'Pack of 2,500 Crystals — months of reserve.\nFirst purchase — auto-double to 5,000 (one-time).',
+            shop_crystal_6000: 'Pack of 6,000 Crystals — large reserve.\nFirst purchase — auto-double to 12,000 (one-time).',
+            shop_crystal_14000: 'Pack of 14,000 Crystals — maximum reserve.\nFirst purchase — auto-double to 28,000 (one-time).',
+            shop_tickets_5: 'Small Pack — 5 Arena Tickets.\nStacks above the daily limit (10 or 15 with VIP).',
+            shop_tickets_15: 'Battle Pack — 15 Arena Tickets.\nStacks above the daily limit.',
+            shop_tickets_50: 'League Arsenal — 50 Arena Tickets.\nStacks above the daily limit. Enough for a long battle streak.',
+            shop_gold_2h: '2h Pack + 60 Crystals.\nGold equal to 2 hours of your current Mines income.',
+            shop_gold_8h: '8h Pack + 180 Crystals.\nGold equal to 8 hours of your current Mines income.',
+            shop_gold_24h: '24h Pack + 500 Crystals.\nGold equal to a full day of your Mines income — best gold-per-ruble rate.',
+
+            league_bronze: 'Bronze League (150–800 trophies).\nTop-10 weekly — promotion. No demotion possible (lowest league).',
+            league_silver: 'Silver League (800–1,500 trophies).\nTop-10 weekly — promotion to Gold. Ranks 990–1000 — demotion to Bronze.',
+            league_gold: 'Gold League (1,500–2,300 trophies).\nTop-10 weekly — promotion to Platinum. Ranks 990–1000 — demotion to Silver.',
+            league_platinum: 'Platinum League (2,300–3,000 trophies).\nTop-10 weekly — promotion to Diamond. Ranks 990–1000 — demotion to Gold.',
+            league_diamond: 'Diamond League (3,000–3,700 trophies) — highest Pantheon.\nTop-1 gets an SSS hero and 5 Relics. Ranks 990–1000 — demotion to Platinum.',
+
+            battle_skip: 'Skip the combat animation and see the result instantly.',
+            battle_speed: 'Speed up the combat animation 2x.',
+            battle_claim: 'Collect the victory reward.',
+            battle_double: 'Double the reward for watching an ad.',
+
+            hero_levelup: 'Upgrade hero by the selected number of levels.\nCost depends on rank and current level.',
+            hero_lvl_cycle: 'Cycle the upgrade multiplier: ×1 / ×5 / ×10 / MAX.',
+            hero_mastery: 'Enter Mastery — second progression layer M1–M100.\nAvailable for heroes of Rank S and above.',
+
+            ascend_open: 'Grand Ascension — resets buildings and army.\nIn return: +1 Relic (+10% to all economy forever).',
+            ascend_auto: 'Automatically invest all excess gold into hero levels.\nKeeps exactly what is needed for Ascension.',
+            ascend_pick: 'Manually pick which heroes receive the excess gold.',
+
+            sort_tier: 'Sort the archive by hero rank.',
+            sort_lvl: 'Sort the archive by hero level.',
+
+            quests_claim_all: 'Collect all available rewards in one tap.',
+            pass_claim_all: 'Collect all ready Battle Pass rewards.',
+            shop_freebie: 'Daily Treasury Gift — gold and crystals once every 24 hours.',
+
+            wheel_spin: 'Spin the Lucky Wheel.\n1 free + 2 ad spins per day.',
+            cal_claim: 'Collect today\'s Calendar reward.',
+            cal_double: 'Double the Calendar reward for watching an ad.',
+
+            preloader_sound: 'Sound: toggle music and effects.',
+            preloader_lang: 'Switch UI language RU / EN.',
+
+            keep: 'Citadel: +30% army cap per level.\nGrand Ascension unlocks at Lvl 5.',
+            mine: 'Gold Mines: passive gold income every second.',
+            barracks: 'Barracks: automatic soldier recruitment every second.',
+            frenzy: 'Tap faster to fill the Frenzy bar (×2 income and recruits)!',
+            altar_elite_10_legacy: 'Summon 10 elite lords with 10% discount.'
         },
 
         // Action-Based FTUE (12 Steps to Ascension)
@@ -744,7 +928,7 @@ const I18N = {
             {
                 chapter: '3. SPOILS & WARFARE',
                 lore: 'Do your idle retainers dare consume garrison rations for free? March those loafers into the catacombs. Let them pry void gems and ancient relics from the eye sockets of entombed titans.',
-                task: 'In Headquarters, open Expeditions and deploy a squad.'
+                task: 'Open Citadel → Abyss Dungeons → Hero Expeditions and send a squad on a journey.'
             },
             {
                 chapter: '3. SPOILS & WARFARE',
@@ -866,6 +1050,7 @@ const I18N = {
         dung_farm: 'QUICK SWEEP',
         dung_squad_title: 'LEGION POWER:',
         dungeon_archive_btn: 'CHRONICLES',
+        dungeon_tab_descent: 'DESCENT',
         dungeon_total_power: 'Total Power:',
         dungeon_garrison_army: 'Garrison Army:',
         chronicles_archive_title: 'ABYSS CHRONICLES ARCHIVE',
@@ -873,6 +1058,16 @@ const I18N = {
         hub_headline: 'ABYSS DUNGEONS',
         hub_desc: 'Select a battlefront to assault with your host:',
         hub_dungeon_title: 'Abyss Descent',
+        hub_exp_title: 'Hero Expeditions',
+        hub_exp_desc: 'Expeditions for gold, crystals and relics',
+        hub_exp_status_ready: 'READY',
+        hub_exp_status_busy: '{n} away',
+        hub_exp_status_free: 'IDLE',
+        hub_exp_title: 'Hero Expeditions',
+        hub_exp_desc: 'Expeditions for gold, crystals and relics',
+        hub_exp_status_ready: 'READY',
+        hub_exp_status_busy: '{n} away',
+        hub_exp_status_free: 'IDLE',
         hub_dungeon_desc: 'Floor clearing, army farm and bosses',
         hub_raid_title: 'World Leviathan',
         hub_raid_desc: 'Weekly boss, devastating blow',
@@ -1071,7 +1266,7 @@ const I18N = {
         offline_claim: 'Collect',
         offline_double: 'Double x2',
         modal_ascend_confirm_title: 'GRAND ASCENSION',
-        modal_ascend_warning: 'Warning! Buildings, gold and troops will be reset.\n\nYOU PERMANENTLY KEEP:\n• All heroes, their stars and levels\n• Crystals and Relics\n• Arena rank and Abyss floor progression\n\nYou gain +1 Relic (+15% permanent production multiplier)!',
+        modal_ascend_warning: 'Warning! Buildings, gold and troops will be reset.\n\nYOU PERMANENTLY KEEP:\n• All heroes, their stars and levels\n• Crystals and Relics\n• Arena rank and Abyss floor progression\n\nYou gain +1 Relic (+10% permanent production multiplier)!',
         modal_ascend_yes: 'ASCEND',
         modal_ascend_no: 'Cancel',
         modal_nick_title: 'Your Lord Name',

@@ -85,6 +85,14 @@ function registerAdminAPI() {
 // === УТИЛИТЫ ===
 
 function adminRefreshUI() {
+    // v5.3.20 FIX-ROSTER-CACHE: сбрасываем сигнатуры тяжёлых рендеров Штаба,
+    // чтобы admin-команды (grant resources, max heroes, max buildings) сразу
+    // отобразились в UI. Без сброса renderCards/renderFormationSlots могли
+    // скипнуться из-за совпадения сигнатур (например, admin.grant('gold', 1M)
+    // не меняет ни один из параметров сигнатуры formation).
+    if (typeof _lastRenderCardsSig !== 'undefined') _lastRenderCardsSig = '';
+    if (typeof _lastRenderFormationSig !== 'undefined') _lastRenderFormationSig = '';
+    if (typeof _lastRenderCodexSig !== 'undefined') _lastRenderCodexSig = '';
     if (typeof saveGame === 'function') saveGame(true);
     if (typeof renderCards === 'function') renderCards();
     if (typeof renderFormationSlots === 'function') renderFormationSlots();

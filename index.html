@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5.3.19">
+    <link rel="stylesheet" href="style.css?v=5.3.34">
         <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
          Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
          запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
@@ -78,7 +78,7 @@
 
             <!-- FIX-BUILD-VERSION: маленький индикатор сборки в углу предзагрузки.
                  По дате сразу видно, применился ли последний патч из GitHub. -->
-            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.3.19 · 16.10.2026</div>
+            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.3.34 · 16.10.2026</div>
         </div>
 
         <!-- ==========================================================
@@ -329,10 +329,6 @@
                         <button class="roster-tab-nav-btn" id="btn-roster-tab-formation" onclick="selectRosterTab('formation')" data-i18n="tab_roster_formation">
                             ПОСТРОЕНИЕ
                         </button>
-                        <button class="roster-tab-nav-btn" id="mode-exp-btn" onclick="selectRosterTab('expeditions')">
-                            <span data-i18n="expeditions_btn">ПОХОДЫ</span>
-                            <span class="notif-badge" id="badge-tab-exp"></span>
-                        </button>
                         <button class="roster-tab-nav-btn" id="mode-codex-btn" onclick="selectRosterTab('codex')">
                             <span data-i18n="tab_roster_codex">КОДЕКС</span>
                             <span class="notif-badge" id="badge-tab-codex"></span>
@@ -410,15 +406,6 @@
                         <div class="element-wheel-hint" id="lbl-element-wheel-hint">
                             <img src="assets/icons/elem_light.webp" class="res-icon-inline" alt="Свет"> Свет > <img src="assets/icons/elem_undead.webp" class="res-icon-inline" alt="Нежить"> Нежить > <img src="assets/icons/elem_chaos.webp" class="res-icon-inline" alt="Хаос"> Хаос > <img src="assets/icons/elem_demon.webp" class="res-icon-inline" alt="Демоны"> Демоны > <img src="assets/icons/elem_light.webp" class="res-icon-inline" alt="Свет"> (+15% БМ)
                         </div>
-                    </div>
-
-                    <!-- ВКЛАДКА 3: ПОХОДЫ (ВСТРОЕННЫЕ ЭКСПЕДИЦИИ) -->
-                    <div id="roster-pane-expeditions" class="roster-pane" style="display:none;">
-                        <div class="pane-header-box">
-                            <span class="pane-header-title" data-i18n="exp_title">ЭКСПЕДИЦИИ В ГЛУБИНЫ</span>
-                            <p class="pane-header-desc" data-i18n="exp_desc">Отправляйте свободных героев на добычу ресурсов. Высокий уровень отряда умножает золото!</p>
-                        </div>
-                        <div class="expeditions-list" id="expeditions-list-box"></div>
                     </div>
 
                     <!-- ВКЛАДКА 4: КОДЕКС (84 ГЕРОЯ + ВЕХИ) -->
@@ -526,32 +513,45 @@
                         </div>
                         <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
                     </div>
+
                     <p class="dung-desc-txt" id="lbl-dung-desc">Очищайте этажи. Быстрый рейд тратит 1 Энергии и зачищает пройденный этаж.</p>
-                    <div class="dung-energy-bar-row">
-                        <span class="stamina-badge" id="dung-stamina-badge"></span>
-                        <button class="btn-action btn-ad-standard btn-dung-refill" id="btn-dung-refill" onclick="refillDungeonStaminaAd()" style="display:none;"></button>
-                    </div>
+                        <div class="dung-energy-bar-row">
+                            <span class="stamina-badge" id="dung-stamina-badge"></span>
+                            <button class="btn-action btn-ad-standard btn-dung-refill" id="btn-dung-refill" onclick="refillDungeonStaminaAd()" style="display:none;"></button>
+                        </div>
 
-                <div class="dungeon-boss-card" id="dung-boss-card">
-                    <div class="boss-tier-tag" id="dung-boss-tier-tag" data-i18n="dung_boss_tier_tag">[СТРАЖ ЭТАЖА]</div>
-                    <div class="dungeon-boss-avatar" id="dung-boss-avatar"></div>
-                    <div class="dungeon-squad-preview" id="dung-squad-preview"></div>
-                    <div class="boss-name" id="dung-boss-name">Страж Скверны</div>
-                    <div class="boss-cp-val" id="dung-boss-cp"></div>
-                    
-                    <div class="dungeon-reward-box">
-                        <span class="reward-title" id="lbl-dung-loot-title" data-i18n="dung_loot_title">Трофеи за зачистку:</span>
-                        <div class="reward-values" id="dung-loot-desc"></div>
-                    </div>
+                        <div class="dungeon-boss-card" id="dung-boss-card">
+                            <div class="boss-tier-tag" id="dung-boss-tier-tag" data-i18n="dung_boss_tier_tag">[СТРАЖ ЭТАЖА]</div>
+                            <div class="dungeon-boss-avatar" id="dung-boss-avatar"></div>
+                            <div class="dungeon-squad-preview" id="dung-squad-preview"></div>
+                            <div class="boss-name" id="dung-boss-name">Страж Скверны</div>
+                            <div class="boss-cp-val" id="dung-boss-cp"></div>
 
-                    <div class="dung-action-row">
-                        <button class="btn-action dung-assault-btn" onclick="startDungeonCombat()" id="btn-dung-attack" data-i18n="dung_attack">ШТУРМОВАТЬ ЭТАЖ</button>
-                        <button class="btn-action dung-farm-btn" onclick="farmDungeonShards()" id="btn-dung-farm" data-i18n="dung_farm">БЫСТРЫЙ РЕЙД</button>
-                    </div>
-                </div>
+                            <div class="dungeon-reward-box">
+                                <span class="reward-title" id="lbl-dung-loot-title" data-i18n="dung_loot_title">Трофеи за зачистку:</span>
+                                <div class="reward-values" id="dung-loot-desc"></div>
+                            </div>
+
+                            <div class="dung-action-row">
+                                <button class="btn-action dung-assault-btn" onclick="startDungeonCombat()" id="btn-dung-attack" data-i18n="dung_attack">ШТУРМОВАТЬ ЭТАЖ</button>
+                                <button class="btn-action dung-farm-btn" onclick="farmDungeonShards()" id="btn-dung-farm" data-i18n="dung_farm">БЫСТРЫЙ РЕЙД</button>
+                            </div>
+                        </div>
 
                 <!-- Динамическая плашка Мощи Легиона -->
                 <div id="dung-squad-wrapper" style="margin-top:4px;"></div>
+                </div>
+            </div>
+
+            <!-- 5.1. ЭКСПЕДИЦИИ (ОТДЕЛЬНЫЙ ЭКРАН, ВХОД ИЗ ХАБА ПОДЗЕМЕЛИЙ) -->
+            <div id="expedition-view" class="view-tab">
+                <div class="modal-window" style="max-height: 94%; overflow-y: auto;">
+                    <div class="modal-header-row">
+                        <h3 class="modal-headline" data-i18n="exp_title">ЭКСПЕДИЦИИ В ГЛУБИНЫ</h3>
+                        <span class="modal-close-x btn-back-citadel" onclick="navigate('citadel-view')">✖</span>
+                    </div>
+                    <p class="pane-header-desc" data-i18n="exp_desc" style="text-align:center; margin-bottom:2px;">Отправляйте свободных героев на добычу ресурсов. Высокий уровень отряда умножает золото!</p>
+                    <div class="expeditions-list" id="expeditions-list-box"></div>
                 </div>
             </div>
 
@@ -1126,7 +1126,7 @@
                     • Всех героев, их звезды и уровни<br>
                     • Кристаллы и Реликвии<br>
                     • Ранг на Арене и прогресс Бездны<br><br>
-                    Вы получите <b>+1 Реликвию (+15% ко всей экономике навсегда)!</b>
+                    Вы получите <b>+1 Реликвию (+10% ко всей экономике навсегда)!</b>
                 </div>
                 <div style="display:flex; gap:6px; width:100%; margin:4px 0;">
                     <button class="btn-action btn-auto-spend-hero" style="flex:1;" onclick="autoSpendExcessGoldOnHeroes()" id="btn-ascend-auto-spend" data-i18n="ascend_btn_auto">
@@ -1191,7 +1191,7 @@
                 </div>
 
                 <h2 class="ritual-title" data-i18n="ritual_birth_title">РОЖДЕНИЕ РЕЛИКВИИ</h2>
-                <div class="ritual-desc" id="ritual-bonus-desc">+15% ко всей мощи и добыче империи навсегда</div>
+                <div class="ritual-desc" id="ritual-bonus-desc">+10% ко всей мощи и добыче империи навсегда</div>
 
                 <div class="ritual-stats-panel">
                     <div class="ritual-stat-row">
@@ -1574,7 +1574,7 @@
                 <button class="btn-action modal-full-btn" style="margin-top:4px;" onclick="saveAndCloseSettings()" data-i18n="settings_btn_save">СОХРАНИТЬ И ЗАКРЫТЬ</button>
                 <div style="text-align: center; color: var(--border-metal-light); font-size: 11px; font-weight: 800; margin-top: 8px; letter-spacing: 0.5px;">DEVELOPED BY VANDER BOR</div>
                 <!-- FIX-BUILD-VERSION: версия сборки для QA — сразу видно, применился ли патч из репо. -->
-                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.3.19 · 16.10.2026</div>
+                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.3.34 · 16.10.2026</div>
             </div>
         </div>
 
@@ -1639,6 +1639,21 @@
                             <div style="font-size:11.5px; color:#cbd5e1; margin-top:3px; text-shadow:0 1px 3px #000;" data-i18n="hub_dungeon_desc">Зачистка этажей, фарм армией и боссы</div>
                         </div>
                         <button class="btn-action btn-hub-enter dungeon" data-i18n="hub_enter_btn">ВОЙТИ</button>
+                    </div>
+
+                    <div class="hub-selection-card hub-expedition-banner" onclick="closeBattleHubModal(); openExpeditionsModal();">
+                        <div class="hub-icon-wrap">
+                            <img src="assets/icons/expedition.webp" style="width:28px; height:28px; object-fit:contain;" alt="Походы" onerror="this.style.opacity='0';">
+                            <span class="district-notif-badge" id="badge-hub-exp"></span>
+                        </div>
+                        <div style="flex:1; min-width:0; z-index:2;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <b style="color:#fbbf24; font-size:13px; white-space:nowrap; text-shadow:0 1px 4px #000;" data-i18n="hub_exp_title">Походы Героев</b>
+                                <span id="hub-exp-info" class="hub-status-pill"></span>
+                            </div>
+                            <div style="font-size:11.5px; color:#cbd5e1; margin-top:3px; text-shadow:0 1px 3px #000;" data-i18n="hub_exp_desc">Экспедиции за золотом, кристаллами и реликвиями</div>
+                        </div>
+                        <button class="btn-action btn-hub-enter expedition" data-i18n="hub_enter_btn">ВОЙТИ</button>
                     </div>
 
                     <div class="hub-selection-card hub-raid-banner" onclick="closeBattleHubModal(); navigate('raid-view');">
@@ -1786,7 +1801,7 @@
                     </button>
 
                     <!-- Индикатор сборки: по дате видно, применился ли последний патч -->
-                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.3.19 · 16.10.2026</div>
+                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.3.34 · 16.10.2026</div>
                 </div>
             </div>
         </div>
@@ -1922,11 +1937,11 @@
     </div>
 </div>
 
-<script src="data-i18n.js?v=5.3.19"></script>
-<script src="data-heroes.js?v=5.3.19"></script>
-<script src="data-legal.js?v=5.3.19"></script>
-<script src="data-promo.js?v=5.3.19"></script>
-<script src="data-admin.js?v=5.3.19"></script>
-<script src="engine.js?v=5.3.19"></script>
+<script src="data-i18n.js?v=5.3.34"></script>
+<script src="data-heroes.js?v=5.3.34"></script>
+<script src="data-legal.js?v=5.3.34"></script>
+<script src="data-promo.js?v=5.3.34"></script>
+<script src="data-admin.js?v=5.3.34"></script>
+<script src="engine.js?v=5.3.34"></script>
 </body>
 </html>
