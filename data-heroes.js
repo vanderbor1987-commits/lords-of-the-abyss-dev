@@ -820,7 +820,8 @@ const geometricRewards = (base, ratio, count) => {
 
 const CASCADING_ACHIEVEMENTS = [
     { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: geometricStages(2000, 100000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
-    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: geometricStages(100, 20000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    // v5.3.9: 100x — 30 из 50 этапов закрывались за день. Старт 100→10000, верх 20M→2B.
+    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: geometricStages(10000, 2000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_k', title: { RU: 'Неприступная Крепость', EN: 'Impregnable Keep' }, descTemplate: { RU: 'Улучшите Цитадель до Уровня {val}', EN: 'Citadel to Lvl {val}' }, type: 'highest_keep', stages: [5, 7, 9, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 46, 47, 48, 49, 50], rewardsC: geometricRewards(10, 1.20, 20) },
     { id: 'ach_ar', title: { RU: 'Гладиатор Арены', EN: 'Arena Gladiator' }, descTemplate: { RU: 'Одержите {val} побед на Арене', EN: 'Win {val} Arena duels' }, type: 'lifetime_wins', stages: geometricStages(5, 20000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_c', title: { RU: 'Повелитель Душ', EN: 'Lord of Souls' }, descTemplate: { RU: 'Разблокируйте {val} героев в Штабе', EN: 'Unlock {val} champions' }, type: 'cards_count', stages: [5, 10, 20, 35, 50, 70, 84], rewardsC: [15, 25, 50, 100, 200, 400, 800] },

@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.8';
+const BUILD_VERSION = '5.3.9';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -1712,8 +1712,10 @@ function loadGame() {
     // FIX-RAID-HP: HP Левиафана теперь фиксируется от текущего CP игрока (25 ударов до победы).
     // Старая формула relics * 0.35 + потолок 100M не подходила для эндгейма.
     // Fallback считает HP от актуального CP атаки, если сейв ещё не содержит значения.
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
-        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
+    // v5.3.9: база HP Левиафана 50k → 2M. При CP 30k босс умирал за 2 удара.
+    // 2M HP = ~67 ударов для старта, ~40 для мид-гейма. Фикс множителя *25 → *40.
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
+        gState.worldBossMaxHp = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
     }
     if (gState.worldBossHp === undefined || gState.worldBossHp > gState.worldBossMaxHp) {
         gState.worldBossHp = gState.worldBossMaxHp;
@@ -8066,8 +8068,8 @@ function getRaidMaxHp() {
     // v4.9.6: база HP пересчитана под новую экономику (старая 5M при CP ~2000 = 2500 ударов).
     // Новая база 50K даёт мид-гейму 25 ударов, как задумано в FIX-RAID-HP.
     // v4.9.6: HP = CP × 40 (было ×25). За неделю игрок подрастает — ударов <40.
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
-        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 40));
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
+        gState.worldBossMaxHp = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
     }
     return gState.worldBossMaxHp;
 }
@@ -8100,9 +8102,9 @@ function checkWeeklyRaidReset() {
     const curWeek = getWeekIdentifier();
     // FIX-RAID-HP: HP Левиафана считается от текущего CP игрока — ~25 ударов до победы.
     // Убрана старая формула relics * 0.35 и верхний потолок 100M, ломавший эндгейм.
-    const calculatedMax = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 40));
+    const calculatedMax = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
 
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
         gState.worldBossMaxHp = calculatedMax;
     }
     if (gState.worldBossHp === undefined || gState.worldBossHp > gState.worldBossMaxHp) {
@@ -13711,23 +13713,34 @@ function renderChroniclesArchiveList() {
 }
 
 // Инициализация мобильных всплывающих тултипов при удержании пальца (Long-Press 400ms)
+// v5.3.9 FIX-MOBILE-TOOLTIP-PERSIST: тултип не убирается при отпускании пальца.
+// Раньше touchend/touchmove сразу removeTooltip — палец закрывал обзор,
+// убираешь палец — убирается тултип. Теперь: держится после отпускания,
+// следующий тап по экрану закрывает его.
 function initMobileLongPressTooltips() {
     let longPressTimer = null;
     let activeTooltipEl = null;
+    let tooltipActive = false;
 
     const removeTooltip = () => {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
         if (activeTooltipEl) { activeTooltipEl.remove(); activeTooltipEl = null; }
+        tooltipActive = false;
     };
 
     document.addEventListener('touchstart', (e) => {
+        // Если тултип уже показан — тап по экрану его закрывает, действие не проваливается.
+        if (tooltipActive) {
+            removeTooltip();
+            return;
+        }
         const target = e.target.closest('[title]');
         if (!target) return;
         const text = target.getAttribute('title');
         if (!text) return;
 
         longPressTimer = setTimeout(() => {
-            removeTooltip();
+            longPressTimer = null;
             activeTooltipEl = document.createElement('div');
             activeTooltipEl.className = 'mobile-longpress-tooltip';
             activeTooltipEl.innerText = text;
@@ -13735,12 +13748,26 @@ function initMobileLongPressTooltips() {
             activeTooltipEl.style.left = `${Math.min(window.innerWidth - 180, Math.max(10, touch.clientX - 80))}px`;
             activeTooltipEl.style.top = `${Math.max(10, touch.clientY - 46)}px`;
             document.body.appendChild(activeTooltipEl);
+            tooltipActive = true;
             triggerHaptic('tap');
         }, 400);
     }, { passive: true });
 
-    document.addEventListener('touchend', removeTooltip, { passive: true });
-    document.addEventListener('touchmove', removeTooltip, { passive: true });
+    document.addEventListener('touchend', (e) => {
+        // Тултип НЕ убирается при отпускании пальца — держится до следующего тапа.
+        // preventDefault блокирует click по элементу, который открыл тултип.
+        if (tooltipActive) {
+            e.preventDefault();
+            return;
+        }
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }, { passive: false });
+
+    document.addEventListener('touchmove', (e) => {
+        // При активном тултипе сдвиг пальца не убирает его — только тап.
+        if (tooltipActive) return;
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+    }, { passive: true });
 }
 
 // Обработка аппаратной кнопки «Назад» / свайпа «Назад» на Android
