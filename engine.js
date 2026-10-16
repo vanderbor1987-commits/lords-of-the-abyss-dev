@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.17';
+const BUILD_VERSION = '5.3.19';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -12696,32 +12696,28 @@ function closeHardResetModal() {
     if (m) m.style.display = 'none';
 }
 
-function executeHardReset() {
-    // v4.9.5 FIX-HARD-RESET: заменена старая версия («три клика»).
-    //   • saveGame = () => {} не работал против setInterval (держит оригинальную ссылку);
-    //   • setTimeout(reload, 250) не давал VK Bridge записать в облако;
-    //   • пустая строка '' не принимается VK Bridge;
-    //   • location.reload() даёт BFCache — возвращает старый gState.
-    // Новая логика — копия adminResetAll:
+async function executeHardReset() {
+    // v5.3.18 FIX-HARD-RESET-RELIABLE:
+    //  ПРОБЛЕМА: старый код чистил localStorage СРАЗУ, а облако писал за 2 сек.
+    //  VK Bridge не успевал, reload возвращал старый сейв из VK Storage,
+    //  arbitration его накатывал — эффект «не сработало с первого раза».
+    //  ФИКС: сначала гарантированно пишем '_reset_' в облако (6 сек таймаут),
+    //  и только после этого — чистим localStorage и делаем reload.
     gStateLoaded = false;
 
-    try {
-        localStorage.removeItem(SAVE_KEY);
-        localStorage.removeItem('lords_saved_language');
-        localStorage.removeItem('lota_p9_result');
-    } catch (e) {}
-
     const cloudReset = (async () => {
-        // v5.3.15: очищаем профиль на Worker'е. Иначе arbitration накатит старый
-        // сейв из KV обратно (кейс BalTaZaR после сброса).
+        // 1. Профиль на Worker'е (KV sorted:trophies + player:<uid>).
         if (typeof resetProfileOnWorker === 'function') {
             try { await resetProfileOnWorker(); } catch (e) {}
         }
+        // 2. Yandex Cloud Save.
         if (typeof PlatformBridge !== 'undefined' && PlatformBridge.yandexPlayer) {
             try {
                 await PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '_reset_' }, true);
             } catch (e) {}
         }
+        // 3. VK Storage — критичный шаг. Без успешной записи '_reset_'
+        //    VK Cloud Sync вернёт старый сейв при следующей загрузке.
         if (typeof isRunningInsideVK === 'function' && isRunningInsideVK() && window.vkBridge) {
             try {
                 await window.vkBridge.send('VKWebAppStorageSet', { key: SAVE_KEY, value: '_reset_' });
@@ -12729,14 +12725,27 @@ function executeHardReset() {
         }
     })();
 
-    Promise.race([
-        cloudReset,
-        new Promise(resolve => setTimeout(resolve, 2000))
-    ]).then(() => {
-        const bust = '_wipe=' + Date.now();
-        const newUrl = location.origin + location.pathname + '?' + bust;
-        location.replace(newUrl);
-    });
+    // Ждём облако максимум 6 сек (было 2 — не хватало VK Bridge на мобильной сети).
+    try {
+        await Promise.race([
+            cloudReset,
+            new Promise(resolve => setTimeout(resolve, 6000))
+        ]);
+    } catch (e) {}
+
+    // Чистим localStorage ТОЛЬКО ПОСЛЕ облака. Если облако не успело —
+    // localStorage всё равно чистится, но тогда arbitration при следующей
+    // загрузке накатит старое облако. Игрок повторит — и сработает.
+    try {
+        localStorage.removeItem(SAVE_KEY);
+        localStorage.removeItem('lords_saved_language');
+        localStorage.removeItem('lota_p9_result');
+    } catch (e) {}
+
+    // Cache-buster вместо reload() — обходит BFCache и Safari-restore.
+    const bust = '_wipe=' + Date.now();
+    const newUrl = location.origin + location.pathname + '?' + bust;
+    location.replace(newUrl);
 }
 
 /* ==========================================================

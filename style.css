@@ -6159,22 +6159,23 @@ img[src*="trophy.webp"] {
 
 /* FIX-4.2.10: Главное меню (bottom-sheet). Закрывает требование п. 4.2.10 правил VK Mini Apps. */
 #main-menu-modal {
-    align-items: flex-end;
-    padding: 0;
+    /* v5.3.19: центрируем как остальные модалки (было bottom-sheet). */
+    align-items: center;
+    padding: 12px;
     z-index: 1050;
 }
 .main-menu-sheet {
     width: 100%;
-    max-width: 460px;
+    max-width: 380px;
     background: linear-gradient(180deg, #1a1f2c 0%, #0d1117 100%);
-    border-top: 2px solid var(--gold);
-    border-radius: 14px 14px 0 0;
-    padding: 12px 12px max(12px, env(safe-area-inset-bottom, 12px)) 12px;
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.95), 0 0 20px var(--gold-glow);
+    border: 2px solid var(--gold);
+    border-radius: 14px;
+    padding: 14px 14px 14px 14px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.95), 0 0 20px var(--gold-glow);
     display: flex;
     flex-direction: column;
     gap: 6px;
-    animation: mmSlideUp 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: modalPopIn 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
     box-sizing: border-box;
 }
 @keyframes mmSlideUp {
