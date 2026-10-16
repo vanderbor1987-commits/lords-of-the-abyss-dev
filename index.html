@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=4.9.7">
+    <link rel="stylesheet" href="style.css?v=4.9.9">
         <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
          Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
          запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
@@ -1157,7 +1157,7 @@
                 <div class="leviathan-triumph-loot-panel">
                     <div class="leviathan-loot-row">
                         <span data-i18n="raid_triumph_relic_lbl">Сакральная Реликвия:</span>
-                        <b style="color:var(--gold);">+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> (+15% ко всему)</b>
+                        <b id="raid-triumph-relic-val" style="color:var(--gold);">—</b>
                     </div>
                     <div class="leviathan-loot-row">
                         <span data-i18n="raid_triumph_cryst_lbl">Кристаллы Бездны:</span>
@@ -1910,11 +1910,11 @@
     </div>
 </div>
 
-<script src="data-i18n.js?v=4.9.7"></script>
-<script src="data-heroes.js?v=4.9.7"></script>
-<script src="data-legal.js?v=4.9.7"></script>
-<script src="data-promo.js?v=4.9.7"></script>
-<script src="data-admin.js?v=4.9.7"></script>
-<script src="engine.js?v=4.9.7"></script>
+<script src="data-i18n.js?v=4.9.9"></script>
+<script src="data-heroes.js?v=4.9.9"></script>
+<script src="data-legal.js?v=4.9.9"></script>
+<script src="data-promo.js?v=4.9.9"></script>
+<script src="data-admin.js?v=4.9.9"></script>
+<script src="engine.js?v=4.9.9"></script>
 </body>
 </html>

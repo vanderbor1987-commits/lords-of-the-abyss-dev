@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.7';
+const BUILD_VERSION = '4.9.9';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -107,6 +107,7 @@ let gState = {
     gold: 1000,
     crystals: 30,
     relics: 0,
+    relicsFromAscend: 0, // v4.9.7: отдельный счётчик — только для цены возвышения
     army: 0,
     trophies: 150,
     tickets: 10,
@@ -7559,11 +7560,12 @@ function attackWorldRaidBoss() {
     // Победа над Левиафаном: строго +1 Реликвия и эпический оверлей
     if (gState.worldBossHp <= 0) {
         gState.isRaidDefeatedThisWeek = true;
-        const rewardRelics = 1;
-        // FIX-BALANCE v4.7.0: 500 → 100 C (в 5 раз меньше).
+        // v4.9.7: Левиафан даёт реликвию с шансом 15% (было гарантированно).
+        const gotRelic = Math.random() < 0.15;
         const rewardCryst = 100;
-        gState.relics = (gState.relics || 0) + rewardRelics;
+        if (gotRelic) gState.relics = (gState.relics || 0) + 1;
         gState.crystals = (gState.crystals || 0) + rewardCryst;
+        gState.lastRaidRelicGot = gotRelic;
         openLeviathanTriumphOverlay();
 
         if (typeof PlatformBridge !== 'undefined' && PlatformBridge.checkAndPromptReview) {
@@ -7599,6 +7601,17 @@ function openLeviathanTriumphOverlay() {
     if (shareBtn) shareBtn.innerHTML = I18N[currentLang]?.raid_triumph_share_btn || (currentLang === 'RU' ? 'НА СТЕНУ (+25 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">)' : 'SHARE (+25 <img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">)');
     if (claimBtn) claimBtn.innerText = I18N[currentLang]?.raid_triumph_claim_btn || (currentLang === 'RU' ? 'ПРИНЯТЬ ТРИУМФ ➔' : 'CLAIM TRIUMPH ➔');
 
+    // v4.9.7: показываем, выпала ли реликвия (шанс 15%).
+    const _relicValEl = document.getElementById('raid-triumph-relic-val');
+    if (_relicValEl) {
+        if (gState.lastRaidRelicGot) {
+            _relicValEl.innerHTML = '+1 <img src="assets/icons/relic.webp" class="res-icon-inline" alt="R"> (+15% ко всему)';
+            _relicValEl.style.color = 'var(--gold)';
+        } else {
+            _relicValEl.innerHTML = (currentLang === 'RU' ? 'не выпала (шанс 15%)' : 'not dropped (15% chance)');
+            _relicValEl.style.color = 'var(--text-muted)';
+        }
+    }
     if (overlay) overlay.style.display = 'flex';
     setTimeout(() => vortex?.classList.add('active'), 20);
     setTimeout(() => {
@@ -10853,8 +10866,8 @@ function upgrade(b) {
 }
 
 function getAscendKeepReq() {
-    const r = gState.relics || 0;
-    // Для первого Возвышения в обучении — Трон Ур. 2
+    // v4.9.7: требование к Цитадели — от числа возвышений, не от пассивных реликвий.
+    const r = gState.relicsFromAscend || 0;
     if (r === 0) return 2;
     // Каждое последующее Возвышение требует планомерного развития Цитадели
     return Math.min(30, 2 + (r * 3));
@@ -10865,8 +10878,9 @@ function getAscendKeepReq() {
 // Решение: линейно-степенной рост до r=15, после — мягкий демпфер 1.06 вместо 1.35.
 // Проходимо до r≈40 при текущей экономике и органично упирается в новые механики (Пробуждение, B7).
 function getAscendGoldReq() {
-    const r = gState.relics || 0;
-    // FIX-BALANCE v4.7.0: для первого Возвышения в обучении — ровно 5,000 Золота.
+    // v4.9.7: цена — только от числа возвышений (relicsFromAscend),
+    // не от общего счётчика реликвий (календарь/Левиафан/экспедиции).
+    const r = gState.relicsFromAscend || 0;
     if (r === 0) return 5000;
     // FIX-BALANCE v4.7.0: новая кривая. Тайминги (с учётом роста дохода):
     //   r=1  →  ~180k   (часть дня)
@@ -10875,9 +10889,12 @@ function getAscendGoldReq() {
     //   r=15 →  ~440M   (2-3 недели)
     //   r=20 →  ~1.4B   (1-2 месяца)
     // Старая формула давала r=13 за сутки — новый темп в 15-20 раз медленнее.
+    // v4.9.7: смягчённая формула. 1.30×1.10 → 1.20×1.06.
+    // Целевая прогрессия: ~12 возвышений в год, 36 за 3 года активной игры.
+    // r=10: ~11M, r=20: ~250M, r=30: ~3B, r=36: ~5B.
     const base = 25000 * Math.pow(1 + r, 2.5);
-    const expMult = Math.pow(1.30, Math.min(r, 10));
-    const logDampener = r > 10 ? Math.pow(1.10, r - 10) : 1;
+    const expMult = Math.pow(1.20, Math.min(r, 10));
+    const logDampener = r > 10 ? Math.pow(1.06, r - 10) : 1;
     return Math.floor(base * expMult * logDampener);
 }
 
@@ -11099,8 +11116,9 @@ function completeAscensionRitual() {
     const overlay = document.getElementById('ascension-ritual-overlay');
     if (overlay) overlay.style.display = 'none';
 
-    // Защищенное однократное начисление Реликвии
+    // v4.9.7: два счётчика — общий (для бонуса +15%) и отдельный (для цены возвышения).
     gState.relics = (gState.relics || 0) + 1;
+    gState.relicsFromAscend = (gState.relicsFromAscend || 0) + 1;
     isAscendingInProgress = false;
     gState.gold = 1000;
     gState.army = 0;
