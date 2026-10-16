@@ -293,10 +293,6 @@ async function handleArenaSubmit(request, env) {
         trophies,
         cp,
         defenseSquad,
-        // v5.3.11: crystals сохраняются для синхронизации между устройствами.
-        // Клиент отправляет в submit — второе устройство при заходе в Алтарь
-        // подтянет их и не сможет крутить за старые (защита от RNG-дубля).
-        crystals: Math.max(0, Math.min(50000000, parseInt(body.crystals, 10) || 0)),
         updatedAt: now
     };
     // v4.9.0: TTL 90 дней — ключ самоочищается, если игрок не заходит.
