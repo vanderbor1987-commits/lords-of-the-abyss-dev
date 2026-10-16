@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.7';
+const BUILD_VERSION = '5.3.8';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5270,6 +5270,56 @@ async function fetchLiveRivals(count = 2) {
 // Кэшируется в gState.liveTopCache на 120 сек (проверка по liveTopCacheTs).
 // Worker со своей стороны тоже кэширует sorted:trophies — TTL 60 сек — так что
 // реальных KV-чтений будет ~1 в минуту даже при массовых запросах ладдера.
+// v5.3.8: стабильный deviceId для защиты от RNG-дубля призыва.
+// UUID в localStorage, переживает перезагрузки. Один deviceId = одно устройство.
+// При двух устройствах — разные deviceId, Worker блокирует параллельный ролл.
+function getOrCreateDeviceId() {
+    const _key = 'lota_device_id';
+    try {
+        let id = localStorage.getItem(_key);
+        if (!id || id.length < 8) {
+            id = 'd_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+            localStorage.setItem(_key, id);
+        }
+        return id;
+    } catch (e) {
+        return 'd_fallback_' + Math.random().toString(36).slice(2, 10);
+    }
+}
+
+// v5.3.8: запрос лока призыва у Worker'а. При сетевой ошибке возвращает ok:true
+// (offline fallback — крутим локально, чтобы не блокировать игру без сети).
+async function requestSummonLock() {
+    if (!canSubmitToLiveArena()) return { ok: true, reason: 'standalone' };
+    const query = getLaunchQuery();
+    const deviceId = getOrCreateDeviceId();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/summon/lock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, deviceId })
+        });
+        const data = await resp.json();
+        if (data && typeof data.ok === 'boolean') return data;
+        return { ok: true, reason: 'bad_response' };
+    } catch (e) {
+        return { ok: true, reason: 'network' };
+    }
+}
+
+// v5.3.8: обёртка над summonGacha с проверкой лока.
+// Вызывается из кнопок Алтаря вместо summonGacha.
+async function summonGachaWithLock(type, count = 1) {
+    const lock = await requestSummonLock();
+    if (!lock.ok && lock.reason === 'summon_locked') {
+        const retryIn = Math.max(1, Math.ceil((lock.retryIn || 60000) / 1000));
+        return pushToast(currentLang === 'RU'
+            ? `Призыв заблокирован: игра открыта на другом устройстве. Повторите через ${retryIn} сек или закройте её.`
+            : `Summon locked: game is open on another device. Retry in ${retryIn}s or close it.`);
+    }
+    summonGacha(type, count);
+}
+
 async function fetchLiveTop10() {
     if (!canSubmitToLiveArena()) return [];
     // Throttle 120 сек, как у fetchLiveRivals — защита от спама при частом открытии модалки
@@ -8332,6 +8382,16 @@ function summonGacha(type, count = 1) {
         renderFtue();
     } else {
         openSummonResultModal(pullResults);
+    }
+
+    // v5.3.8 FIX-SUMMON-SUBMIT: после ролла форсим submit — новые кристаллы
+    // уходят в KV. Второе устройство при заходе через 60+ сек увидит свежий баланс
+    // и не сможет крутить за старые кристаллы (защита от RNG-дубля).
+    if (typeof submitArenaProfile === 'function'
+        && typeof canSubmitToLiveArena === 'function'
+        && canSubmitToLiveArena()
+        && !_inboxSyncPending) {
+        setTimeout(() => submitArenaProfile(true), 500);
     }
 }
 

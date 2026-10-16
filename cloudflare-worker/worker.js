@@ -101,6 +101,7 @@ export default {
         if (path === '/arena/inbox/clear') return handleArenaInboxClear(request, env);
         if (path === '/arena/profile') return handleArenaProfile(request, env);
         if (path === '/arena/top') return handleArenaTop(request, env);
+        if (path === '/summon/lock') return handleSummonLock(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -626,4 +627,58 @@ async function handleArenaTop(request, env) {
     }));
 
     return json({ ok: true, players: top });
+}
+
+/* ==========================================================
+   РОУТ /summon/lock — блокировка призыва на сессию устройства.
+
+   Клиент перед каждым роллом отправляет deviceId (UUID в localStorage).
+   Worker ставит summon_lock:<uid> = {deviceId, ts} с TTL 60 сек. Второе
+   устройство с тем же uid в окне 60 сек получает summon_locked и не крутит.
+
+   Защита от RNG-дубля: первое устройство за это окно успевает запушить
+   новые кристаллы в KV через submit — второе при следующем заходе подтянет
+   их и не увидит старый баланс.
+   ========================================================== */
+
+const SUMMON_LOCK_TTL_MS = 60_000;
+
+async function handleSummonLock(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+    const deviceId = String(body.deviceId || '').slice(0, 64);
+    if (!deviceId || deviceId.length < 4) {
+        return json({ ok: false, reason: 'no_device_id' }, 400);
+    }
+
+    const key = `summon_lock:${uid}`;
+    const now = Date.now();
+
+    const raw = await env.LOTA_LADDER.get(key);
+    if (raw) {
+        try {
+            const lock = JSON.parse(raw);
+            if (lock && lock.deviceId && lock.ts) {
+                const age = now - lock.ts;
+                // Активный лок на другом устройстве — блок.
+                if (lock.deviceId !== deviceId && age < SUMMON_LOCK_TTL_MS) {
+                    return json({
+                        ok: false,
+                        reason: 'summon_locked',
+                        retryIn: SUMMON_LOCK_TTL_MS - age
+                    }, 200);
+                }
+            }
+        } catch (e) {}
+    }
+
+    // Наш лок, истёкший, или отсутствует — переписываем свежим.
+    await env.LOTA_LADDER.put(key, JSON.stringify({ deviceId, ts: now }), { expirationTtl: 120 });
+    return json({ ok: true });
 }
