@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.0';
+const BUILD_VERSION = '4.9.1';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -1844,7 +1844,9 @@ function calculateCardCP(heroId, stars = 1, lvl = 1, codexBonus = 0) {
     const masteryLevels = Math.max(0, safeLvl - MAX_BASE_LVL);
     const lvlMult = 1 + (baseLevels - 1) * 0.08 + masteryLevels * 0.05;
     const codexMult = 1 + (codexBonus || 0);
-    return Math.floor((hero.cp || 40) * starMult * lvlMult * codexMult);
+    // v4.9.1: CP считается от TIER_BASE_CP, а не от hero.cp. Старая база удалена для баланса тиров.
+    const baseCP = TIER_BASE_CP[hero.tier] || hero.cp || 40;
+    return Math.floor(baseCP * starMult * lvlMult * codexMult);
 }
 
 function getHeroCP(id) {
@@ -3510,6 +3512,16 @@ const MAX_BASE_LVL = 200;
 const MAX_MASTERY_LVL = 100;
 const MAX_TOTAL_LVL = MAX_BASE_LVL + MAX_MASTERY_LVL;
 
+// v4.9.1: Новая база CP по тирам. F:SSS = 1:19.8 (было 1:281).
+// Старые hero.cp в data-heroes.js остаются, но не используются в расчётах.
+// Экономика построена на принципе constant gold efficiency: +1M золота = ~+200 CP у любого тира.
+const TIER_BASE_CP = {
+    'F': 50, 'E': 73, 'D': 106, 'C': 154, 'B': 223,
+    'A': 324, 'S': 470, 'SS': 681, 'SSS': 988
+};
+const UPGRADE_REFERENCE_CP = 100; // эталон для формулы стоимости
+const UPGRADE_CP_EXPONENT = 0.7;  // степень: 0.7 → F дешевле SSS в 8 раз
+
 // Динамический стык стоимости на 100 уровне
 const COST_AT_LVL_100 = Math.floor(100 * Math.pow(1.14, 99));
 // Стык на 200 — точка входа в Мастерство (M1)
@@ -3524,17 +3536,29 @@ function formatHeroLevel(lvl) {
     return `${lvl}`;
 }
 
-function getHeroLevelUpgradeCost(lvl) {
+// v4.9.1: сигнатура расширена вторым аргументом heroCP.
+// Если heroCP не передан — возвращается базовая цена без тир-множителя (для совместимости).
+// Правильные вызовы идут через getHeroUpgradeCost(heroId, lvl) ниже.
+function getHeroLevelUpgradeCost(lvl, heroCP = null) {
+    let base;
     if (lvl < 100) {
-        return Math.floor(100 * Math.pow(1.14, lvl - 1));
+        base = Math.floor(100 * Math.pow(1.14, lvl - 1));
+    } else if (lvl < MAX_BASE_LVL) {
+        base = Math.floor(COST_AT_LVL_100 * Math.pow(1.05, lvl - 100));
+    } else {
+        base = Math.floor(COST_AT_LVL_200 * Math.pow(1.065, lvl - MAX_BASE_LVL));
     }
-    if (lvl < MAX_BASE_LVL) {
-        // Сектор 100–199: динамический стык + мягкий рост x1.05
-        return Math.floor(COST_AT_LVL_100 * Math.pow(1.05, lvl - 100));
-    }
-    // B7: Сектор 200–299 (Мастерство): рост x1.065.
-    // M1 = COST_AT_LVL_200, M100 ≈ COST_AT_LVL_200 × 1.065^99 ≈ x545.
-    return Math.floor(COST_AT_LVL_200 * Math.pow(1.065, lvl - MAX_BASE_LVL));
+    if (heroCP === null) return base;
+    const mult = Math.pow(Math.max(1, heroCP) / UPGRADE_REFERENCE_CP, UPGRADE_CP_EXPONENT);
+    return Math.floor(base * mult);
+}
+
+// v4.9.1: обёртка — считает heroCP по тиру и возвращает финальную цену уровня.
+// Чем мощнее карта — тем дороже прокачка, но CP за золото одинаков у всех тиров.
+function getHeroUpgradeCost(heroId, lvl) {
+    const hero = HEROES_CATALOG[heroId];
+    const heroCP = hero ? (TIER_BASE_CP[hero.tier] || hero.cp || UPGRADE_REFERENCE_CP) : UPGRADE_REFERENCE_CP;
+    return getHeroLevelUpgradeCost(lvl, heroCP);
 }
 
 // B7: Эпическое событие — герой впервые пересёк 200-й уровень и вошёл в Мастерство.
@@ -3603,7 +3627,7 @@ function openMasteryModal(heroId) {
         // G2-fix: уточняем базу процента — +5% берётся от БАЗОВОЙ мощи героя (hero.cp),
         // а не от текущего CP. Иначе игрок считает 5% × 100 = +500% и путается,
         // почему в итоге показывается только +29.6% (это прирост относительно Lvl 200).
-        const m1Cost = getHeroLevelUpgradeCost(MAX_BASE_LVL);
+        const m1Cost = getHeroUpgradeCost(heroId, MAX_BASE_LVL);
         const m1CostStr = `<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> ${formatNumber(m1Cost)}`;
         infoBox.innerHTML = currentLang === 'RU'
             ? `<div style="font-weight:800; color:#c084fc; margin-bottom:6px;">Второй слой прокачки M1–M100</div>
@@ -3651,7 +3675,7 @@ function confirmMasteryEntry() {
     let entrySuccess = false;
 
     if (card && card.lvl === MAX_BASE_LVL) {
-        const cost = getHeroLevelUpgradeCost(card.lvl);
+        const cost = getHeroUpgradeCost(heroId, card.lvl);
         if ((gState.gold || 0) < cost) {
             const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
             pushToast(currentLang === 'RU'
@@ -3711,20 +3735,22 @@ function cycleLevelUpgradeMultiplier() {
     updateInspectUpgradeButton();
 }
 
-function calculateBatchUpgradeCost(currentLvl, countOrMax, availableBudget = null) {
+// v4.9.1: добавлен 4-й аргумент heroId — нужен для тир-множителя стоимости.
+// Без него считает по эталонной цене (совместимость со старыми вызовами).
+function calculateBatchUpgradeCost(currentLvl, countOrMax, availableBudget = null, heroId = null) {
     let totalCost = 0;
     let levelsToAdd = 0;
     let tempLvl = currentLvl;
-    // G1: Динамический потолок. Пока герой не перешёл в Мастерство (не достиг ровно 200 и не awakened),
-    // прокачка жёстко останавливается на MAX_BASE_LVL = 200. Только после явного подтверждения
-    // «Войти в мастерство» открывается сектор 200–300. Так игрок не перескакивает веху бессознательно.
     const maxLvl = (currentLvl < MAX_BASE_LVL) ? MAX_BASE_LVL : MAX_TOTAL_LVL;
     const budget = (availableBudget !== null) ? availableBudget : (gState.gold || 0);
     const targetAdd = (countOrMax === 'max') ? (maxLvl - currentLvl) : countOrMax;
 
+    const hero = heroId ? HEROES_CATALOG[heroId] : null;
+    const heroCP = hero ? (TIER_BASE_CP[hero.tier] || hero.cp || UPGRADE_REFERENCE_CP) : null;
+
     for (let i = 0; i < targetAdd; i++) {
         if (tempLvl >= maxLvl) break;
-        const cost = getHeroLevelUpgradeCost(tempLvl);
+        const cost = getHeroLevelUpgradeCost(tempLvl, heroCP);
         if (budget < (totalCost + cost)) {
             break;
         }
@@ -3772,7 +3798,7 @@ function updateInspectUpgradeButton() {
     // Герой ровно на 200 — показываем «ВОЙТИ В МАСТЕРСТВО»
     // Если денег меньше стоимости M1 — кнопка серая с динамической ценой
     if (card.lvl === MAX_BASE_LVL) {
-        const m1Cost = getHeroLevelUpgradeCost(MAX_BASE_LVL);
+        const m1Cost = getHeroUpgradeCost(activeInspectHeroId, MAX_BASE_LVL);
         const canAffordM1 = (gState.gold || 0) >= m1Cost;
         const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
 
@@ -3801,12 +3827,12 @@ function updateInspectUpgradeButton() {
     btn.style.background = 'linear-gradient(180deg, #d97706 0%, #b45309 100%)';
     btn.style.borderColor = '#f59e0b';
 
-    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeLevelUpgradeMult);
+    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeLevelUpgradeMult, null, activeInspectHeroId);
 
     const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
     const lvlPrefix = currentLang === 'RU' ? 'Ур.' : 'Lvl';
     if (levelsToAdd === 0) {
-        const singleCost = getHeroLevelUpgradeCost(card.lvl);
+        const singleCost = getHeroUpgradeCost(activeInspectHeroId, card.lvl);
         btn.disabled = true;
         btn.innerHTML = `${lvlPrefix} +1 (${formatNumber(singleCost)} ${gI})`;
     } else {
@@ -3831,7 +3857,7 @@ function upgradeSelectedHeroLevel() {
         return;
     }
 
-    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeLevelUpgradeMult);
+    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeLevelUpgradeMult, null, activeInspectHeroId);
     if (levelsToAdd === 0 || (gState.gold || 0) < totalCost) {
         return pushToast(currentLang === 'RU' ? "Недостаточно золота!" : "Not enough gold!");
     }
@@ -3946,7 +3972,7 @@ function renderAscendHeroPickerList() {
         const card = gState.deck[hid];
         const tColor = `var(--tier-${(hero.tier||'f').toLowerCase()})`;
 
-        const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeAscendPickerMult, excessGold);
+        const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeAscendPickerMult, excessGold, hid);
         // B7: cap уровня поднят до MAX_TOTAL_LVL (300)
         const isMaxLvl = card.lvl >= MAX_TOTAL_LVL;
         const canAfford = excessGold >= totalCost && levelsToAdd > 0 && !isMaxLvl;
@@ -3959,7 +3985,7 @@ function renderAscendHeroPickerList() {
         } else if (levelsToAdd > 0) {
             btnText = `+${levelsToAdd} (${formatNumber(totalCost)} <img src="assets/icons/gold.webp" class="res-icon-inline">)`;
         } else {
-            const singleCost = getHeroLevelUpgradeCost(card.lvl);
+            const singleCost = getHeroUpgradeCost(hid, card.lvl);
             btnText = `${currentLang === 'RU' ? 'нужно' : 'needs'} ${formatNumber(singleCost)} <img src="assets/icons/gold.webp" class="res-icon-inline">`;
         }
 
@@ -4033,7 +4059,7 @@ function dumpGoldIntoHero(heroId) {
         markMasteryAwakened(heroId);
     }
 
-    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeAscendPickerMult, excessGold);
+    const { totalCost, levelsToAdd } = calculateBatchUpgradeCost(card.lvl, activeAscendPickerMult, excessGold, heroId);
     if (levelsToAdd === 0 || excessGold < totalCost) {
         return pushToast(currentLang === 'RU' ? "Недостаточно излишков золота!" : "Not enough excess gold!");
     }
@@ -4759,8 +4785,8 @@ function renderSquadSlot(boxId, hid, roleName, roleClass) {
                     <div style="font-size:11.5px; font-weight:900; color:${tColor}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; text-shadow:0 1px 3px #000;">[${h.tier}] ${h.name[currentLang] || h.name['EN']}</div>
                     <div style="font-size:11px; font-weight:700; color:#fff; margin-top:1px; text-shadow:0 1px 2px #000;">${currentLang === 'RU' ? 'Ур.' : 'Lvl'}${formatHeroLevel(card.lvl)} • +${formatNumber(getHeroCP(hid))} ${cpUnit}</div>
                     <div class="slot-quick-upg-wrap">
-                        <button class="slot-lvlup-btn ${((gState.gold || 0) >= getHeroLevelUpgradeCost(card.lvl || 1) && (card.lvl || 1) < MAX_TOTAL_LVL) ? 'can-afford' : ''}" onclick="event.stopPropagation(); quickUpgradeSquadHero('${hid}')" ${(card.lvl || 1) >= MAX_TOTAL_LVL || (gState.gold || 0) < getHeroLevelUpgradeCost(card.lvl || 1) ? 'disabled' : ''}>
-                            ${(card.lvl || 1) >= MAX_TOTAL_LVL ? 'MAX' : `${I18N[currentLang]?.slot_lvlup_prefix || (currentLang === 'RU' ? '+1 Ур.' : '+1 Lvl')} (${formatNumber(getHeroLevelUpgradeCost(card.lvl || 1))} <img src="assets/icons/gold.webp" class="res-icon-inline" style="width:11px; height:11px;">)`}
+                        <button class="slot-lvlup-btn ${((gState.gold || 0) >= getHeroUpgradeCost(hid, card.lvl || 1) && (card.lvl || 1) < MAX_TOTAL_LVL) ? 'can-afford' : ''}" onclick="event.stopPropagation(); quickUpgradeSquadHero('${hid}')" ${(card.lvl || 1) >= MAX_TOTAL_LVL || (gState.gold || 0) < getHeroUpgradeCost(hid, card.lvl || 1) ? 'disabled' : ''}>
+                            ${(card.lvl || 1) >= MAX_TOTAL_LVL ? 'MAX' : `${I18N[currentLang]?.slot_lvlup_prefix || (currentLang === 'RU' ? '+1 Ур.' : '+1 Lvl')} (${formatNumber(getHeroUpgradeCost(hid, card.lvl || 1))} <img src="assets/icons/gold.webp" class="res-icon-inline" style="width:11px; height:11px;">)`}
                         </button>
                     </div>
                 </div>
@@ -4792,7 +4818,7 @@ function quickUpgradeSquadHero(hid) {
         return;
     }
 
-    const cost = getHeroLevelUpgradeCost(card.lvl || 1);
+    const cost = getHeroUpgradeCost(hid, card.lvl || 1);
     if ((gState.gold || 0) < cost) return pushToast(currentLang === 'RU' ? "Недостаточно золота!" : "Not enough gold!");
 
     const oldLvl = card.lvl || 1;
@@ -10847,7 +10873,7 @@ function autoSpendExcessGoldOnHeroes() {
         // B7: cap расширен до MAX_TOTAL_LVL (300). Итераций в 2x больше для поддержки M1–M100.
         while (excessGold > 0 && h.lvl < MAX_TOTAL_LVL && iterations < 600) {
             iterations++;
-            const cost = getHeroLevelUpgradeCost(h.lvl);
+            const cost = getHeroUpgradeCost(h.id, h.lvl);
             if (excessGold >= cost) {
                 excessGold -= cost;
                 spent += cost;
