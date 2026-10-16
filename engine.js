@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.0';
+const BUILD_VERSION = '5.3.3';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -4129,8 +4129,13 @@ function dumpGoldIntoHero(heroId) {
 let selectedExpHeroes = [];
 
 function isHeroBusy(heroId) {
-    // В поход нельзя отправить только тех, кто лично в атакующем строю или уже в другой экспедиции
+    // v5.3.2 FIX-EXP-DEFENSE-BUSY: учитываем и ATTACK, и DEFENSE formations.
+    // Раньше герой из defenseFormation мог быть отправлен в поход, но обратно
+    // в defense slot (через openSlotPicker) — уже не мог: openSlotPicker блокирует
+    // isHeroInExpedition. Асимметрия приводила к блокировке героя в походе
+    // без возможности вернуть его в защиту до завершения экспедиции.
     if ((gState.attackFormation || []).includes(heroId)) return true;
+    if ((gState.defenseFormation || []).includes(heroId)) return true;
     for (let expId in gState.expeditions) {
         if ((gState.expeditions[expId].heroIds || []).includes(heroId)) return true;
     }
@@ -4355,6 +4360,12 @@ function autoSelectInPicker() {
 function autoDeployExpedition(expId) {
     const config = EXPEDITIONS_CONFIG.find(e => e.id === expId);
     if (!config) return;
+    // v5.3.2 FIX-EXP-DOUBLE-DEPLOY: запрет перезапуска активной экспедиции.
+    // Раньше повторное нажатие AUTO перезаписывало gState.expeditions[expId],
+    // прогресс терялся, а герои старого состава освобождались без награды.
+    if (gState.expeditions[expId]) {
+        return pushToast(currentLang === 'RU' ? 'Экспедиция уже в пути!' : 'Expedition already underway!');
+    }
 
     const targetFaction = getExpeditionAffinity(expId);
     const freeHeroes = Object.keys(gState.deck || {}).filter(id => !isHeroBusy(id));
@@ -4397,6 +4408,11 @@ function autoDeployExpedition(expId) {
 }
 
 function openExpHeroPicker(expId) {
+    // v5.3.2 FIX-EXP-DOUBLE-DEPLOY: не открываем picker для активной экспедиции.
+    // Иначе confirmExpeditionDeployment перезаписал бы state и прогресс бы потерялся.
+    if (gState.expeditions[expId]) {
+        return pushToast(currentLang === 'RU' ? 'Экспедиция уже в пути!' : 'Expedition already underway!');
+    }
     activeAssignExpId = expId;
     selectedExpHeroes = [];
     renderExpPickerList();
@@ -4519,21 +4535,35 @@ function confirmExpeditionDeployment() {
     renderFtue();
 }
 
+// v5.3.2 FIX-EXP-SPEEDUP-GUARD: reentrancy-guard + защита от отрицательного diff.
+// Раньше двойной клик открывал два rewarded-видео, а при завершении экспедиции
+// во время рекламы diff становился отрицательным — endTime увеличивался,
+// откладывая возврат отряда.
+const _speedupInFlight = {};
 function speedupExpedition(expId) {
     const cur = gState.expeditions[expId];
     if (!cur) return;
+    if (_speedupInFlight[expId]) return;
     if ((cur.speedupsCount || 0) >= 1) {
         return pushToast(currentLang === 'RU' ? "Лимит ускорений исчерпан (1/1)!" : "Speedup limit reached (1/1)!");
     }
 
+    _speedupInFlight[expId] = true;
     showPlatformRewarded(() => {
         const diff = cur.endTime - Date.now();
+        if (diff <= 0) {
+            delete _speedupInFlight[expId];
+            return pushToast(currentLang === 'RU' ? "Поход уже завершён — заберите награду" : "Expedition already finished — claim reward");
+        }
         cur.endTime -= Math.floor(diff * 0.5);
         cur.speedupsCount = (cur.speedupsCount || 0) + 1;
+        delete _speedupInFlight[expId];
         playCoinSfx();
         pushToast(currentLang === 'RU' ? "Время похода сокращено на 50%!" : "Time halved by 50%!");
         saveGame();
         renderExpeditionsList();
+    }, () => {
+        delete _speedupInFlight[expId];
     });
 }
 
@@ -5739,7 +5769,9 @@ function checkWeeklyArenaReset() {
         gState.pendingSeasonCeremony = {
             seasonNumber: prevSeasonNum,
             finalRank,
-            rankTier,
+            rankTier,                 // обратная совместимость для старых сейвов
+            oldLeagueId,              // v5.3.1: для пересчёта локализации при рендере
+            isUp, isDown,             // v5.3.1: флаги исхода (не зависят от языка)
             crystals,
             gold,
             heroReward
@@ -5772,9 +5804,33 @@ function openSeasonCeremonyModal(ceremonyData) {
         titleEl.innerText = currentLang === 'RU' ? `ИТОГИ СЕЗОНА #${sNum}` : `SEASON #${sNum} CONCLUDED`;
     }
     if (rankEl) {
-        rankEl.innerText = currentLang === 'RU' 
-            ? `ВАШ ИТОГ: #${ceremonyData.finalRank} (${ceremonyData.rankTier})`
-            : `FINAL STANDING: #${ceremonyData.finalRank} (${ceremonyData.rankTier})`;
+        // v5.3.1: rankTier пересчитывается на актуальном языке при рендере.
+        // Раньше строка сохранялась в момент reset — при смене языка игрок видел старый язык.
+        let rankTierLabel = ceremonyData.rankTier;
+        if (ceremonyData.oldLeagueId && typeof ceremonyData.isUp === 'boolean') {
+            const _leagueNames = {
+                bronze: { RU: 'Бронза', EN: 'Bronze' },
+                silver: { RU: 'Серебро', EN: 'Silver' },
+                gold: { RU: 'Золото', EN: 'Gold' },
+                platinum: { RU: 'Платина', EN: 'Platinum' },
+                diamond: { RU: 'Алмаз', EN: 'Diamond' }
+            };
+            const _lName = (_leagueNames[ceremonyData.oldLeagueId] || _leagueNames.bronze)[currentLang]
+                || ceremonyData.oldLeagueId;
+            const _isRU = currentLang === 'RU';
+            if (ceremonyData.finalRank === 1 && ceremonyData.oldLeagueId === 'diamond') {
+                rankTierLabel = _isRU ? 'ЧЕМПИОН ОЛИМПА (#1)' : 'OLYMPUS CHAMPION (#1)';
+            } else if (ceremonyData.isUp) {
+                rankTierLabel = _isRU ? `${_lName}: Повышение [ВВЕРХ]` : `${_lName}: Promoted [UP]`;
+            } else if (ceremonyData.isDown) {
+                rankTierLabel = _isRU ? `${_lName}: Вылет [ВНИЗ]` : `${_lName}: Demoted [DOWN]`;
+            } else {
+                rankTierLabel = _isRU ? `${_lName}: Удержание Лиги` : `${_lName}: Retained League`;
+            }
+        }
+        rankEl.innerText = currentLang === 'RU'
+            ? `ВАШ ИТОГ: #${ceremonyData.finalRank} (${rankTierLabel})`
+            : `FINAL STANDING: #${ceremonyData.finalRank} (${rankTierLabel})`;
     }
 
     if (rewardsBox) {
@@ -6649,20 +6705,39 @@ function startActualCombatWithRival(rival) {
                     // локальные +trophies всё равно уходили в KV как безосновательная награда.
                     if (rival.isReal && rival.uid && typeof reportArenaAttack === 'function') {
                         const _finalTrophiesWin = finalTrophies;
+                        const _multWin = mult;
+                        const _baseGoldWin = baseGold;
                         reportArenaAttack(rival.uid, 'win', trophyGain).then(resp => {
                             if (resp && resp.ok) {
+                                // v5.3.1: сервер — источник истины. Если его actualDelta отличается
+                                // от клиентского trophyGain — корректируем локальные кубки молча.
+                                if (typeof resp.actualDelta === 'number' && resp.actualDelta > 0 && resp.actualDelta !== trophyGain) {
+                                    const serverAwarded = resp.actualDelta * (_multWin > 1 ? 2 : 1);
+                                    const diff = serverAwarded - _finalTrophiesWin;
+                                    if (diff !== 0) {
+                                        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 0) + diff));
+                                        saveGame();
+                                        renderUI();
+                                        renderArena();
+                                        renderLeaderboard();
+                                        pushToast(currentLang === 'RU'
+                                            ? `Кубки скорректированы сервером: +${serverAwarded}`
+                                            : `Trophies corrected by server: +${serverAwarded}`);
+                                    }
+                                }
                                 if (typeof submitArenaProfile === 'function') submitArenaProfile(true);
                             } else {
-                                // Откат: атака не зафиксирована, возвращаем награду из локального state.
+                                // Откат: атака не зафиксирована — возвращаем и кубки, и золото.
                                 gState.trophies = Math.max(0, (gState.trophies || 0) - _finalTrophiesWin);
+                                gState.gold = Math.max(0, (gState.gold || 0) - _baseGoldWin * _multWin);
                                 saveGame();
                                 renderUI();
                                 renderArena();
                                 renderLeaderboard();
                                 const _rsn = (resp && resp.reason) || 'network';
                                 pushToast(currentLang === 'RU'
-                                    ? `Сервер отклонил атаку (${_rsn}). Кубки возвращены.`
-                                    : `Server rejected attack (${_rsn}). Trophies refunded.`);
+                                    ? `Сервер отклонил атаку (${_rsn}). Награды возвращены.`
+                                    : `Server rejected attack (${_rsn}). Rewards refunded.`);
                             }
                         });
                     }
@@ -12973,16 +13048,10 @@ function updateLiveTimers() {
             : `Resets midnight (${midnightStr})`;
     }
 
-    // 6. Таймеры активных Экспедиций
-    const now = Date.now();
-    for (let expId in gState.expeditions) {
-        const cur = gState.expeditions[expId];
-        if (cur && cur.endTime > now) {
-            const leftSec = Math.floor((cur.endTime - now) / 1000);
-            const el = document.getElementById(`exp-timer-${expId}`);
-            if (el) el.innerText = `${I18N[currentLang].exp_in_progress} ${getFormattedTime(leftSec)}`;
-        }
-    }
+    // v5.3.2 FIX-EXP-DEAD-TIMER-CODE: удалён мёртвый код updateLiveTimers для
+    // active-экспедиций. Искал exp-timer-${expId}, такого ID в DOM нет.
+    // Таймеры активных экспедиций обновляются через refreshCurrentView →
+    // renderExpeditionsList раз в 3 сек (когда вкладка Походов открыта).
 }
 
 /* ==========================================================

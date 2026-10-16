@@ -388,13 +388,12 @@ async function handleArenaRivals(request, env) {
 
     // Сортируем по |Δtrophies| возрастанию
     candidates.sort((a, b) => Math.abs(a.trophies - myTrophies) - Math.abs(b.trophies - myTrophies));
-    const top = candidates.slice(0, count);
 
-    // Догружаем полный профиль (с defenseSquad)
-    // B5: добавляем rank из sorted-массива, чтобы клиент показывал
-    // честное место живого игрока, а не от бота.
+    // v5.3.1: пропускаем мёртвые профили (player:<uid> истёк по TTL 90 дней,
+    // но запись в sorted осталась). Перебираем candidates до заполнения count.
     const rivals = [];
-    for (const p of top) {
+    for (const p of candidates) {
+        if (rivals.length >= count) break;
         const fullRaw = await env.LOTA_LADDER.get(`player:${p.uid}`);
         if (!fullRaw) continue;
         try {
@@ -525,7 +524,9 @@ async function handleArenaAttack(request, env) {
     await env.LOTA_LADDER.put(inboxKey, JSON.stringify(inbox), { expirationTtl: 30 * 86400 });
 
     // B4: ratelimit теперь в in-memory Map — KV-запись убрана.
-    return json({ ok: true });
+    // v5.3.1: возвращаем actualDelta — клиент синхронизирует локальные кубки
+    // с серверным значением. Устраняет расхождение 16-32 (клиент) vs 10-30 (сервер).
+    return json({ ok: true, actualDelta: trophyChange });
 }
 
 /* ==========================================================
