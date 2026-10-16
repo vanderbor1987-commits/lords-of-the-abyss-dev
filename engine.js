@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.15';
+const BUILD_VERSION = '5.3.16';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -7276,7 +7276,11 @@ function getCurrentUnifiedRank() {
         return (b.isMe ? 2 : 0) - (a.isMe ? 2 : 0);
     });
     const meIdx = pool.findIndex(p => p.isMe);
-    return meIdx >= 0 ? (meIdx + 1) : 999;
+    // v5.3.16: пул содержит только 10 ботов + живых + игрока (~11-15 элементов).
+    // Если игрок проваливается в конец этого маленького пула — реальный rank
+    // может быть 100..1000. Отдаём его глобальной формуле calculatePlayerRank.
+    if (meIdx >= 0 && meIdx < 10) return meIdx + 1;
+    return (typeof calculatePlayerRank === 'function') ? calculatePlayerRank() : 999;
 }
 
 function renderLeaderboard() {
