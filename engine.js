@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.4';
+const BUILD_VERSION = '4.9.5';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -11852,15 +11852,41 @@ function closeHardResetModal() {
 }
 
 function executeHardReset() {
-    saveGame = () => {};
-    localStorage.clear();
-    if (PlatformBridge.yandexPlayer) {
-        try { PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '' }, true).catch(() => {}); } catch(e) {}
-    }
-    if (isRunningInsideVK() && window.vkBridge) {
-        try { window.vkBridge.send('VKWebAppStorageSet', { key: SAVE_KEY, value: '' }).catch(() => {}); } catch(e) {}
-    }
-    setTimeout(() => location.reload(), 250);
+    // v4.9.5 FIX-HARD-RESET: заменена старая версия («три клика»).
+    //   • saveGame = () => {} не работал против setInterval (держит оригинальную ссылку);
+    //   • setTimeout(reload, 250) не давал VK Bridge записать в облако;
+    //   • пустая строка '' не принимается VK Bridge;
+    //   • location.reload() даёт BFCache — возвращает старый gState.
+    // Новая логика — копия adminResetAll:
+    gStateLoaded = false;
+
+    try {
+        localStorage.removeItem(SAVE_KEY);
+        localStorage.removeItem('lords_saved_language');
+        localStorage.removeItem('lota_p9_result');
+    } catch (e) {}
+
+    const cloudReset = (async () => {
+        if (typeof PlatformBridge !== 'undefined' && PlatformBridge.yandexPlayer) {
+            try {
+                await PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '_reset_' }, true);
+            } catch (e) {}
+        }
+        if (typeof isRunningInsideVK === 'function' && isRunningInsideVK() && window.vkBridge) {
+            try {
+                await window.vkBridge.send('VKWebAppStorageSet', { key: SAVE_KEY, value: '_reset_' });
+            } catch (e) {}
+        }
+    })();
+
+    Promise.race([
+        cloudReset,
+        new Promise(resolve => setTimeout(resolve, 2000))
+    ]).then(() => {
+        const bust = '_wipe=' + Date.now();
+        const newUrl = location.origin + location.pathname + '?' + bust;
+        location.replace(newUrl);
+    });
 }
 
 /* ==========================================================
