@@ -21,7 +21,10 @@
 const TS_WINDOW_VALIDATE = 3600;      // P9: sign актуален 1 час
 const TS_WINDOW_ARENA = 86400;        // Arena: sign актуален 24 часа (долгие сессии)
 const SUBMIT_COOLDOWN_MS = 5_000;     // 1 submit в 5 сек (было 60с — блокировало смену имени)
-const ATTACK_COOLDOWN_MS = 60_000;    // 1 атака в минуту на игрока
+const ATTACK_COOLDOWN_MS = 10_000;    // 10 сек per attacker|target pair (v5.2.5)
+// Было 60 сек per attacker — блокировало 9 из 10 быстрых атак на одного игрока,
+// из-за чего на сервере долетала только одна, а жертва не получала полный прирост.
+// Ключ теперь пара attackerUid|targetUid — анти-спам сохранён, но серийные атаки на одну цель проходят.
 const INBOX_MAX_ENTRIES = 20;         // максимум 20 непрочитанных атак в inbox
 const RIVALS_MAX = 5;                 // верхний предел на один запрос rivals
 
@@ -458,8 +461,10 @@ async function handleArenaAttack(request, env) {
     }
     const trophyChange = _serverTrophyChange;
 
-    // B4: rate-limit атак в in-memory Map — 0 KV-операций вместо 2.
-    const rlAttackCheck = checkRateLimit(attackRateLimits, attackerUid, ATTACK_COOLDOWN_MS);
+    // v5.2.5: cooldown per (attacker|target) pair. 10 сек — серийные атаки долетают,
+    // spam по разным целям всё ещё ограничен общим Map-лимитом.
+    const _attackPairKey = attackerUid + '|' + targetUid;
+    const rlAttackCheck = checkRateLimit(attackRateLimits, _attackPairKey, ATTACK_COOLDOWN_MS);
     if (!rlAttackCheck.ok) {
         return json({ ok: false, reason: 'rate_limited', retryIn: rlAttackCheck.retryIn }, 429);
     }

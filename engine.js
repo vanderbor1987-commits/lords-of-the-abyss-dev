@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.4';
+const BUILD_VERSION = '5.2.5';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -13041,11 +13041,11 @@ setInterval(() => {
         simulateLivingLadder();
     }
 
-    // v5.2.4: тихий sync кубков от PvP-атак раз в 5 минут.
-    // Пока игрок в игре — атаки живых обновляют его кубки без перезахода.
+    // v5.2.5: тихий sync кубков от PvP-атак раз в 60 сек (было 300).
+    // Пока игрок в игре — атаки живых обновляют его кубки почти мгновенно.
     if (!window._silentInboxTimer) window._silentInboxTimer = 0;
     window._silentInboxTimer++;
-    if (window._silentInboxTimer >= 300) {
+    if (window._silentInboxTimer >= 60) {
         window._silentInboxTimer = 0;
         if (typeof silentInboxSync === 'function') silentInboxSync();
     }
