@@ -72,8 +72,8 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.7';
-const BUILD_DATE = '15.10.2026';
+const BUILD_VERSION = '4.8.8';
+const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
 // P9: VK LAUNCH PARAMS VALIDATION (п. 1.2.2 правил VK Mini Apps)
@@ -1047,8 +1047,15 @@ const PlatformBridge = {
             }
             this.yandexPayments.purchase({ id: itemKey }).then(() => {
                 onSuccess();
-            }).catch(() => {
-                pushToast(currentLang === 'RU' ? "Оплата отменена" : "Order cancelled");
+            }).catch((err) => {
+                // v4.8.8: различаем отмену игроком от технической ошибки Yandex Payments.
+                // Раньше любой reject показывал «Оплата отменена» — игрок думал, что сам отказался,
+                // хотя сбой был на платёжном шлюзе.
+                const errStr = String((err && (err.message || err.code)) || '');
+                const isCancelled = /cancel/i.test(errStr) || (err && err.code === 'PURCHASE_CANCELLED');
+                pushToast(currentLang === 'RU'
+                    ? (isCancelled ? "Оплата отменена" : "Ошибка платежа. Попробуйте позже")
+                    : (isCancelled ? "Order cancelled" : "Payment error. Try again later"));
             });
             return;
         }
@@ -4980,6 +4987,7 @@ function closeCardInspect() {
 
 let liveArenaSubmitDebounce = null;
 let liveArenaSubmitRetry = null;  // B3: таймер ретрая при rate_limited
+let liveArenaSubmitErrorShown = false; // v4.8.8: one-shot toast при отказе сервера live-арены
 
 // B4: дедупликация submit'ов. Хэш профиля хранится в localStorage — если
 // он не изменился, submit не отправляется вообще. Это уменьшает число
@@ -5076,6 +5084,43 @@ async function submitArenaProfile(force = false) {
                 liveArenaSubmitRetry = null;
                 submitArenaProfile(true);
             }, retryIn);
+        } else if (data && data.ok === false && !liveArenaSubmitErrorShown) {
+            // v4.8.8: сервер отверг профиль — показываем игроку один раз за сессию.
+            // До патча причина уходила только в console (в проде через DEV_MODE_CHECK — вообще никуда),
+            // поэтому на мобильном VK отладка была невозможна без USB-отладки.
+            liveArenaSubmitErrorShown = true;
+            const reason = data.reason || 'unknown';
+            const reasonRu = {
+                invalid_name: 'Имя содержит недопустимые символы. Смените в Настройках.',
+                invalid_trophies: 'Некорректное число кубков. Обратитесь в поддержку.',
+                invalid_cp: 'Некорректная мощь защиты. Обратитесь в поддержку.',
+                invalid_squad: 'Некорректный отряд обороны. Пересохраните построение.',
+                sign_mismatch: 'Сессия не прошла проверку. Перезапустите игру.',
+                sign_expired: 'Сессия устарела. Перезапустите игру.',
+                sign_length_mismatch: 'Сессия не прошла проверку. Перезапустите игру.',
+                no_sign: 'Нет подписи сессии. Перезапустите игру.',
+                no_user_id: 'Не удалось получить ваш ID. Перезапустите игру.',
+                empty_query: 'Пустой запрос к серверу. Перезапустите игру.',
+                bad_json: 'Ошибка формата данных.',
+                network: 'Сеть недоступна.'
+            };
+            const reasonEn = {
+                invalid_name: 'Invalid characters in name. Change in Settings.',
+                invalid_trophies: 'Invalid trophies count. Contact support.',
+                invalid_cp: 'Invalid defense power. Contact support.',
+                invalid_squad: 'Invalid defense squad. Re-save formation.',
+                sign_mismatch: 'Session validation failed. Restart the game.',
+                sign_expired: 'Session expired. Restart the game.',
+                sign_length_mismatch: 'Session validation failed. Restart the game.',
+                no_sign: 'No session signature. Restart the game.',
+                no_user_id: 'Failed to obtain your ID. Restart the game.',
+                empty_query: 'Empty server request. Restart the game.',
+                bad_json: 'Invalid data format.',
+                network: 'Network unavailable.'
+            };
+            const msg = (currentLang === 'RU' ? reasonRu : reasonEn)[reason]
+                || (currentLang === 'RU' ? 'Сервер отклонил профиль: ' + reason : 'Server rejected profile: ' + reason);
+            pushToast(msg);
         }
         return data;
     } catch (e) {
@@ -13000,12 +13045,13 @@ function initSwipeRightClose() {
     }, { passive: true, capture: true });
 }
 
-// FIX-SWIPE-RIGHT-VIEW: свайп вправо в любом месте подэкрана возвращает
-// в Цитадель. Работает на iOS Safari, Android Chrome, VK WebView.
-// Не конфликтует с VK edge-swipe: тот ловит жест от ЛЕВОГО КРАЯ (startX ~ 0),
-// мы требуем startX > 20px и явно горизонтальное движение вправо.
-//   • Если открыта модалка — приоритет у pull-down (закрывает её), подэкран не трогаем.
-//   • Если активен только подэкран — возврат в Цитадель.
+// v4.8.8: initSwipeRightToCloseView() удалена. Её логика полностью дублировала
+// initSwipeRightClose() — оба слушали touchstart/touchmove/touchend/touchcancel на
+// document с capture:true и вызывали navigate('citadel-view') при свайпе вправо.
+// Один свайп по подэкрану обрабатывался дважды, что давало двойной haptic-tap
+// и потенциально лишние перерисовки при переключении вкладок.
+/*
+// СТАРОЕ ОПРЕДЕЛЕНИЕ (сохранено в комментарии для git-истории):
 function initSwipeRightToCloseView() {
     let touchStartX = 0;
     let touchStartY = 0;
@@ -13091,6 +13137,7 @@ function initSwipeRightToCloseView() {
         isHorizontalSwipe = false;
     }, { passive: true, capture: true });
 }
+*/
 
 function initHardwareBackNavigation() {
     const handleBack = () => {
@@ -13304,7 +13351,8 @@ try {
     initMobileLongPressTooltips();
     initHardwareBackNavigation();
     initSwipeRightClose();
-    initSwipeRightToCloseView();
+    // v4.8.8: initSwipeRightToCloseView() удалена — её логика полностью дублировала
+    // initSwipeRightClose(). Один свайп по подэкрану обрабатывался дважды.
 
     renderFormationSlots();
     renderCards();
