@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.0.1';
+const BUILD_VERSION = '5.1.0';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -124,6 +124,9 @@ let gState = {
     isAudioMuted: false,
     isMusicMuted: false,
     isHapticsMuted: false,
+    // UX-настройка: скрыть красные точки уведомлений у зданий (Шахты/Казармы + сигнал прокачки Цитадели).
+    // Возвышение на Цитадели (isAscendReady) — критичный сигнал, остаётся видимым всегда.
+    hideBuildingBadges: false,
     musicVolume: 0.35,
     sfxVolume: 0.8,
     hasFirstPurchaseDone: false,
@@ -271,6 +274,18 @@ function toggleHapticsSetting() {
     pushToast(gState.isHapticsMuted 
         ? (currentLang === 'RU' ? 'Вибрация выключена' : 'Haptics disabled') 
         : (currentLang === 'RU' ? 'Вибрация включена' : 'Haptics enabled'));
+}
+
+// UX-настройка: скрытие красных точек уведомлений у зданий (Шахты/Казармы + сигнал прокачки Цитадели).
+// Возвышение (isAscendReady) на Цитадели остаётся видимым всегда — критичный сигнал не скрывается.
+function toggleBuildingBadgesSetting() {
+    gState.hideBuildingBadges = !gState.hideBuildingBadges;
+    saveGame();
+    updateSettingsAudioBtnText();
+    checkNotificationBadges();
+    pushToast(gState.hideBuildingBadges
+        ? (currentLang === 'RU' ? 'Точки зданий скрыты' : 'Building notifications hidden')
+        : (currentLang === 'RU' ? 'Точки зданий включены' : 'Building notifications enabled'));
 }
 
 function isVipActive() { return Date.now() < (gState.vipUntil || 0); }
@@ -6298,7 +6313,12 @@ function renderArena() {
             rivalsData[i] = {
                 isReal: true,
                 uid: lp.uid,
-                rank: (typeof lp.rank === 'number' && lp.rank > 0) ? lp.rank : null,
+                // FIX-LIVE-RANK: rank берётся от бота, которого заменили (позиция в ЛОКАЛЬНОМ
+                // ладдере: myRank-2/-1/+1). Раньше стоял lp.rank из KV — это ранг среди ВСЕХ
+                // живых (глобально по всем лигам), из-за чего живой с малым числом кубков
+                // отображался как "#3", хотя в ладдере он на #996. Логика боя и репорта
+                // атаки от rank не зависит — правка чисто визуальная.
+                rank: bot.rank,
                 name: lp.name || 'Неизвестный',
                 trophies: Math.floor(lp.trophies || 150),
                 cp: Math.floor(lp.cp || 1000),
@@ -10332,18 +10352,18 @@ function checkNotificationBadges() {
     
     const now = Date.now();
 
-    // R2: Точка на Цитадель — готов Возвышение ИЛИ хватает золота на ап.
+    // UX-настройка hideBuildingBadges: игрок может скрыть точки прокачки у зданий.
+    // На Цитадели остаётся критичный сигнал Возвышения (isAscendReady) — он не скрывается.
+    const _hideBldBadges = !!gState.hideBuildingBadges;
     const isAscendReady = (gState.buildings.keep || 1) >= getAscendKeepReq() && (gState.gold || 0) >= getAscendGoldReq();
     const _canUpKeep = (gState.gold || 0) >= getUpgradeCost('keep');
-    $id('badge-district-keep')?.classList.toggle('active', isAscendReady || _canUpKeep);
+    $id('badge-district-keep')?.classList.toggle('active', isAscendReady || (!_hideBldBadges && _canUpKeep));
 
-    // R2: Точка на Шахты — хватает золота на +1 уровень.
     const _canUpMine = (gState.gold || 0) >= getUpgradeCost('mine');
-    $id('badge-district-mine')?.classList.toggle('active', _canUpMine);
+    $id('badge-district-mine')?.classList.toggle('active', !_hideBldBadges && _canUpMine);
 
-    // R2: Точка на Казармы — хватает золота на +1 уровень.
     const _canUpBarracks = (gState.gold || 0) >= getUpgradeCost('barracks');
-    $id('badge-district-barracks')?.classList.toggle('active', _canUpBarracks);
+    $id('badge-district-barracks')?.classList.toggle('active', !_hideBldBadges && _canUpBarracks);
 
     // 3. Штаб: Завершена экспедиция ИЛИ готовы вехи Кодекса
     const isExpeditionReady = Object.values(gState.expeditions || {}).some(e => e && e.endTime <= now);
@@ -11711,6 +11731,15 @@ function updateSettingsAudioBtnText() {
             ? (currentLang === 'RU' ? 'ВЫКЛ' : 'OFF') 
             : (currentLang === 'RU' ? 'ВКЛ' : 'ON');
         hapticBtn.style.background = gState.isHapticsMuted ? '#273347' : 'var(--green)';
+    }
+
+    // UX-настройка: тумблер скрытия точек зданий
+    const bldBadgesBtn = document.getElementById('btn-settings-hide-badges');
+    if (bldBadgesBtn) {
+        bldBadgesBtn.innerText = gState.hideBuildingBadges
+            ? (currentLang === 'RU' ? 'ВЫКЛ' : 'OFF')
+            : (currentLang === 'RU' ? 'ВКЛ' : 'ON');
+        bldBadgesBtn.style.background = gState.hideBuildingBadges ? '#273347' : 'var(--green)';
     }
 
     // FIX-PRELOADER-SOUND: синхронизация иконки звука на экране предзагрузки.
