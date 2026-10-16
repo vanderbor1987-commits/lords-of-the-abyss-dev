@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.6';
+const BUILD_VERSION = '5.3.7';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -6550,12 +6550,14 @@ function renderArena() {
             } else {
                 squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
             }
+            // v5.3.7 FIX-RIVAL-RANK-UNIFIED: rank живого = его unified rank
+            // (та же формула, что в шапке и таблице). Раньше показывался номер слота
+            // бота, которого заменили — BalTaZaR #7 в списке vs #8 в таблице при 682 кубках.
+            const _unifiedRank = (typeof getUnifiedRankForRival === 'function') ? getUnifiedRankForRival(lp.uid) : null;
             rivalsData[bestIdx] = {
                 isReal: true,
                 uid: lp.uid,
-                // FIX-LIVE-RANK: rank от бота, которого заменили — живой встаёт на позицию,
-                // соответствующую его кубкам в локальном ладдере, а не в топ-1 слот.
-                rank: bot.rank,
+                rank: _unifiedRank || bot.rank,
                 name: lp.name || 'Неизвестный',
                 trophies: theirTrophies,
                 cp: Math.floor(lp.cp || 1000),
@@ -7020,6 +7022,47 @@ let _lastLeaderboardKey = '';
 // calculatePlayerRank в отображающих местах — устраняет рассинхрон вида «шапка #7, таблица #9».
 // ВНИМАНИЕ: для сезонного reset (promotion/demotion) calculatePlayerRank остаётся каноном —
 // там формула считается без живых, менять её = менять игровую логику.
+// v5.3.7: rank произвольного игрока в объединённом пуле (боты + живые + игрок).
+// Нужен для списка соперников — там живой раньше показывался с номером слота
+// бота, которого заменил (BalTaZaR #7 в списке, #8 в таблице при равных кубках).
+// Возвращает честный unified rank или null если игрок не найден.
+function getUnifiedRankForRival(liveUid) {
+    if (!liveUid) return null;
+    if (typeof ensureTopTenBots === 'function') ensureTopTenBots();
+    const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+    const myName = String(gState.playerName || 'Duke Valdor').slice(0, 12).toLowerCase();
+    const pool = [];
+    const seen = new Set();
+    const _botsArr = Array.isArray(gState.arenaTopTenBots) ? gState.arenaTopTenBots : [];
+    for (const b of _botsArr) {
+        const n = String(b.name || '').toLowerCase();
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        pool.push({ uid: null, trophies: Math.floor(b.trophies || 0), isMe: false });
+    }
+    const _top = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
+    const _riv = Array.isArray(gState.liveRivalsCache) ? gState.liveRivalsCache : [];
+    const _allLive = [..._riv, ..._top];
+    for (const lp of _allLive) {
+        if (!lp || !lp.uid || lp.uid === myUid) continue;
+        const n = String(lp.name || '').toLowerCase();
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        pool.push({ uid: lp.uid, trophies: Math.floor(lp.trophies || 0), isMe: false });
+    }
+    if (seen.has(myName)) {
+        // уже был бот с таким именем — пропускаем своего
+    } else {
+        pool.push({ uid: myUid || 'me', trophies: Math.floor(gState.trophies || 150), isMe: true });
+    }
+    pool.sort((a, b) => {
+        if (b.trophies !== a.trophies) return b.trophies - a.trophies;
+        return (b.isMe ? 2 : 0) - (a.isMe ? 2 : 0);
+    });
+    const idx = pool.findIndex(p => p.uid === liveUid);
+    return idx >= 0 ? (idx + 1) : null;
+}
+
 function getCurrentUnifiedRank() {
     if (typeof ensureTopTenBots === 'function') ensureTopTenBots();
     const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
