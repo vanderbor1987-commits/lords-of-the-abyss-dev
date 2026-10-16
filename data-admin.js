@@ -262,6 +262,10 @@ async function adminResetAll() {
     // Пишем '_reset_' в облако — невалидный JSON, арбитраж его пропустит.
     // Ждём максимум 2 секунды (короче, чем раньше — меньше риска BFCache).
     const cloudReset = (async () => {
+        // v5.3.15: очищаем профиль на Worker'е. Симметрично executeHardReset.
+        if (typeof resetProfileOnWorker === 'function') {
+            try { await resetProfileOnWorker(); } catch (e) {}
+        }
         if (typeof PlatformBridge !== 'undefined' && PlatformBridge.yandexPlayer) {
             try {
                 await PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '_reset_' }, true);

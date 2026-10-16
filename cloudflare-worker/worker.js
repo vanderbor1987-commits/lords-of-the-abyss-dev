@@ -102,6 +102,7 @@ export default {
         if (path === '/arena/profile') return handleArenaProfile(request, env);
         if (path === '/arena/top') return handleArenaTop(request, env);
         if (path === '/summon/lock') return handleSummonLock(request, env);
+        if (path === '/profile/reset') return handleProfileReset(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -645,6 +646,38 @@ async function handleArenaTop(request, env) {
    новые кристаллы в KV через submit — второе при следующем заходе подтянет
    их и не увидит старый баланс.
    ========================================================== */
+
+/* ==========================================================
+   РОУТ /profile/reset — очистка профиля игрока в KV.
+
+   Вызывается при hard-reset аккаунта (кнопка «Сбросить прогресс»
+   или админский полный сброс). Без этого после сброса arbitration
+   накатывал старый сейв из KV обратно.
+   ========================================================== */
+
+async function handleProfileReset(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+
+    // Удаляем профиль
+    await env.LOTA_LADDER.delete(`player:${uid}`);
+    await env.LOTA_LADDER.delete(`inbox:${uid}`);
+    await env.LOTA_LADDER.delete(`summon_lock:${uid}`);
+
+    // Убираем из sorted:trophies
+    const sorted = await readSortedTrophies(env);
+    const filtered = sorted.filter(p => p.uid !== uid);
+    await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(filtered));
+    await env.LOTA_LADDER.put('sorted_updated_at', String(Date.now()), { expirationTtl: 300 });
+
+    return json({ ok: true });
+}
 
 const SUMMON_LOCK_TTL_MS = 60_000;
 

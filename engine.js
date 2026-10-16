@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.14';
+const BUILD_VERSION = '5.3.15';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5498,6 +5498,24 @@ async function fetchArenaInbox() {
         if (DEV_MODE_CHECK()) console.warn('[LiveArena] inbox fetch failed:', e);
     }
     return [];
+}
+
+// v5.3.15: очистка профиля в KV при hard-reset.
+// Без этого arbitration накатывает старый сейв из player:<uid> обратно.
+async function resetProfileOnWorker() {
+    if (!canSubmitToLiveArena()) return { ok: false, reason: 'standalone' };
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/profile/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await resp.json();
+        return data || { ok: false };
+    } catch (e) {
+        return { ok: false, reason: 'network' };
+    }
 }
 
 async function clearArenaInboxOnServer() {
@@ -12672,6 +12690,11 @@ function executeHardReset() {
     } catch (e) {}
 
     const cloudReset = (async () => {
+        // v5.3.15: очищаем профиль на Worker'е. Иначе arbitration накатит старый
+        // сейв из KV обратно (кейс BalTaZaR после сброса).
+        if (typeof resetProfileOnWorker === 'function') {
+            try { await resetProfileOnWorker(); } catch (e) {}
+        }
         if (typeof PlatformBridge !== 'undefined' && PlatformBridge.yandexPlayer) {
             try {
                 await PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '_reset_' }, true);
