@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.5';
+const BUILD_VERSION = '5.2.6';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -6098,9 +6098,18 @@ function generateArenaRivals() {
 
 function refreshArenaRivals() {
     gState.arenaShuffleSeed = (gState.arenaShuffleSeed || 0) + 1;
+    // v5.2.6 FIX-REFRESH-REFETCH-LIVE: инвалидируем кэш живых и рефетчим.
+    // Раньше refresh регенерировал только ботов; если liveRivalsCache старше 120 сек,
+    // живые пропадали из списка до следующего захода на Арену.
+    gState.liveRivalsCacheTs = 0;
     generateArenaRivals();
     playSfx(480, 'sine', 0.04);
     renderArena();
+    if (typeof fetchLiveRivals === 'function') {
+        fetchLiveRivals(2).then(list => {
+            if (list && list.length > 0) renderArena();
+        });
+    }
     pushToast(currentLang === 'RU' ? "Список соперников обновлен!" : "Rivals refreshed!");
 }
 
@@ -6836,14 +6845,19 @@ function renderLeaderboard() {
     // для ботов 1-10. Свободная сортировка по кубкам давала расхождение:
     // игрок с 332 кубками получал разный rank в таблице и в calculatePlayerRank.
     const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
-    const myUnifiedRank = myRank; // единый rank игрока (топ-10 или 11..1000)
+    const myUnifiedRank = myRank; // глобальный rank игрока (calculatePlayerRank)
 
-    // Базовые 10 слотов — боты. Живые и игрок подменяют слоты, соответствующие их rank.
-    const topSlots = [];
+    // v5.2.6 FIX-LEADERBOARD-SORT: чистая сортировка по кубкам вместо подмены слотов.
+    // Прошлая версия занимала topSlots[myRank-1] под игрока, и если живому вычислился
+    // тот же rank (кубки равны) — он пропускался по guard'у isMe. Теперь: боты 1-10,
+    // живые из liveTopCache и игрок — в одном пуле, сорт по кубкам, топ-10 на вывод.
+    // Оба игрока с равными кубками видны одновременно.
+
+    const pool = [];
     for (let r = 1; r <= 10; r++) {
         const bot = getBotByRank(r);
-        topSlots.push({
-            rank: r,
+        pool.push({
+            uid: 'bot_' + r,
             name: escapeHtml(bot.name),
             trophies: Math.floor(bot.trophies || 0),
             cp: bot.cp,
@@ -6852,41 +6866,45 @@ function renderLeaderboard() {
         });
     }
 
-    // Игрок в топ-10: подменяем слот своего rank
-    if (myUnifiedRank <= 10) {
-        topSlots[myUnifiedRank - 1] = {
-            rank: myUnifiedRank,
-            name: cleanPlayerName,
-            trophies: Math.floor(myTrophies),
-            cp: calculateCP(gState.defenseFormation, null, false),
-            isMe: true,
-            isReal: false
-        };
-    }
-
-    // Живые в топ-10: вычисляем их rank по той же формуле, что и для игрока.
-    // Упрощение: используем calculatePlayerRankByTrophies(lp.trophies).
     const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
-    if (typeof calculatePlayerRankByTrophies === 'function') {
-        for (const lp of liveCache) {
-            if (!lp || !lp.uid || lp.uid === myUid) continue;
-            const liveRank = calculatePlayerRankByTrophies(lp.trophies);
-            if (liveRank >= 1 && liveRank <= 10 && !topSlots[liveRank - 1].isMe) {
-                topSlots[liveRank - 1] = {
-                    rank: liveRank,
-                    name: escapeHtml(String(lp.name || '???').slice(0, 12)),
-                    trophies: Math.floor(lp.trophies || 0),
-                    cp: Math.floor(lp.cp || 0),
-                    isMe: false,
-                    isReal: true
-                };
-            }
-        }
+    const seenLive = new Set([myUid]);
+    for (const lp of liveCache) {
+        if (!lp || !lp.uid || seenLive.has(lp.uid)) continue;
+        seenLive.add(lp.uid);
+        pool.push({
+            uid: lp.uid,
+            name: escapeHtml(String(lp.name || '???').slice(0, 12)),
+            trophies: Math.floor(lp.trophies || 0),
+            cp: Math.floor(lp.cp || 0),
+            isMe: false,
+            isReal: true
+        });
     }
 
-    const topTen = topSlots;
-    const meInTop = myUnifiedRank <= 10;
-    const myRealRank = myUnifiedRank;
+    pool.push({
+        uid: myUid || 'me',
+        name: cleanPlayerName,
+        trophies: Math.floor(myTrophies),
+        cp: calculateCP(gState.defenseFormation, null, false),
+        isMe: true,
+        isReal: false
+    });
+
+    // Сортировка по кубкам desc. Tie-break: игрок > живые > боты (для стабильности
+    // при равных кубках, чтобы игрок всегда видел себя в таблице).
+    pool.sort((a, b) => {
+        if (b.trophies !== a.trophies) return b.trophies - a.trophies;
+        const scoreA = (a.isMe ? 2 : (a.isReal ? 1 : 0));
+        const scoreB = (b.isMe ? 2 : (b.isReal ? 1 : 0));
+        return scoreB - scoreA;
+    });
+
+    const topTen = pool.slice(0, 10).map((p, idx) => ({ ...p, rank: idx + 1 }));
+    const meIdx = pool.findIndex(p => p.isMe);
+    const meInTop = meIdx >= 0 && meIdx < 10;
+    // Для нижней секции (если не в топ-10) используем глобальный calculatePlayerRank —
+    // он даёт настоящий рейтинг, а не «индекс в маленьком пуле из 14 элементов».
+    const myRealRank = meInTop ? (meIdx + 1) : myUnifiedRank;
     const myDisplayTrophies = Math.floor(myTrophies);
 
     let html = '';
