@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.5';
+const BUILD_VERSION = '4.9.6';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -1695,8 +1695,8 @@ function loadGame() {
     // FIX-RAID-HP: HP Левиафана теперь фиксируется от текущего CP игрока (25 ударов до победы).
     // Старая формула relics * 0.35 + потолок 100M не подходила для эндгейма.
     // Fallback считает HP от актуального CP атаки, если сейв ещё не содержит значения.
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 5000000) {
-        gState.worldBossMaxHp = Math.max(5000000, Math.floor(calculateCP(gState.attackFormation) * 25));
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
+        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
     }
     if (gState.worldBossHp === undefined || gState.worldBossHp > gState.worldBossMaxHp) {
         gState.worldBossHp = gState.worldBossMaxHp;
@@ -2715,11 +2715,11 @@ function getBotCardStats(enemyName, enemyCp, slotIndex, heroId = null) {
     
     // Младшие ранги (F, E) получают чуть выше уровень, чтобы компенсировать низкий базовый CP
     const rankLvlOffset = Math.max(0, 6 - tierWeight) * 2;
-    const baseLvl = Math.max(1, Math.min(200, Math.floor(cp / 5500) + rankLvlOffset));
+    const baseLvl = Math.max(1, Math.min(200, Math.floor(cp / 250) + rankLvlOffset));
 
     // Высокие ранги (S, SS, SSS) имеют меньше звезд при равном БМ команды
-    const maxStarsForTier = tierWeight >= 7 ? Math.max(1, Math.floor(cp / 70000) + 1) : 10;
-    const baseStars = Math.max(1, Math.min(maxStarsForTier, Math.floor(cp / 32000) + (tierWeight <= 3 ? 2 : 1)));
+    const maxStarsForTier = tierWeight >= 7 ? Math.max(1, Math.floor(cp / 3000) + 1) : 10;
+    const baseStars = Math.max(1, Math.min(maxStarsForTier, Math.floor(cp / 1500) + (tierWeight <= 3 ? 2 : 1)));
 
     let lvl = baseLvl;
     let stars = baseStars;
@@ -5383,12 +5383,13 @@ function closeArenaInbox() {
 /* ==========================================================
    АРЕНА И 5 ЛИГ (БРОНЗА, СЕРЕБРО, ЗОЛОТО, ПЛАТИНА, АЛМАЗ)
    ========================================================== */
+// v4.9.6: minCp пересчитаны под новую базу героев (шкала /20).
 const ARENA_LEAGUES = [
     { id: 'bronze', name: { RU: 'Бронзовая Лига', EN: 'Bronze League' }, icon: 'assets/icons/league_bronze.webp', minCp: 500 },
-    { id: 'silver', name: { RU: 'Серебряная Лига', EN: 'Silver League' }, icon: 'assets/icons/league_silver.webp', minCp: 150000 },
-    { id: 'gold', name: { RU: 'Золотая Лига', EN: 'Gold League' }, icon: 'assets/icons/league_gold.webp', minCp: 600000 },
-    { id: 'platinum', name: { RU: 'Платиновая Лига', EN: 'Platinum League' }, icon: 'assets/icons/league_platinum.webp', minCp: 2500000 },
-    { id: 'diamond', name: { RU: 'Алмазная Лига', EN: 'Diamond League' }, icon: 'assets/icons/league_diamond.webp', minCp: 10000000 }
+    { id: 'silver', name: { RU: 'Серебряная Лига', EN: 'Silver League' }, icon: 'assets/icons/league_silver.webp', minCp: 8000 },
+    { id: 'gold', name: { RU: 'Золотая Лига', EN: 'Gold League' }, icon: 'assets/icons/league_gold.webp', minCp: 30000 },
+    { id: 'platinum', name: { RU: 'Платиновая Лига', EN: 'Platinum League' }, icon: 'assets/icons/league_platinum.webp', minCp: 100000 },
+    { id: 'diamond', name: { RU: 'Алмазная Лига', EN: 'Diamond League' }, icon: 'assets/icons/league_diamond.webp', minCp: 300000 }
 ];
 
 function getCurrentLeague() {
@@ -5748,11 +5749,11 @@ const humanNicknames = [
 function ensureTopTenBots() {
     const curLeagueId = gState.arenaLeague || 'bronze';
     const leagueTrophies = {
-        bronze: { minTr: 150, maxTr: 800, minCp: 500, maxCp: 150000 },
-        silver: { minTr: 800, maxTr: 1500, minCp: 150000, maxCp: 600000 },
-        gold: { minTr: 1500, maxTr: 2300, minCp: 600000, maxCp: 2500000 },
-        platinum: { minTr: 2300, maxTr: 3000, minCp: 2500000, maxCp: 10000000 },
-        diamond: { minTr: 3000, maxTr: 3700, minCp: 10000000, maxCp: 35000000 }
+        bronze: { minTr: 150, maxTr: 800, minCp: 300, maxCp: 8000 },
+        silver: { minTr: 800, maxTr: 1500, minCp: 8000, maxCp: 30000 },
+        gold: { minTr: 1500, maxTr: 2300, minCp: 30000, maxCp: 100000 },
+        platinum: { minTr: 2300, maxTr: 3000, minCp: 100000, maxCp: 300000 },
+        diamond: { minTr: 3000, maxTr: 3700, minCp: 300000, maxCp: 1000000 }
     };
     const cfg = leagueTrophies[curLeagueId] || leagueTrophies.bronze;
 
@@ -5818,11 +5819,11 @@ function getBotByRank(rank) {
 
     // Для мест 11..1000: строгая привязка кубков ниже Топ-10 (никаких аномалий на 23-м месте)
     const leagueRanges = {
-        bronze: { minCp: 500, maxCp: 150000, minTr: 150, maxTr: 800, pool: ['f_und_v', 'f_dem_c', 'e_und_v', 'd_und_v', 'c_und_v', 'b_und_v', 'a_lig_v', 's_dem_c'] },
-        silver: { minCp: 150000, maxCp: 600000, minTr: 800, maxTr: 1500, pool: ['d_und_v', 'c_und_v', 'b_und_v', 'a_und_v', 'a_dem_c', 's_dem_c', 'ss_und_r'] },
-        gold: { minCp: 600000, maxCp: 2500000, minTr: 1500, maxTr: 2300, pool: ['b_und_v', 'a_und_v', 'a_dem_c', 's_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v'] },
-        platinum: { minCp: 2500000, maxCp: 10000000, minTr: 2300, maxTr: 3000, pool: ['a_und_v', 's_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v', 'ss_lig_c', 'sss_cha_c'] },
-        diamond: { minCp: 10000000, maxCp: 35000000, minTr: 3000, maxTr: 3700, pool: ['s_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v', 'ss_lig_c', 'sss_cha_c', 'sss_dem_v', 'sss_und_v'] }
+        bronze: { minCp: 300, maxCp: 8000, minTr: 150, maxTr: 800, pool: ['f_und_v', 'f_dem_c', 'e_und_v', 'd_und_v', 'c_und_v', 'b_und_v', 'a_lig_v', 's_dem_c'] },
+        silver: { minCp: 8000, maxCp: 30000, minTr: 800, maxTr: 1500, pool: ['d_und_v', 'c_und_v', 'b_und_v', 'a_und_v', 'a_dem_c', 's_dem_c', 'ss_und_r'] },
+        gold: { minCp: 30000, maxCp: 100000, minTr: 1500, maxTr: 2300, pool: ['b_und_v', 'a_und_v', 'a_dem_c', 's_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v'] },
+        platinum: { minCp: 100000, maxCp: 300000, minTr: 2300, maxTr: 3000, pool: ['a_und_v', 's_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v', 'ss_lig_c', 'sss_cha_c'] },
+        diamond: { minCp: 300000, maxCp: 1000000, minTr: 3000, maxTr: 3700, pool: ['s_dem_c', 's_lig_v', 'ss_und_r', 'ss_dem_v', 'ss_lig_c', 'sss_cha_c', 'sss_dem_v', 'sss_und_v'] }
     };
 
     const cfg = leagueRanges[curLeagueId] || leagueRanges.bronze;
@@ -7023,21 +7024,22 @@ function getDungeonFloorData(floor) {
     // Плавная 5-секторная кривая мощи.
     // Секторы 1-4 (1..100F): от 500 БМ до 55.3M БМ — каноничная прогрессия.
     // Сектор 5 (101F+): ENDLESS-режим с непрерывным ростом 1.038/этаж.
-    let rawCp = 500;
+    // v4.9.6: кривая Бездны пересчитана под новую базу героев (масштаб /20 от старой).
+    // floor 1=100, floor 10=1000, floor 30=9.7k, floor 60=55k, floor 100=264k.
+    // Мид-гейм (отряд 40-60k) стабильно проходит 50-70 этажей.
+    let rawCp = 100;
     if (floor <= 10) {
-        rawCp = Math.floor(500 * Math.pow(1.55, floor - 1));
+        rawCp = Math.floor(100 * Math.pow(1.30, floor - 1));
     } else if (floor <= 30) {
-        rawCp = Math.floor(35000 * Math.pow(1.15, floor - 10));
+        rawCp = Math.floor(1000 * Math.pow(1.12, floor - 10));
     } else if (floor <= 60) {
-        rawCp = Math.floor(650000 * Math.pow(1.09, floor - 30));
+        rawCp = Math.floor(9650 * Math.pow(1.06, floor - 30));
     } else {
-        // Сектор 4: плавный рост до 100F (фиксированная точка 55.3M БМ)
         const sec4 = Math.min(40, floor - 60);
-        rawCp = Math.floor(9500000 * Math.pow(1.045, sec4));
-        // Сектор 5: BEYOND 100 — endless-режим
+        rawCp = Math.floor(55000 * Math.pow(1.04, sec4));
         if (floor > 100) {
             const endlessFloors = floor - 100;
-            rawCp = Math.floor(rawCp * Math.pow(1.038, endlessFloors));
+            rawCp = Math.floor(rawCp * Math.pow(1.035, endlessFloors));
         }
     }
 
@@ -7187,6 +7189,16 @@ function renderDungeon() {
                     <img src="assets/icons/elem_${h.faction}.webp" class="res-icon-inline" style="width:14px; height:14px;" alt="${h.faction}">
                 </div>
             </div>`;
+    }
+    // v4.9.6: предпросмотр отряда врага — 3 мини-бейджа с тиром и фракцией.
+    // Игрок сразу видит состав стража и понимает, какую команду собирать (моно-синергия vs контр-пики).
+    const _sqPreview = document.getElementById('dung-squad-preview');
+    if (_sqPreview && Array.isArray(d.squad) && d.squad.length) {
+        const _badgesHtml = d.squad.map(hid => {
+            const h = HEROES_CATALOG[hid] || HEROES_CATALOG['f_und_v'];
+            return `<span class="opp-mini-badge" style="border-color:var(--tier-${(h.tier||'f').toLowerCase()});"><img src="assets/icons/elem_${h.faction}.webp" class="res-icon-inline" alt="${h.faction}"> [${h.tier}]</span>`;
+        }).join('');
+        _sqPreview.innerHTML = `<div class="opp-mini-squad" style="justify-content:center; margin-top:4px;">${_badgesHtml}</div>`;
     }
     if (bCP) bCP.innerHTML = `<img src="assets/icons/swords_cp.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="БМ"> ${formatNumber(d.cp)} ${currentLang === 'RU' ? 'БМ' : 'CP'}`;
     if (sBadge) {
@@ -7420,8 +7432,10 @@ function speedupRaidCooldown() {
 // Это устраняет ваншот ветеранами с 10+ реликвиями и сохраняет вызов для всех.
 // Fallback для чистых сейвов и первого запуска — считаем от текущего CP.
 function getRaidMaxHp() {
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 5000000) {
-        gState.worldBossMaxHp = Math.max(5000000, Math.floor(calculateCP(gState.attackFormation) * 25));
+    // v4.9.6: база HP пересчитана под новую экономику (старая 5M при CP ~2000 = 2500 ударов).
+    // Новая база 50K даёт мид-гейму 25 ударов, как задумано в FIX-RAID-HP.
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
+        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
     }
     return gState.worldBossMaxHp;
 }
@@ -7454,9 +7468,9 @@ function checkWeeklyRaidReset() {
     const curWeek = getWeekIdentifier();
     // FIX-RAID-HP: HP Левиафана считается от текущего CP игрока — ~25 ударов до победы.
     // Убрана старая формула relics * 0.35 и верхний потолок 100M, ломавший эндгейм.
-    const calculatedMax = Math.max(5000000, Math.floor(calculateCP(gState.attackFormation) * 25));
+    const calculatedMax = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
 
-    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 5000000) {
+    if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
         gState.worldBossMaxHp = calculatedMax;
     }
     if (gState.worldBossHp === undefined || gState.worldBossHp > gState.worldBossMaxHp) {
