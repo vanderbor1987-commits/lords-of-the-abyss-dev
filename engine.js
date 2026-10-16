@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.8.9';
+const BUILD_VERSION = '4.9.0';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -4528,7 +4528,10 @@ const claimingExpeditionIds = {};
 function claimExpedition(expId) {
     if (claimingExpeditionIds[expId]) return;
     claimingExpeditionIds[expId] = true;
-
+    // FIX-EXP-CLAIM-GUARD (v4.9.0): try/finally гарантирует снятие флага.
+    // Раньше любое исключение внутри тела оставляло флаг залипшим навсегда —
+    // игрок не мог забрать награду из этой экспедиции без F5.
+    try {
     const config = EXPEDITIONS_CONFIG.find(e => e.id === expId);
     const expData = gState.expeditions[expId];
     if (!config || !expData) {
@@ -4585,7 +4588,9 @@ function claimExpedition(expId) {
     renderExpeditionsList();
     renderCards();
     renderUI();
-    delete claimingExpeditionIds[expId];
+    } finally {
+        delete claimingExpeditionIds[expId];
+    }
 }
 
 /* ==========================================================
@@ -6241,12 +6246,16 @@ function renderArena() {
             : '';
 
         const _rankLabel = lord.rank ? `#${lord.rank}` : '—';
+        // v4.9.0: escapeHtml на lord.name — вторая линия защиты от XSS.
+        // Воркер валидирует name паттерном NAME_PATTERN, но клиент обязан экранировать
+        // на выходе. Одна строка — закрывает дыру при любом сбое валидации на сервере.
+        const _safeLordName = escapeHtml(lord.name || '??');
         div.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <div>
                         <span class="arena-rival-title" onclick="inspectArenaRival(${index})">
-                            ${_rankLabel} ${lord.name} ${liveBadge}
+                            ${_rankLabel} ${_safeLordName} ${liveBadge}
                         </span>
                     </div>
                     <div style="font-size:11px; color:var(--text-muted); margin-top:3px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">
@@ -8467,7 +8476,12 @@ function pushToast(msg) {
     }, 1800);
 }
 
+let isWatchingAdReward = false;
 function watchAdReward() {
+    // v4.9.0: guard против параллельных вызовов (двойной клик / программный вызов).
+    // Кнопка disabled блокирует клик, но не программный вызов из консоли.
+    if (isWatchingAdReward) return;
+    isWatchingAdReward = true;
     const btn = document.getElementById('btn-ad-footer');
     if (btn) btn.disabled = true;
 
@@ -8489,8 +8503,10 @@ function watchAdReward() {
         pushToast(ticketsBonus > 0 ? `+${formatNumber(goldReward)} ${gI} • +2 ${tI}` : `+${formatNumber(goldReward)} ${gI}`);
         saveGame();
         renderUI();
+        isWatchingAdReward = false;
     }, () => {
         if (btn) btn.disabled = false;
+        isWatchingAdReward = false;
     });
 }
 
@@ -8644,19 +8660,35 @@ function spinLuckyWheel() {
 
     if (!isFree && adLeft <= 0) return;
 
+    // FIX-WHEEL-DOUBLE-SPIN (v4.9.0): guard и списание ДО showPlatformRewarded.
+    // Раньше isWheelSpinning ставился внутри executeSpin — между кликом и колбэком рекламы
+    // флаг был false, и второй клик/программный вызов запускал параллельный rewarded.
+    isWheelSpinning = true;
+    const _prevFreeDate = gState.lastFreeWheelDate;
+    const _prevAdSpins = gState.wheelAdSpinsToday;
+    if (isFree) {
+        gState.lastFreeWheelDate = new Date().toDateString();
+    } else {
+        gState.wheelAdSpinsToday = (gState.wheelAdSpinsToday || 0) + 1;
+    }
+
+    const _rollbackSpin = () => {
+        gState.lastFreeWheelDate = _prevFreeDate;
+        gState.wheelAdSpinsToday = _prevAdSpins;
+        isWheelSpinning = false;
+        const btn = document.getElementById('btn-wheel-spin');
+        if (btn) btn.disabled = false;
+        renderLuckyWheelUI();
+        saveGame();
+    };
+
     const executeSpin = () => {
-        isWheelSpinning = true;
         const btn = document.getElementById('btn-wheel-spin');
         if (btn) btn.disabled = true;
 
-        if (isFree) {
-            gState.lastFreeWheelDate = new Date().toDateString();
-        } else {
-            gState.wheelAdSpinsToday = (gState.wheelAdSpinsToday || 0) + 1;
-        }
         trackQuestProgress('wheel', 1);
         checkNotificationBadges();
-        saveGame(); // Защита от сейв-скама: спин списывается и сохраняется мгновенно!
+        saveGame();
 
         const roll = Math.random() * 1000;
         let sectorIndex = 0;
@@ -8745,7 +8777,7 @@ function spinLuckyWheel() {
     };
 
     if (!isFree && !isVipActive()) {
-        showPlatformRewarded(executeSpin);
+        showPlatformRewarded(executeSpin, _rollbackSpin);
     } else {
         executeSpin();
     }

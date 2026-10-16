@@ -290,7 +290,9 @@ async function handleArenaSubmit(request, env) {
         defenseSquad,
         updatedAt: now
     };
-    await env.LOTA_LADDER.put(playerKey, JSON.stringify(playerData));
+    // v4.9.0: TTL 90 дней — ключ самоочищается, если игрок не заходит.
+    // При возврате первый submit восстановит профиль заново.
+    await env.LOTA_LADDER.put(playerKey, JSON.stringify(playerData), { expirationTtl: 90 * 86400 });
     // B4: ratelimit больше не пишется в KV — держится в in-memory Map.
 
     // B4: sorted:trophies обновляется не чаще раза в 60 сек.
@@ -417,15 +419,43 @@ async function handleArenaAttack(request, env) {
     const attackerUid = auth.userId;
     const targetUid = String(body.targetUid || '');
     const result = body.result === 'win' ? 'win' : (body.result === 'loss' ? 'loss' : null);
-    const trophyChange = parseInt(body.trophyChange, 10);
+    const clientTrophyChange = parseInt(body.trophyChange, 10);
 
     if (!targetUid || targetUid === attackerUid) {
         return json({ ok: false, reason: 'invalid_target' }, 400);
     }
     if (!result) return json({ ok: false, reason: 'invalid_result' }, 400);
-    if (!Number.isFinite(trophyChange) || trophyChange < TROPHY_CHANGE_MIN || trophyChange > TROPHY_CHANGE_MAX) {
+    if (!Number.isFinite(clientTrophyChange) || clientTrophyChange < TROPHY_CHANGE_MIN || clientTrophyChange > TROPHY_CHANGE_MAX) {
         return json({ ok: false, reason: 'invalid_trophy_change' }, 400);
     }
+
+    // v4.9.0 PVP-HARDENING: серверная валидация цели и trophyChange.
+    // Раньше клиент мог отправить любой targetUid и trophyChange до 50 — читер
+    // списывал по 50 кубков у произвольной жертвы. Теперь:
+    //   1) target обязан быть в sorted:trophies;
+    //   2) разница кубков ≤ 200 (жертва не «дальняя»);
+    //   3) trophyChange вычисляется сервером по разнице кубков, клиентское игнорируется.
+    const _sortedForAttack = await readSortedTrophies(env);
+    const _attackerEntry = _sortedForAttack.find(p => p.uid === attackerUid);
+    const _targetEntry = _sortedForAttack.find(p => p.uid === targetUid);
+    if (!_attackerEntry) return json({ ok: false, reason: 'attacker_not_ranked' }, 400);
+    if (!_targetEntry) return json({ ok: false, reason: 'target_not_ranked' }, 400);
+    const _trophyGap = Math.abs(_attackerEntry.trophies - _targetEntry.trophies);
+    if (_trophyGap > 200) return json({ ok: false, reason: 'target_too_far', gap: _trophyGap }, 400);
+
+    let _serverTrophyChange = 15;
+    if (_attackerEntry.trophies < _targetEntry.trophies) {
+        if (_trophyGap >= 150) _serverTrophyChange = 30;
+        else if (_trophyGap >= 80) _serverTrophyChange = 24;
+        else if (_trophyGap >= 30) _serverTrophyChange = 20;
+        else _serverTrophyChange = 18;
+    } else {
+        if (_trophyGap >= 150) _serverTrophyChange = 10;
+        else if (_trophyGap >= 80) _serverTrophyChange = 12;
+        else if (_trophyGap >= 30) _serverTrophyChange = 14;
+        else _serverTrophyChange = 16;
+    }
+    const trophyChange = _serverTrophyChange;
 
     // B4: rate-limit атак в in-memory Map — 0 KV-операций вместо 2.
     const rlAttackCheck = checkRateLimit(attackRateLimits, attackerUid, ATTACK_COOLDOWN_MS);
