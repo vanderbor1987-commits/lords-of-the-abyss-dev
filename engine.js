@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.2.3';
+const BUILD_VERSION = '5.2.4';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5050,6 +5050,12 @@ function closeCardInspect() {
 let liveArenaSubmitDebounce = null;
 let liveArenaSubmitRetry = null;  // B3: таймер ретрая при rate_limited
 let liveArenaSubmitErrorShown = false; // v4.8.8: one-shot toast при отказе сервера live-арены
+// v5.2.4 FIX-INBOX-SYNC: пока inbox не прочитан при загрузке — блокируем submit,
+// чтобы наши локальные (устаревшие) кубки не перезаписали серверные значения,
+// изменённые атаками живых игроков. Снимается после первого checkArenaInbox
+// или по fallback-таймеру 15 сек (если сеть/Worker не ответил).
+let _inboxSyncPending = true;
+let _inboxSyncFallbackTimer = null;
 
 // B4: дедупликация submit'ов. Хэш профиля хранится в localStorage — если
 // он не изменился, submit не отправляется вообще. Это уменьшает число
@@ -5084,6 +5090,9 @@ function canSubmitToLiveArena() {
 
 async function submitArenaProfile(force = false) {
     if (!canSubmitToLiveArena()) return { ok: false, reason: 'standalone' };
+    // v5.2.4 FIX-INBOX-SYNC: до первой inbox-синхронизации блокируем submit.
+    // force=true — explicit override (смена имени в настройках).
+    if (_inboxSyncPending && !force) return { ok: false, reason: 'inbox_pending' };
 
     const query = getLaunchQuery();
     const name = (gState.playerName || 'Duke Valdor').slice(0, 12);
@@ -5333,14 +5342,66 @@ async function fetchPlayerProfile(targetUid) {
     return null;
 }
 
-async function checkArenaInbox() {
+// v5.2.4: молчаливый sync без показа модалки. Применяет ±trophyChange к gState.trophies
+// для новых атак (по дедуп-ключу). Вызывается раз в 5 минут из основного тика —
+// пока игрок в игре, атаки живых обновляют его кубки без перезахода.
+async function silentInboxSync() {
+    if (!canSubmitToLiveArena()) return;
     const attacks = await fetchArenaInbox();
     if (!attacks || attacks.length === 0) return;
+    if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
+    let _deltaSum = 0, _applied = 0;
+    attacks.forEach(atk => {
+        const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
+        if (gState._seenInboxKeys[dedupKey]) return;
+        gState._seenInboxKeys[dedupKey] = 1;
+        _deltaSum += Math.floor(atk.trophyChange || 0);
+        _applied++;
+    });
+    if (_applied > 0) {
+        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
+        saveGame();
+        renderUI();
+        renderArena();
+        renderLeaderboard();
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] silent sync applied', _applied, 'delta', _deltaSum);
+    }
+}
+
+async function checkArenaInbox() {
+    const attacks = await fetchArenaInbox();
+    if (!attacks || attacks.length === 0) {
+        // FIX-INBOX-SYNC: пустой inbox — тоже снимаем блок, submit можно разрешать.
+        _inboxSyncPending = false;
+        if (_inboxSyncFallbackTimer) { clearTimeout(_inboxSyncFallbackTimer); _inboxSyncFallbackTimer = null; }
+        return;
+    }
     gState.pendingInboxAttacks = attacks;
+    if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
+
+    // FIX-INBOX-SYNC: применяем ±trophyChange к нашим кубкам.
+    // trophyChange в inbox УЖЕ от лица защитника (см. worker.js handleArenaAttack,
+    // где delta = result==='win' ? -trophyChange : trophyChange и записывается в inbox напрямую).
+    // Дедуп по (attackerUid + ts) — защита от двойного применения при перезаходе.
+    let _deltaSum = 0, _newCount = 0;
+    attacks.forEach(atk => {
+        const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
+        if (gState._seenInboxKeys[dedupKey]) return;
+        gState._seenInboxKeys[dedupKey] = 1;
+        _deltaSum += Math.floor(atk.trophyChange || 0);
+        _newCount++;
+    });
+    if (_newCount > 0) {
+        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] inbox applied', _newCount, 'delta', _deltaSum);
+    }
+    // Снимаем блок submit — inbox прочитан, кубки актуальны.
+    _inboxSyncPending = false;
+    if (_inboxSyncFallbackTimer) { clearTimeout(_inboxSyncFallbackTimer); _inboxSyncFallbackTimer = null; }
+
     // v4.9.6: дублируем входящие PvP-атаки в журнал сражений на Арене.
     // FIX-INBOX-HISTORY-DEDUP: дедуп по (attackerUid + ts) — иначе при каждом
     // переоткрытии игры одни и те же атаки перезаписывались в журнал заново.
-    if (!gState._seenInboxKeys) gState._seenInboxKeys = {};
     const _trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="Trophy">';
     attacks.slice(0, 5).forEach(atk => {
         const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
@@ -12979,6 +13040,15 @@ setInterval(() => {
         window._ladderTimerCount = 0;
         simulateLivingLadder();
     }
+
+    // v5.2.4: тихий sync кубков от PvP-атак раз в 5 минут.
+    // Пока игрок в игре — атаки живых обновляют его кубки без перезахода.
+    if (!window._silentInboxTimer) window._silentInboxTimer = 0;
+    window._silentInboxTimer++;
+    if (window._silentInboxTimer >= 300) {
+        window._silentInboxTimer = 0;
+        if (typeof silentInboxSync === 'function') silentInboxSync();
+    }
 }, 1000);
 
 setInterval(saveGame, 5000);
@@ -13742,6 +13812,17 @@ try {
 
         // LIVE-ARENA (v4.7.8): проверяем входящие атаки на гарнизон.
         // Отложенно 3 сек — чтобы дать время всем рендерам и bridge.
+        // v5.2.4: пока inbox не прочитан — submitArenaProfile заблокирован,
+        // чтобы локальные кубки не перезаписали серверные изменения от атак.
+        _inboxSyncPending = true;
+        if (_inboxSyncFallbackTimer) clearTimeout(_inboxSyncFallbackTimer);
+        _inboxSyncFallbackTimer = setTimeout(() => {
+            if (_inboxSyncPending) {
+                if (DEV_MODE_CHECK()) console.warn('[LiveArena] inbox sync timeout — releasing submit lock');
+                _inboxSyncPending = false;
+                _inboxSyncFallbackTimer = null;
+            }
+        }, 15000);
         if (typeof checkArenaInbox === 'function') {
             setTimeout(checkArenaInbox, 3000);
         }
