@@ -792,13 +792,35 @@ const EXPEDITIONS_CONFIG = [
     { id: 'exp_1', title: { RU: 'Дозор Глубин', EN: 'Depths Patrol' }, durationSec: 3600, requiredHeroes: 1, rewardGold: 180, rewardCrystals: 2, relicChance: 0 }
 ];
 
+// v4.9.7: хелперы для каскадных достижений.
+// geometricStages — прогрессия от start до end на count этапов.
+// geometricRewards — награды с геометрическим ростом (не задирает бюджет).
+const geometricStages = (start, end, count, roundFn = Math.round) => {
+    if (count < 2) return [end];
+    const ratio = Math.pow(end / start, 1 / (count - 1));
+    const result = [];
+    for (let i = 0; i < count; i++) {
+        result.push(roundFn(start * Math.pow(ratio, i)));
+    }
+    return result;
+};
+
+const geometricRewards = (base, ratio, count) => {
+    const result = [];
+    for (let i = 0; i < count; i++) {
+        result.push(Math.round(base * Math.pow(ratio, i)));
+    }
+    return result;
+};
+
 const CASCADING_ACHIEVEMENTS = [
-    { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: [2000, 25000, 250000, 2000000, 10000000, 20000000, 200000000, 2000000000, 5000000000, 20000000000, 200000000000, 1000000000000], rewardsC: [10, 25, 60, 150, 300, 600, 1000, 1500, 2000, 2500, 3000, 4000] },
-    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: [100, 500, 2000, 10000, 50000, 250000, 1000000, 5000000, 15000000, 50000000], rewardsC: [10, 25, 60, 150, 350, 800, 1500, 2500, 3500, 5000] },
-    { id: 'ach_k', title: { RU: 'Неприступная Крепость', EN: 'Impregnable Keep' }, descTemplate: { RU: 'Улучшите Цитадель до Уровня {val}', EN: 'Citadel to Lvl {val}' }, type: 'highest_keep', stages: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50], rewardsC: [10, 20, 35, 60, 100, 150, 250, 400, 650, 1000] },
-    { id: 'ach_ar', title: { RU: 'Гладиатор Арены', EN: 'Arena Gladiator' }, descTemplate: { RU: 'Одержите {val} побед на Арене', EN: 'Win {val} Arena duels' }, type: 'lifetime_wins', stages: [5, 20, 50, 150, 500, 1500, 5000, 10000, 25000], rewardsC: [15, 30, 80, 200, 500, 1000, 2000, 3500, 5000] },
+    { id: 'ach_g', title: { RU: 'Золотой Век', EN: 'Golden Age' }, descTemplate: { RU: 'Заработайте {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> за всё время', EN: 'Earn {val} <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"> lifetime' }, type: 'lifetime_gold', stages: geometricStages(2000, 50000000000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_a', title: { RU: 'Легион Бездны', EN: 'Abyss Legion' }, descTemplate: { RU: 'Соберите гарнизон в {val} воинов', EN: 'Amass army of {val}' }, type: 'max_army', stages: geometricStages(100, 100000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_k', title: { RU: 'Неприступная Крепость', EN: 'Impregnable Keep' }, descTemplate: { RU: 'Улучшите Цитадель до Уровня {val}', EN: 'Citadel to Lvl {val}' }, type: 'highest_keep', stages: [5, 7, 9, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 46, 47, 48, 49, 50], rewardsC: geometricRewards(10, 1.20, 20) },
+    { id: 'ach_ar', title: { RU: 'Гладиатор Арены', EN: 'Arena Gladiator' }, descTemplate: { RU: 'Одержите {val} побед на Арене', EN: 'Win {val} Arena duels' }, type: 'lifetime_wins', stages: geometricStages(5, 20000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
     { id: 'ach_c', title: { RU: 'Повелитель Душ', EN: 'Lord of Souls' }, descTemplate: { RU: 'Разблокируйте {val} героев в Штабе', EN: 'Unlock {val} champions' }, type: 'cards_count', stages: [5, 10, 20, 35, 50, 70, 84], rewardsC: [15, 25, 50, 100, 200, 400, 800] },
-    { id: 'ach_asc', title: { RU: 'Владыка Вечности', EN: 'Eternal Overlord' }, descTemplate: { RU: 'Накопите {val} Реликвий Возвышения', EN: 'Accumulate {val} Relics' }, type: 'total_relics', stages: [1, 3, 5, 10, 25, 50, 100, 250, 500], rewardsC: [50, 100, 250, 500, 1000, 2000, 3500, 5500, 8000] },
-    { id: 'ach_dem', title: { RU: 'Охотник на Бесов', EN: 'Imp Hunter' }, descTemplate: { RU: 'Перехватите {val} летучих демонов', EN: 'Intercept {val} courier imps' }, type: 'demon_catches', stages: [1, 5, 25, 100, 250, 500, 1000], rewardsC: [10, 30, 80, 250, 600, 1200, 2500] },
-    { id: 'ach_dung', title: { RU: 'Покоритель Бездны', EN: 'Abyss Conqueror' }, descTemplate: { RU: 'Очистите от скверны {val} этажей', EN: 'Purge {val} Abyss floors' }, type: 'dungeon_floor', stages: [5, 10, 25, 50, 75, 100, 125, 150], rewardsC: [20, 50, 120, 300, 600, 1000, 1800, 3000] }
+    { id: 'ach_asc', title: { RU: 'Владыка Вечности', EN: 'Eternal Overlord' }, descTemplate: { RU: 'Накопите {val} Реликвий Возвышения', EN: 'Accumulate {val} Relics' }, type: 'total_relics', stages: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30], rewardsC: geometricRewards(10, 1.20, 20) },
+    { id: 'ach_dem', title: { RU: 'Охотник на Бесов', EN: 'Imp Hunter' }, descTemplate: { RU: 'Перехватите {val} летучих демонов', EN: 'Intercept {val} courier imps' }, type: 'demon_catches', stages: geometricStages(1, 5000, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_dung', title: { RU: 'Покоритель Бездны', EN: 'Abyss Conqueror' }, descTemplate: { RU: 'Очистите от скверны {val} этажей', EN: 'Purge {val} Abyss floors' }, type: 'dungeon_floor', stages: geometricStages(5, 300, 50), rewardsC: geometricRewards(5, 1.10, 50) },
+    { id: 'ach_wheel', title: { RU: 'Колесо Фортуны', EN: 'Wheel of Fortune' }, descTemplate: { RU: 'Прокрутите колесо {val} раз', EN: 'Spin the wheel {val} times' }, type: 'wheel_spins', stages: geometricStages(10, 5000, 50), rewardsC: geometricRewards(5, 1.10, 50) }
 ];

@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '4.9.6';
+const BUILD_VERSION = '4.9.7';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -114,6 +114,7 @@ let gState = {
     adTicketsClaimedToday: 0,
     lastFreeWheelDate: '',
     wheelAdSpinsToday: 0,
+    lifetimeWheelSpins: 0, // v4.9.6: для достижения Колесо Фортуны
     hasBookmarked: false,
     hasAddedToHome: false,
     lastWallPostDate: '',
@@ -182,7 +183,7 @@ let gState = {
     highestKeep: 1,
     lifetimeWins: 0,
     maxArmyEver: 0,
-    achieveStages: { ach_g: 0, ach_a: 0, ach_k: 0, ach_ar: 0, ach_c: 0, ach_asc: 0, ach_dem: 0, ach_dung: 0 },
+    achieveStages: { ach_g: 0, ach_a: 0, ach_k: 0, ach_ar: 0, ach_c: 0, ach_asc: 0, ach_dem: 0, ach_dung: 0, ach_wheel: 0 },
     stageQuests: {
         tap: { stage: 1, curr: 0, target: 50, rewardGold: 150 },
         arena: { stage: 1, curr: 0, target: 2, rewardGold: 250 },
@@ -5290,6 +5291,25 @@ async function checkArenaInbox() {
     const attacks = await fetchArenaInbox();
     if (!attacks || attacks.length === 0) return;
     gState.pendingInboxAttacks = attacks;
+    // v4.9.6: дублируем входящие PvP-атаки в журнал сражений на Арене.
+    // Раньше реальные нападения жили только в модалке «Журнал атак».
+    const _trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="Trophy">';
+    attacks.slice(0, 5).forEach(atk => {
+        const isLossForPlayer = atk.result === 'win';
+        const delta = Math.abs(Math.floor(atk.trophyChange || 0));
+        const timeStr = atk.ts ? new Date(atk.ts * 1000).toLocaleTimeString().slice(0, 5) : '';
+        gState.battleHistory.unshift({
+            enemy: String(atk.attackerName || '???').slice(0, 20),
+            time: timeStr,
+            result: isLossForPlayer
+                ? (currentLang === 'RU' ? 'Атака: Пробита' : 'Atk: Breached')
+                : (currentLang === 'RU' ? 'Атака: Отбита' : 'Atk: Defended'),
+            text: `${isLossForPlayer ? '-' : '+'}${delta} ${_trIcon}`
+        });
+    });
+    if (gState.battleHistory.length > 8) gState.battleHistory.length = 8;
+    renderBattleHistory();
+    saveGame();
     renderArenaInbox();
     const m = document.getElementById('arena-inbox-modal');
     if (m) m.style.display = 'flex';
@@ -7434,8 +7454,9 @@ function speedupRaidCooldown() {
 function getRaidMaxHp() {
     // v4.9.6: база HP пересчитана под новую экономику (старая 5M при CP ~2000 = 2500 ударов).
     // Новая база 50K даёт мид-гейму 25 ударов, как задумано в FIX-RAID-HP.
+    // v4.9.6: HP = CP × 40 (было ×25). За неделю игрок подрастает — ударов <40.
     if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
-        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
+        gState.worldBossMaxHp = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 40));
     }
     return gState.worldBossMaxHp;
 }
@@ -7468,7 +7489,7 @@ function checkWeeklyRaidReset() {
     const curWeek = getWeekIdentifier();
     // FIX-RAID-HP: HP Левиафана считается от текущего CP игрока — ~25 ударов до победы.
     // Убрана старая формула relics * 0.35 и верхний потолок 100M, ломавший эндгейм.
-    const calculatedMax = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 25));
+    const calculatedMax = Math.max(50000, Math.floor(calculateCP(gState.attackFormation) * 40));
 
     if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 50000) {
         gState.worldBossMaxHp = calculatedMax;
@@ -8741,6 +8762,7 @@ function spinLuckyWheel() {
         if (btn) btn.disabled = true;
 
         trackQuestProgress('wheel', 1);
+        gState.lifetimeWheelSpins = (gState.lifetimeWheelSpins || 0) + 1; // v4.9.6: счётчик достижения
         checkNotificationBadges();
         saveGame();
 
@@ -9902,6 +9924,7 @@ function getCascadeMetric(type) {
         case 'total_relics': return gState.relics || 0;
         case 'demon_catches': return gState.demonCatches || 0;
         case 'dungeon_floor': return gState.dungeonFloor || 1;
+        case 'wheel_spins': return gState.lifetimeWheelSpins || 0;
         default: return 0;
     }
 }
