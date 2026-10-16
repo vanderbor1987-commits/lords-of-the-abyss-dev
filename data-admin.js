@@ -77,7 +77,7 @@ function registerAdminAPI() {
         addVip: adminAddVip,
         resetSeason: adminResetSeason,
         showState: adminShowState,
-        resetAll: adminResetAll
+        // resetAll удалён в v5.3.18 — полный сброс только через ☰ Главное меню.
     };
     devLog('[Admin] window.admin registered');
 }
@@ -235,62 +235,10 @@ function adminShowState() {
     adminToast('State printed to console');
 }
 
-// FIX-ADMIN-RESET: полноценный вайп с ожиданием облака.
-// ПРОБЛЕМА v1.0: setTimeout(reload, 250) срабатывал ДО того, как VK Bridge
-// успевал записать пустое значение. При загрузке performSafeArbitration
-// подтягивал старое облако — эффект «сброс не сработал».
-// Дополнительно: пустая строка '' может не приниматься VK Bridge в некоторых
-// версиях. Используем '_reset_' — невалидный JSON, performSafeArbitration
-// корректно его пропустит (проверка firstChar !== 123).
-async function adminResetAll() {
-    if (!isAdminSession) return;
-
-    // FIX-ADMIN-RESET-2: блокируем запись через флаг gStateLoaded (не переприсваивание
-    // функции). Причина — setInterval(saveGame, 5000) держит ссылку на ОРИГИНАЛЬНУЮ
-    // saveGame, и переприсваивание глобальной переменной не помогает против него.
-    // А вот сброс флага gStateLoaded в false — работает: saveGame проверяет
-    // его в первой строке и молча выходит.
-    gStateLoaded = false;
-
-    // Очищаем игровые ключи
-    try {
-        localStorage.removeItem(SAVE_KEY);
-        localStorage.removeItem('lords_saved_language');
-        localStorage.removeItem('lota_p9_result');
-    } catch (e) {}
-
-    // Пишем '_reset_' в облако — невалидный JSON, арбитраж его пропустит.
-    // Ждём максимум 2 секунды (короче, чем раньше — меньше риска BFCache).
-    const cloudReset = (async () => {
-        // v5.3.15: очищаем профиль на Worker'е. Симметрично executeHardReset.
-        if (typeof resetProfileOnWorker === 'function') {
-            try { await resetProfileOnWorker(); } catch (e) {}
-        }
-        if (typeof PlatformBridge !== 'undefined' && PlatformBridge.yandexPlayer) {
-            try {
-                await PlatformBridge.yandexPlayer.setData({ [SAVE_KEY]: '_reset_' }, true);
-            } catch (e) {}
-        }
-        if (typeof isRunningInsideVK === 'function' && isRunningInsideVK() && window.vkBridge) {
-            try {
-                await window.vkBridge.send('VKWebAppStorageSet', { key: SAVE_KEY, value: '_reset_' });
-            } catch (e) {}
-        }
-    })();
-
-    await Promise.race([
-        cloudReset,
-        new Promise(resolve => setTimeout(resolve, 2000))
-    ]);
-
-    // FIX-BFCACHE: используем location.replace с cache-buster вместо reload().
-    // На Live Server (и в Safari) reload иногда выкидывает страницу в BFCache,
-    // откуда она «возвращается» со старым gState в памяти. Замена URL с ?_wipe=
-    // гарантирует свежий парс документа.
-    const bust = '_wipe=' + Date.now();
-    const newUrl = location.origin + location.pathname + '?' + bust;
-    location.replace(newUrl);
-}
+// v5.3.18: adminResetAll удалена. Раньше была вторая точка сброса прогресса
+// (мастер-панель + Главное меню), обе правили облако параллельно — при случайном
+// одновременном использовании создавали race. Единственный источник сброса
+// теперь executeHardReset из Главного меню (инженерно надёжнее, ждёт облако 6 сек).
 
 // === UI ===
 
