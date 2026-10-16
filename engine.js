@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.4';
+const BUILD_VERSION = '5.3.5';
 const BUILD_DATE = '16.10.2026';
 
 // ==========================================================
@@ -5974,6 +5974,22 @@ function ensureTopTenBots() {
     };
     const cfg = leagueTrophies[curLeagueId] || leagueTrophies.bronze;
 
+    // v5.3.5 FIX-DEDUP-BOT-NAMES: если в существующем arenaTopTenBots есть дубли
+    // имён (напр. два 'Шторм' из старого сейва или коллизии в humanNicknames) —
+    // сбрасываем массив для пересоздания. Раньше дубли попадали в топ-10 таблицы.
+    if (Array.isArray(gState.arenaTopTenBots) && gState.arenaTopTenBots.length === 10) {
+        const _nameSeen = new Set();
+        let _hasDup = false;
+        for (const b of gState.arenaTopTenBots) {
+            const n = String(b.name || '').toLowerCase();
+            if (_nameSeen.has(n)) { _hasDup = true; break; }
+            _nameSeen.add(n);
+        }
+        if (_hasDup) {
+            gState.arenaTopTenBots = null;
+        }
+    }
+
     if (!gState.arenaTopTenBots || gState.arenaTopTenBots.length !== 10 || gState.arenaTopTenLeague !== curLeagueId) {
         gState.arenaTopTenLeague = curLeagueId;
         gState.arenaTopTenBots = [];
@@ -5989,13 +6005,21 @@ function ensureTopTenBots() {
         const leagueSalts = { bronze: 0, silver: 13, gold: 27, platinum: 42, diamond: 55 };
         const lSalt = leagueSalts[curLeagueId] || 0;
 
+        // v5.3.5: жёсткая уникальность имён в новом массиве.
+        const _usedNames = new Set();
         for (let r = 1; r <= 10; r++) {
             const step = (10 - r) / 9;
             const trophies = Math.floor(cfg.maxTr - (r - 1) * Math.max(5, (cfg.maxTr - cfg.minTr) * 0.035));
             const cp = Math.floor(cfg.maxCp * 0.65 + step * (cfg.maxCp * 0.35));
             
-            // Добавляем соль лиги, чтобы в каждой лиге был свой уникальный набор имен и отрядов в Топ-10
-            const name = humanNicknames[(r * 9 + 17 + lSalt) % humanNicknames.length];
+            let _nameIdx = (r * 9 + 17 + lSalt) % humanNicknames.length;
+            let _attempts = 0;
+            while (_usedNames.has(humanNicknames[_nameIdx].toLowerCase()) && _attempts < humanNicknames.length) {
+                _nameIdx = (_nameIdx + 1) % humanNicknames.length;
+                _attempts++;
+            }
+            const name = humanNicknames[_nameIdx];
+            _usedNames.add(name.toLowerCase());
             const h1 = pool[(r * 2 + lSalt) % pool.length];
             const h2 = pool[(r * 2 + 1 + lSalt) % pool.length];
             const h3 = pool[(r * 2 + 3 + lSalt) % pool.length];
@@ -6086,7 +6110,8 @@ function getBotByRank(rank) {
 // Генерация строго уникальных соперников Арены (исключение дублирования рангов)
 function generateArenaRivals() {
     ensureTopTenBots();
-    const myRank = calculatePlayerRank();
+    // v5.3.5: единый rank — согласован с шапкой и таблицей.
+    const myRank = getCurrentUnifiedRank();
     const myAttackCp = calculateCP(gState.attackFormation, null, false);
     const seed = gState.arenaShuffleSeed || 0;
 
@@ -6364,7 +6389,8 @@ function renderArena() {
     if (lIconEl) lIconEl.innerHTML = `<img src="${curLeague.icon}" class="res-icon-inline" style="width:20px; height:20px;" alt="${curLeague.id}">`;
     if (modalDescEl) modalDescEl.innerText = curLeague.name[currentLang] || curLeague.name['EN'];
 
-    const myRank = calculatePlayerRank();
+    // v5.3.5: единый rank (боты + живые + игрок) для согласованности с таблицей.
+    const myRank = getCurrentUnifiedRank();
     if (lTagEl) {
         const armyIcon = '<img src="assets/icons/army.webp" class="res-icon-inline" alt="Щит">';
         lTagEl.removeAttribute('style');
@@ -6614,14 +6640,61 @@ function inspectArenaRival(index) {
 }
 
 function inspectLadderRank(rank) {
-    const myRank = calculatePlayerRank();
+    // v5.3.5: единый rank для сравнения.
+    const myRank = getCurrentUnifiedRank();
     if (rank === myRank) {
         inspectMyDefenseProfile();
         return;
     }
+    // v5.3.5: если позиция занята живым — открываем его профиль, а не бота.
+    const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
+    const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+    const liveNames = new Set();
+    for (const lp of liveCache) {
+        if (!lp || !lp.uid || lp.uid === myUid) continue;
+        const lpName = String(lp.name || '').toLowerCase();
+        if (liveNames.has(lpName)) continue;
+        liveNames.add(lpName);
+    }
     const bot = getBotByRank(rank);
     if (!bot) return;
+    // Если у бота rank совпадает с живым игроком (по имени) — открываем живого.
+    const botNameKey = String(bot.name || '').toLowerCase();
+    const liveMatch = liveCache.find(lp => lp && lp.uid && lp.uid !== myUid && String(lp.name || '').toLowerCase() === botNameKey);
+    if (liveMatch) {
+        inspectLiveLadderRival(liveMatch.uid);
+        return;
+    }
     inspectPlayer(bot.name, bot.cp, bot.squad);
+}
+
+// v5.3.5: инспекция живого игрока из таблицы лидеров.
+async function inspectLiveLadderRival(uid) {
+    if (!uid) return;
+    const profile = await fetchPlayerProfile(uid);
+    if (!profile) {
+        return pushToast(currentLang === 'RU' ? 'Игрок недоступен' : 'Player unavailable');
+    }
+    const squadIds = [];
+    const squadMeta = {};
+    if (Array.isArray(profile.defenseSquad) && profile.defenseSquad.length === 3) {
+        profile.defenseSquad.forEach(el => {
+            if (typeof el === 'string') {
+                squadIds.push(el);
+            } else if (el && typeof el === 'object' && typeof el.id === 'string') {
+                squadIds.push(el.id);
+                squadMeta[el.id] = {
+                    stars: Math.max(1, Math.min(10, parseInt(el.stars, 10) || 1)),
+                    lvl: Math.max(1, Math.min(300, parseInt(el.lvl, 10) || 1))
+                };
+            } else {
+                squadIds.push('f_und_v');
+            }
+        });
+    } else {
+        squadIds.push('f_und_v', 'f_und_c', 'f_und_r');
+    }
+    inspectPlayer(profile.name || '???', Math.floor(profile.cp || 1000), squadIds, squadMeta);
 }
 
 // MAJOR-M5: reentrancy-guard блокирует быстрый двойной тап по кнопке «В БОЙ»,
@@ -6937,6 +7010,52 @@ function renderBattleHistory() {
 // но renderLeaderboard вызывается раз в секунду из тика. Ключ — хэш из 6 полей.
 let _lastLeaderboardKey = '';
 
+// v5.3.5 UNIFIED-LADDER: единый источник rank игрока для отображения (шапка Арены,
+// таблица лидеров, генератор соперников). Собирает пул: 10 ботов + живые из liveTopCache
+// + игрок, сортирует по кубкам, возвращает rank игрока (1..N). Заменяет собой
+// calculatePlayerRank в отображающих местах — устраняет рассинхрон вида «шапка #7, таблица #9».
+// ВНИМАНИЕ: для сезонного reset (promotion/demotion) calculatePlayerRank остаётся каноном —
+// там формула считается без живых, менять её = менять игровую логику.
+function getCurrentUnifiedRank() {
+    if (typeof ensureTopTenBots === 'function') ensureTopTenBots();
+    const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
+    const myName = String(gState.playerName || 'Duke Valdor').slice(0, 12).toLowerCase();
+    const myTrophies = Math.floor(gState.trophies || 150);
+
+    const pool = [];
+    const botNames = new Set();
+    for (let r = 1; r <= 10; r++) {
+        const bot = (typeof getBotByRank === 'function') ? getBotByRank(r) : null;
+        if (!bot) continue;
+        const bName = String(bot.name || '').toLowerCase();
+        if (botNames.has(bName)) continue;
+        botNames.add(bName);
+        pool.push({ uid: 'bot_' + r, trophies: Math.floor(bot.trophies || 0), isMe: false });
+    }
+
+    const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
+    const seenUids = new Set([myUid]);
+    const seenNames = new Set(botNames);
+    seenNames.add(myName);
+    for (const lp of liveCache) {
+        if (!lp || !lp.uid || seenUids.has(lp.uid)) continue;
+        seenUids.add(lp.uid);
+        const lpName = String(lp.name || '???').slice(0, 12).toLowerCase();
+        if (seenNames.has(lpName)) continue;
+        seenNames.add(lpName);
+        pool.push({ uid: lp.uid, trophies: Math.floor(lp.trophies || 0), isMe: false });
+    }
+
+    pool.push({ uid: myUid || 'me', trophies: myTrophies, isMe: true });
+
+    pool.sort((a, b) => {
+        if (b.trophies !== a.trophies) return b.trophies - a.trophies;
+        return (b.isMe ? 2 : 0) - (a.isMe ? 2 : 0);
+    });
+    const meIdx = pool.findIndex(p => p.isMe);
+    return meIdx >= 0 ? (meIdx + 1) : 999;
+}
+
 function renderLeaderboard() {
     const lb = document.getElementById('leaderboard-box');
     if (!lb) return;
@@ -6945,8 +7064,8 @@ function renderLeaderboard() {
     const myTrophies = gState.trophies || 150;
     // Защита от XSS: ник лорда проходит через escapeHtml один раз при формировании пула данных.
     const cleanPlayerName = escapeHtml((gState.playerName || 'Duke Valdor').slice(0, 12));
-    // B6: myRank от ботов используется только для fallback-секции и выбора случайного живого для реванша.
-    const myRank = calculatePlayerRank();
+    // v5.3.5: единый rank для отображения (шапка Арены и таблица теперь согласованы).
+    const myRank = getCurrentUnifiedRank();
 
     // B6: cache key включает liveTopCacheTs — обновление живых триггерит пересборку.
     const liveTs = gState.liveTopCacheTs || 0;
@@ -7051,11 +7170,10 @@ function renderLeaderboard() {
         else if (p.rank === 3) rankBadge = `<span style="color:#febb7a; font-weight:900;">#3</span> `;
         else rankBadge = `<span style="color:var(--text-muted);">#${p.rank}</span> `;
 
-        // B6: клик по живому не открывает inspector бота (там другая логика squad) — no-op.
-        // Для себя — гарнизон, для ботов — inspectLadderRank.
+        // v5.3.5: клик по живому открывает его профиль через Worker.
         const clickHandler = p.isMe
             ? 'inspectMyDefenseProfile()'
-            : (p.isReal ? '' : `inspectLadderRank(${p.rank})`);
+            : (p.isReal ? `inspectLiveLadderRival('${p.uid}')` : `inspectLadderRank(${p.rank})`);
 
         html += `
             <div class="building-card" style="padding:7px 10px; ${bgStyle} ${clickHandler ? 'cursor:pointer;' : ''}" ${clickHandler ? `onclick="${clickHandler}"` : ''}>
