@@ -93,6 +93,9 @@ function adminRefreshUI() {
     if (typeof _lastRenderCardsSig !== 'undefined') _lastRenderCardsSig = '';
     if (typeof _lastRenderFormationSig !== 'undefined') _lastRenderFormationSig = '';
     if (typeof _lastRenderCodexSig !== 'undefined') _lastRenderCodexSig = '';
+    // v5.3.66: сброс sig Тропы — иначе renderTrailUI скипался после admin-команд.
+    if (typeof _lastTrailRenderSig !== 'undefined') _lastTrailRenderSig = '';
+    if (typeof renderTrailUI === 'function') renderTrailUI();
     if (typeof saveGame === 'function') saveGame(true);
     if (typeof renderCards === 'function') renderCards();
     if (typeof renderFormationSlots === 'function') renderFormationSlots();

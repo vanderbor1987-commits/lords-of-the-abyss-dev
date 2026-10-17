@@ -72,8 +72,8 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.34';
-const BUILD_DATE = '16.10.2026';
+const BUILD_VERSION = '5.3.73';
+const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
 // P9: VK LAUNCH PARAMS VALIDATION (п. 1.2.2 правил VK Mini Apps)
@@ -145,6 +145,20 @@ let gState = {
     // P-PROMO: массив использованных промокодов (персистится в сейве).
     // Один код = одна выдача на пользователя, навсегда.
     usedPromoCodes: [],
+    // v5.3.40: экономика Тропы Бездны.
+    // trailPoints — общий пул очков за все забеги (тратится в магазине очков).
+    // universalShards — универсальные осколки: 100 = +1★ любому герою.
+    // heroShards — именные осколки: 100 осколков героя X = +1★ X.
+    // trailRecords — топ-5 личных рекордов [{score, depth, roster, date, ts}].
+    trailPoints: 0,
+    universalShards: 0,
+    heroShards: {},
+    trailRecords: [],
+    // v5.3.41: мета-дерево Тропы — постоянные бонусы за очки.
+    // extraLifeLvl: 0..3 — каждая ступень +1 стартовая жизнь.
+    // startCardBought: bool — разовая покупка героя D-тира в стартовый ростер.
+    // startHpBuffLvl: 0..2 — каждая ступень +25% HP отряду с начала забега.
+    trailMeta: { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false },
     codexClaimed: { light: [], undead: [], chaos: [], demon: [] },
     abyssPassXp: 0,
     abyssPassFreeClaimed: [],
@@ -1206,7 +1220,7 @@ function redeemPromoCode(source = 'modal') {
         if (!gState.deck[hid]) {
             gState.deck[hid] = { stars: 1, lvl: 1 };
             lootParts.push(`[${heroDef.tier}] ${heroName}`);
-        } else if ((gState.deck[hid].stars || 1) < 10) {
+        } else if ((gState.deck[hid].stars || 1) < 100) {
             gState.deck[hid].stars = (gState.deck[hid].stars || 1) + 1;
             lootParts.push(`★+1 [${heroDef.tier}] ${heroName}`);
         } else {
@@ -1911,21 +1925,26 @@ function getHeroRoleLabel(hero) {
 }
 
 function formatHeroStars(stars) {
-    stars = Math.max(1, Math.min(10, stars || 1));
+    stars = Math.max(1, Math.min(100, stars || 1));
     if (stars <= 5) {
         return `<span style="color:var(--gold); text-shadow:0 0 6px var(--gold-glow);">${'★'.repeat(stars)}</span>`;
-    } else {
+    } else if (stars <= 10) {
         const pinkCount = stars - 5;
         return `<span class="star-pink">${'★'.repeat(pinkCount)}</span>`;
     }
+    // v5.3.43: для 11★+ звёзд рисуем компактно «★N», иначе 100 звёзд разорвут вёрстку.
+    return `<span class="star-pink" style="font-size:11px; letter-spacing:0;">★${stars}</span>`;
 }
 
 // Единый эталонный калькулятор боевой силы карты (для игрока и соперников)
 function calculateCardCP(heroId, stars = 1, lvl = 1, codexBonus = 0) {
     const hero = HEROES_CATALOG[heroId];
     if (!hero) return 40;
-    const s = Math.max(1, Math.min(10, stars || 1));
-    const starBonus = (Math.min(5, s) - 1) * 0.25 + Math.max(0, s - 5) * 0.35;
+    // v5.3.43: шкала звёзд расширена до 1-100. Кривая та же: 100★ = старый 10★ MAX.
+    // Нормализация 1..100 в 1..10 идёт плавно, без порогов.
+    const s = Math.max(1, Math.min(100, stars || 1));
+    const _ns = 1 + (s - 1) * 9 / 99;
+    const starBonus = (Math.min(5, _ns) - 1) * 0.25 + Math.max(0, _ns - 5) * 0.35;
     const starMult = 1 + starBonus;
     // B7: двухслойная формула CP.
     //   1..200   → +8% за уровень    (макс x16.92 на ур. 200)
@@ -2009,8 +2028,9 @@ function getArmyCap() {
     (gState.attackFormation || []).forEach(id => {
         if (id && HEROES_CATALOG[id]) {
             const card = gState.deck[id] || { stars: 1, lvl: 1 };
-            const s = card.stars || 1;
-            const starBonus = (Math.min(5, s) - 1) * 0.25 + Math.max(0, s - 5) * 0.35;
+            const s = Math.max(1, Math.min(100, card.stars || 1));
+            const _ns = 1 + (s - 1) * 9 / 99;
+            const starBonus = (Math.min(5, _ns) - 1) * 0.25 + Math.max(0, _ns - 5) * 0.35;
             baseCap += Math.floor((HEROES_CATALOG[id].cap || 30) * (1 + starBonus));
         }
     });
@@ -2279,12 +2299,10 @@ const FTUE_STEPS_CONFIG = [
                 return document.getElementById('btn-exp-picker-confirm');
             }
             // v5.3.29: Экспедиции — отдельный экран. Путь: Цитадель → хаб Подземелий → Походы.
-            // v5.3.31: индекс [1] — «Походы Героев» (0=Спуск, 1=Походы, 2=Левиафан).
-            // v5.3.32: targetViewId = expedition-view. Раньше был dungeon-view,
-            // и игрок в самой Бездне получал nav = null + fallback на .district-dungeons
-            // (которого в dungeon-view нет) → фокус ни на что не навешивался.
+            // v5.3.35: селектор по классу карточки, а не по индексу кнопки — иначе
+            // новые карточки в хабе сдвигают индексы и ломают подсветку.
             if (view === 'expedition-view') return document.querySelector('#expeditions-list-box .btn-action');
-            if (modals.battleHub) return document.querySelectorAll('#battle-hub-modal .btn-action')[1];
+            if (modals.battleHub) return document.querySelector('#battle-hub-modal .hub-expedition-banner .btn-hub-enter');
             const nav = resolveFtueViewTarget('expedition-view', view);
             if (nav) return nav;
             return document.querySelector('.district-dungeons');
@@ -2309,8 +2327,8 @@ const FTUE_STEPS_CONFIG = [
         rewardText: '<span class="ftue-reward-chip gold">+5,000 <img src="assets/icons/gold.webp" class="res-icon-inline" alt="G"></span>',
         getTarget: (view, modals) => {
             if (view === 'raid-view') return document.getElementById('btn-raid-attack');
-            // v5.3.31: индекс [2] — «Мировой Левиафан» (0=Спуск, 1=Походы, 2=Левиафан).
-            if (modals.battleHub) return document.querySelectorAll('#battle-hub-modal .btn-action')[2];
+            // v5.3.35: селектор по классу — не зависит от порядка карточек в хабе.
+            if (modals.battleHub) return document.querySelector('#battle-hub-modal .hub-raid-banner .btn-hub-enter');
             const nav = resolveFtueViewTarget('raid-view', view);
             if (nav) return nav;
             return document.querySelector('.district-dungeons');
@@ -2548,6 +2566,34 @@ function updateFtueFocus() {
     }
 }
 
+function grantFtueExtraFHeroes() {
+    const fHeroes = Object.values(HEROES_CATALOG).filter(h => h.tier === 'F');
+    const ownedF = fHeroes.filter(h => !!gState.deck[h.id]).length;
+    const missingCount = Math.max(0, 5 - ownedF);
+    if (missingCount === 0) return;
+
+    const available = fHeroes.filter(h => !gState.deck[h.id]);
+    available.sort(() => Math.random() - 0.5);
+
+    let granted = 0;
+    for (let i = 0; i < missingCount && i < available.length; i++) {
+        gState.deck[available[i].id] = { stars: 1, lvl: 1 };
+        granted++;
+    }
+
+    if (granted > 0) {
+        playCoinSfx();
+        triggerHaptic('upgrade');
+        const msg = currentLang === 'RU' 
+            ? `Набор рекрутов: +${granted} [F] героев в колоду!` 
+            : `Recruit pack: +${granted} [F] heroes added to deck!`;
+        pushToast(msg);
+        saveGame();
+        renderCards();
+        renderUI();
+    }
+}
+
 function claimFtueReward() {
     const step = gState.ftueStep || 0;
     const cfg = FTUE_STEPS_CONFIG[step];
@@ -2583,6 +2629,7 @@ function claimFtueReward() {
     // После призыва в Алтаре автоматически возвращаем игрока в Цитадель к зданию Штаба
     if (step === 4) {
         navigate('citadel-view');
+        grantFtueExtraFHeroes();
     }
 
     // На финальном 12-м шаге выдаем почетные регалии
@@ -3626,6 +3673,10 @@ function closeCombatSimulation(multiplier = 1) {
    ПРОКАЧКА ГЕРОЕВ (С МУЛЬТИ-ВЫБОРОМ x1, x5, x10, MAX)
    ========================================================== */
 let activeInspectHeroId = null;
+// v5.3.43: список для листания карточек инспектора стрелками ← →.
+// Заполняется в openCardInspect по текущему фильтру картотеки.
+let activeInspectHeroList = [];
+let activeInspectHeroIdx = -1;
 const LEVEL_UPGRADE_STEPS = [1, 5, 10, 'max'];
 let activeLevelUpgradeStepIdx = 0;
 let activeLevelUpgradeMult = 1;
@@ -5087,12 +5138,49 @@ function _getRosterRenderSig() {
         starsSum += (card && card.stars) || 1;
     }
     const expKeys = Object.keys(gState.expeditions || {}).sort().join(',');
-    return `r1|${currentLang}|${activeRosterFactionFilter}|${activeRosterSortMode}|${activeRosterTierDesc}|${activeRosterLvlDesc}|${keys.length}|${lvlSum}|${starsSum}|${(gState.attackFormation||[]).join(',')}|${(gState.defenseFormation||[]).join(',')}|${expKeys}|${_countCodexClaimedAll()}`;
+    // v5.3.44 FIX-ROSTER-SIG: heroShards в сигнатуру. Иначе после начисления
+    // осколков (Тропа, экспедиции, промокод) сигнатура не менялась, renderCards
+    // скипался, и фиолетовая точка осколков не появлялась до перезагрузки.
+    const _shardsHash = Object.keys(gState.heroShards || {}).sort().map(id => id + ':' + gState.heroShards[id]).join(',');
+    return `r1|${currentLang}|${activeRosterFactionFilter}|${activeRosterSortMode}|${activeRosterTierDesc}|${activeRosterLvlDesc}|${keys.length}|${lvlSum}|${starsSum}|${(gState.attackFormation||[]).join(',')}|${(gState.defenseFormation||[]).join(',')}|${expKeys}|${_countCodexClaimedAll()}|${_shardsHash}`;
 }
 
 function _getFormationRenderSig() {
     const formLvl = (form) => (form||[]).map(id => id && gState.deck[id] ? (gState.deck[id].lvl||1) : 0).join(',');
     return `f1|${currentLang}|${(gState.attackFormation||[]).join(',')}|${(gState.defenseFormation||[]).join(',')}|${formLvl(gState.attackFormation)}|${formLvl(gState.defenseFormation)}|${gState.relics||0}|${gState.trophies||0}|${(gState.buildings && gState.buildings.keep)||1}|${gState.selectedTitleId||''}|${_countCodexClaimedAll()}`;
+}
+
+function _getTrailRenderSig() {
+    const run = gState.trailRun;
+    if (!run) return 'none';
+    const _cards = (run.cards || []).map(c => {
+        if (!c) return '_';
+        const _tgt = (c.targetSlot !== null && c.targetSlot !== undefined) ? c.targetSlot : 'x';
+        return c.type + ':' + (c.heroId || c.elixirType || c.artifactId || '') + ':' + _tgt;
+    }).join('|');
+    const _arts = run.artifacts ? Object.keys(run.artifacts).sort().join(',') : '';
+    const _buffs = run.buffs ? ((run.buffs.hp || 0) + '/' + (run.buffs.atk || 0) + '/' + (run.buffs.cp || 0)) : '0/0/0';
+    return [
+        run.active ? 1 : 0,
+        run.phase,
+        run.depth,
+        run.lives,
+        run.score,
+        run.picksInWave || 0,
+        run.skipUsedThisWave ? 1 : 0,
+        run.currentTargetSlot !== null && run.currentTargetSlot !== undefined ? run.currentTargetSlot : 'x',
+        (run.roster || []).join(','),
+        _cards,
+        (run.enemyRoster || []).join(','),
+        run.enemyCp || 0,
+        run.playerCp || 0,
+        run.fightResult || '',
+        run.newRecord ? 1 : 0,
+        _arts,
+        _buffs,
+        gState.trailPoints || 0,
+        currentLang
+    ].join('#');
 }
 
 function _getCodexRenderSig() {
@@ -5189,6 +5277,13 @@ function renderCards() {
 
         const cardEl = document.createElement('div');
         cardEl.className = `tcg-card tier-${card.tier} faction-${card.faction}`;
+        // v5.3.43: фиолетовая точка, если у героя ≥100 осколков и звёзды < 10 —
+        // сигнал игроку, что можно поглотить осколки в инспекторе.
+        const _shardsVal = (gState.heroShards && gState.heroShards[card.id]) || 0;
+        const _shardsReady = _shardsVal >= 100 && (cardData.stars || 1) < 100;
+        const _shardsBadge = _shardsReady
+            ? '<span class="notif-badge shards-ready-badge"></span>'
+            : '';
 
         const heroImg = card.img || `${card.id}.webp`;
         // FIX-CARDS-FREEZE: loading="lazy" + decoding="async" + fetchpriority="low".
@@ -5202,6 +5297,7 @@ function renderCards() {
         const _roleHtml = _roleInfo ? `<span class="tcg-role-badge ${_roleInfo.cls}">${_roleInfo.text}</span>` : '';
         cardEl.innerHTML = `
             <div class="tcg-art-bg-layer">${artContent}</div>
+            ${_shardsBadge}
             <div class="tcg-header">
                 <div style="display:flex; align-items:center; gap:3px;">
                     ${_roleHtml}
@@ -5217,6 +5313,25 @@ function renderCards() {
         cardEl.onclick = () => openCardInspect(card.id);
         c.appendChild(cardEl);
     });
+}
+
+// v5.3.43: навигация стрелками ← → по списку из текущего фильтра картотеки.
+function inspectNavPrev() {
+    if (!activeInspectHeroList || activeInspectHeroList.length < 2) return;
+    activeInspectHeroIdx = (activeInspectHeroIdx - 1 + activeInspectHeroList.length) % activeInspectHeroList.length;
+    openCardInspect(activeInspectHeroList[activeInspectHeroIdx]);
+}
+function inspectNavNext() {
+    if (!activeInspectHeroList || activeInspectHeroList.length < 2) return;
+    activeInspectHeroIdx = (activeInspectHeroIdx + 1) % activeInspectHeroList.length;
+    openCardInspect(activeInspectHeroList[activeInspectHeroIdx]);
+}
+function updateInspectNavButtons() {
+    const prevBtn = document.getElementById('btn-inspect-prev');
+    const nextBtn = document.getElementById('btn-inspect-next');
+    const show = !!(activeInspectHeroList && activeInspectHeroList.length > 1);
+    if (prevBtn) prevBtn.style.display = show ? 'inline-flex' : 'none';
+    if (nextBtn) nextBtn.style.display = show ? 'inline-flex' : 'none';
 }
 
 function closeCardInspect() {
@@ -6157,7 +6272,7 @@ function claimSeasonCeremony() {
         // как в промокодах. Раньше Math.min(10, stars+1) молча терял награду.
         if (!gState.deck[hid]) {
             gState.deck[hid] = { stars: 1, lvl: 1 };
-        } else if ((gState.deck[hid].stars || 1) < 10) {
+        } else if ((gState.deck[hid].stars || 1) < 100) {
             gState.deck[hid].stars = (gState.deck[hid].stars || 1) + 1;
         } else {
             gState.crystals += 1500;
@@ -7291,6 +7406,12 @@ let _lastLeaderboardKey = '';
 let _lastRenderCardsSig = '';
 let _lastRenderFormationSig = '';
 let _lastRenderCodexSig = '';
+// v5.3.65 FIX-TRAIL-RENDER-SIG: то же лечение, что у картотеки/кодекса.
+// refreshCurrentView() дёргает renderTrailUI() каждые 3с из тика — это пересоздаёт
+// innerHTML, и CSS-анимации (пульсация пустых слотов, подсветка слота-цели) стартуют
+// заново с нуля. Игрок видит «два такта и скачок в 0%». Теперь renderTrailUI
+// скипается, если состояние run не изменилось.
+let _lastTrailRenderSig = '';
 
 // v5.3.5 UNIFIED-LADDER: единый источник rank игрока для отображения (шапка Арены,
 // таблица лидеров, генератор соперников). Собирает пул: 10 ботов + живые из liveTopCache
@@ -8716,11 +8837,12 @@ function rollHero(tiers, weights) {
     if (!gState.deck[hero.id]) {
         gState.deck[hero.id] = { stars: 1, lvl: 1 };
     } else {
-        if (gState.deck[hero.id].stars < 10) {
+        // v5.3.43: max звёзд теперь 100 вместо 10.
+        if (gState.deck[hero.id].stars < 100) {
             gState.deck[hero.id].stars++;
             status = 'star';
             const s = gState.deck[hero.id].stars;
-            rewardInfo = s > 5 ? `★${s - 5} (Розовая)` : `★${s}`;
+            rewardInfo = `★${s}`;
         } else {
             const back = (DISMANTLE_RATES[hero.tier] || 1) * 2;
             gState.crystals += back;
@@ -9797,13 +9919,11 @@ function grantWheelHero(heroId, hero, compensationCryst, isSuperJackpot = false)
         gState.deck[heroId] = { stars: 1, lvl: 1 };
         const jackStr = currentLang === 'RU' ? 'ДЖЕКПОТ КОЛЕСА' : 'WHEEL JACKPOT';
         pushToast(`${jackStr}: [${hero.tier}] ${hero.name[currentLang] || hero.name['EN']}!`);
-    } else if (gState.deck[heroId].stars < 10) {
+    } else if (gState.deck[heroId].stars < 100) {
         gState.deck[heroId].stars++;
         const s = gState.deck[heroId].stars;
-        const awakeStr = currentLang === 'RU' ? 'Пробуждение' : 'Awakened';
-        const starLabel = s > 5 ? `${s - 5} (${awakeStr})` : `${s}`;
         const upgStr = currentLang === 'RU' ? 'ДЖЕКПОТ (+1 Звезда)' : 'JACKPOT (+1 Star)';
-        pushToast(`${upgStr}: [${hero.tier}] ${hero.name[currentLang] || hero.name['EN']} (${starLabel})!`);
+        pushToast(`${upgStr}: [${hero.tier}] ${hero.name[currentLang] || hero.name['EN']} (★${s})!`);
     } else {
         gState.crystals += compensationCryst;
         const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
@@ -10301,7 +10421,7 @@ function claimDailyReward(mult = 1) {
         if (rew.hero && HEROES_CATALOG[rew.hero]) {
             if (!gState.deck[rew.hero]) {
                 gState.deck[rew.hero] = { stars: 1, lvl: 1 };
-            } else if (gState.deck[rew.hero].stars < 10) {
+            } else if (gState.deck[rew.hero].stars < 100) {
                 gState.deck[rew.hero].stars++;
             } else {
                 const compensation = rew.hero === 'ss_und_r' ? 100 : 50;
@@ -10469,7 +10589,7 @@ function executePurchase(itemKeyOverride = null) {
         gState.gold += 100000;
         gState.crystals += 300;
         if (!gState.deck['s_dem_c']) gState.deck['s_dem_c'] = { stars: 1, lvl: 1 };
-        else gState.deck['s_dem_c'].stars = Math.min(10, (gState.deck['s_dem_c'].stars || 1) + 1);
+        else gState.deck['s_dem_c'].stars = Math.min(100, (gState.deck['s_dem_c'].stars || 1) + 1);
         // Финализируем состояние сразу saveGame — до тоста, чтобы даже краш в момент тоста не потерял подарок
         saveGame();
         // Флаг ставится ПОСЛЕ начисления. Если краш между saveGame и флагом — игрок получит
@@ -10539,7 +10659,7 @@ function executePurchase(itemKeyOverride = null) {
         gState.relics += 2;
         gState.tickets += 10;
         if (!gState.deck['a_lig_v']) gState.deck['a_lig_v'] = { stars: 1, lvl: 1 };
-        else gState.deck['a_lig_v'].stars = Math.min(10, (gState.deck['a_lig_v'].stars || 1) + 1);
+        else gState.deck['a_lig_v'].stars = Math.min(100, (gState.deck['a_lig_v'].stars || 1) + 1);
         const packStr = currentLang === 'RU' ? 'ПАК ВЛАДЫКИ' : 'OVERLORD PACK';
         const palStr = currentLang === 'RU' ? '[A] Паладин' : '[A] Paladin';
         pushToast(`${packStr}: +${formatNumber(starterGold)} ${gI} • ${palStr} • +2 ${rI}`);
@@ -11153,11 +11273,14 @@ function checkNotificationBadges() {
     const _hubDungeonPulse = (gState.dungeonStamina || 0) > 0;
     const _hubRaidPulse = isRaidStrikeReady;
     const _hubExpPulse = isExpeditionReady;
+    // v5.3.35: Тропа активна — пульс на карточке хаба.
+    const _hubTrailPulse = !!(gState.trailRun && gState.trailRun.active);
     $id('badge-hub-dungeon')?.classList.toggle('active', _hubDungeonPulse);
     $id('badge-hub-raid')?.classList.toggle('active', _hubRaidPulse);
     $id('badge-hub-exp')?.classList.toggle('active', _hubExpPulse);
+    $id('badge-hub-trail')?.classList.toggle('active', _hubTrailPulse);
     // Иконка Подземелий на карте Цитадели пульсирует если пульсирует любая карточка внутри хаба.
-    $id('badge-district-dungeons')?.classList.toggle('active', _hubDungeonPulse || _hubRaidPulse || _hubExpPulse);
+    $id('badge-district-dungeons')?.classList.toggle('active', _hubDungeonPulse || _hubRaidPulse || _hubExpPulse || _hubTrailPulse);
     // v5.3.28: значок на карточке Походов пульсирует при готовой экспедиции.
     $id('badge-hub-exp')?.classList.toggle('active', isExpeditionReady);
 
@@ -11189,6 +11312,19 @@ function checkNotificationBadges() {
         } else {
             expInfoEl.className = 'hub-status-pill';
             expInfoEl.innerText = (I18N[currentLang] && I18N[currentLang].hub_exp_status_free) || 'СВОБОДНО';
+        }
+    }
+
+    // v5.3.35: карточка Тропы Бездны в хабе Бездны — статус и пульс.
+    const trailInfoEl = $id('hub-trail-info');
+    if (trailInfoEl) {
+        const _tr = gState.trailRun;
+        if (_tr && _tr.active) {
+            trailInfoEl.className = 'hub-status-pill raid-cd';
+            trailInfoEl.innerText = (I18N[currentLang].trail_wave || 'ВОЛНА') + ' ' + _tr.depth;
+        } else {
+            trailInfoEl.className = 'hub-status-pill';
+            trailInfoEl.innerText = (I18N[currentLang] && I18N[currentLang].hub_trail_status_new) || 'НОВЫЙ';
         }
     }
 
@@ -11574,7 +11710,7 @@ function claimAbyssPassReward(lvl, isVipTrack) {
             const legendPool = ['ss_und_r', 'ss_dem_v', 'ss_lig_c', 'ss_cha_v', 'sss_dem_v'];
             const hid = legendPool[Math.floor(Math.random() * legendPool.length)];
             if (!gState.deck[hid]) gState.deck[hid] = { stars: 1, lvl: 1 };
-            else gState.deck[hid].stars = Math.min(10, (gState.deck[hid].stars || 1) + 1);
+            else gState.deck[hid].stars = Math.min(100, (gState.deck[hid].stars || 1) + 1);
             const finalStr = currentLang === 'RU' ? 'ФИНАЛЬНЫЙ ТРОФЕЙ' : 'FINAL TROPHY';
             pushToast(`${finalStr}: [${HEROES_CATALOG[hid].tier}] ${HEROES_CATALOG[hid].name[currentLang] || HEROES_CATALOG[hid].name['EN']}`);
         } else if (lvl === 20) {
@@ -12039,10 +12175,52 @@ if (IS_DEV_MODE) {
     window.testAscensionRitual = () => executeGrandAscensionRitual();
 }
 
+function spendHeroShards(heroId) {
+    if (!heroId || !gState.deck[heroId]) return;
+    const card = gState.deck[heroId];
+    const sVal = (gState.heroShards && gState.heroShards[heroId]) || 0;
+    if (card.stars >= 100) {
+        return pushToast(currentLang === 'RU' ? 'Уже MAX 100★' : 'Already MAX 100★');
+    }
+    if (sVal < 100) {
+        return pushToast(currentLang === 'RU' ? 'Нужно 100 осколков' : 'Need 100 shards');
+    }
+    gState.heroShards[heroId] -= 100;
+    card.stars = (card.stars || 1) + 1;
+    playCoinSfx();
+    triggerHaptic('upgrade');
+    pushToast(currentLang === 'RU' ? '★ Прокачка успешна! +1★' : '★ Upgrade success! +1★');
+    saveGame();
+    openCardInspect(heroId);
+    renderCards();
+    renderFormationSlots();
+    renderUI();
+}
+
 function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
     activeInspectHeroId = heroId;
     const hero = HEROES_CATALOG[heroId];
     if (!hero) return;
+    // v5.3.43: строим список для листания ← → по текущему фильтру картотеки.
+    // ALL → вся колода; фракция → только её герои. Сортировка как в картотеке.
+    if (!isShowcase) {
+        let _navList = Object.values(HEROES_CATALOG).filter(h => !!gState.deck[h.id]);
+        if (activeRosterFactionFilter !== 'all') {
+            _navList = _navList.filter(h => h.faction === activeRosterFactionFilter);
+        }
+        _navList.sort((a, b) => {
+            const tA = TIER_ORDER[a.tier] || 0, tB = TIER_ORDER[b.tier] || 0;
+            if (tB !== tA) return tB - tA;
+            const cA = (gState.deck[a.id] && gState.deck[a.id].lvl) || 1;
+            const cB = (gState.deck[b.id] && gState.deck[b.id].lvl) || 1;
+            return cB - cA;
+        });
+        activeInspectHeroList = _navList.map(h => h.id);
+        activeInspectHeroIdx = activeInspectHeroList.indexOf(heroId);
+    } else {
+        activeInspectHeroList = [];
+        activeInspectHeroIdx = -1;
+    }
     const isOwned = !!gState.deck[heroId];
     const cardData = gState.deck[heroId] || { stars: 1, lvl: 1 };
     const factionName = I18N[currentLang].factions[hero.faction] || hero.faction;
@@ -12078,7 +12256,8 @@ function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
         const s = cardData.stars || 1;
         const rankLabel = currentLang === 'RU' ? 'РАНГ' : 'RANK';
         const awakeStr = currentLang === 'RU' ? 'ПРОБУЖДЕНИЕ' : 'AWAKENED';
-        const rankSuffix = s > 5 ? ` • ${awakeStr} ${s - 5}` : '';
+        // v5.3.43: пробуждение начинается с 51★ (середина 100-звёздной шкалы).
+        const rankSuffix = s > 50 ? ` • ${awakeStr} ${s - 50}` : '';
         iTier.innerText = `[${hero.tier}] ${rankLabel}${rankSuffix}`;
         iTier.style.color = s > 5 ? '#ec4899' : tierColor;
         iTier.style.borderColor = s > 5 ? '#ec4899' : tierColor;
@@ -12100,6 +12279,17 @@ function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
     if (iRole) iRole.innerHTML = `${roleName} • <img src="assets/icons/elem_${hero.faction}.webp" class="res-icon-inline" style="width:12px; height:12px; margin:0 2px;"> ${cleanFaction}`;
     const gIcon = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
     const inVaultStr = currentLang === 'RU' ? 'В казне' : 'Treasury';
+    // v5.3.41: строка осколков — если есть хоть сколько-то у героя.
+    const _shardsVal = (gState.heroShards && gState.heroShards[heroId]) || 0;
+    const _shardsEl = document.getElementById('ins-shards-display');
+    if (_shardsEl) {
+        if (_shardsVal > 0 || isOwned) {
+            _shardsEl.style.display = 'block';
+            _shardsEl.innerHTML = '🔹 ' + (I18N[currentLang].hero_shards_label || 'Осколки') + ': <b style="color:' + (_shardsVal >= 100 ? '#4ade80' : '#cbd5e1') + ';">' + _shardsVal + ' / 100</b>';
+        } else {
+            _shardsEl.style.display = 'none';
+        }
+    }
     if (iLvl) {
         // B7: отображение уровня с учётом Мастерства.
         //   1..200   → "Ур. 175 / 200"
@@ -12129,12 +12319,33 @@ function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
         if (upgBar) upgBar.style.display = 'flex';
         updateInspectUpgradeButton();
     }
+    // v5.3.41: кнопка «ПОГЛОТИТЬ 100 ОСКОЛКОВ (+1★)» — только если осколков хватает и звёзды < 10.
+    const _shardsBtn = document.getElementById('btn-shards-upgrade');
+    if (_shardsBtn) {
+        const _sVal = (gState.heroShards && gState.heroShards[heroId]) || 0;
+        const _cardStars = (gState.deck[heroId] && gState.deck[heroId].stars) || 1;
+        if (!isOwned) {
+            _shardsBtn.style.display = 'none';
+        } else if (_cardStars >= 100) {
+            _shardsBtn.style.display = 'block';
+            _shardsBtn.disabled = true;
+            _shardsBtn.innerText = I18N[currentLang].hero_shards_btn_max || 'MAX 100★';
+        } else if (_sVal >= 100) {
+            _shardsBtn.style.display = 'block';
+            _shardsBtn.disabled = false;
+            _shardsBtn.innerText = I18N[currentLang].hero_shards_btn_ready || 'ПОГЛОТИТЬ 100 (+1★)';
+        } else {
+            _shardsBtn.style.display = 'none';
+        }
+    }
 
     // Расчет вместимости с учетом 10 звезд
     if (iLore) iLore.innerText = hero.lore[currentLang] || hero.lore['EN'];
 
     // Подключение 3D-параллакса при движении пальца или курсора
     attachCardTilt3D();
+    // v5.3.43: переключаем видимость кнопок ← → по размеру списка.
+    updateInspectNavButtons();
 
     const m = document.getElementById('card-inspect-modal');
     if (m) m.style.display = 'flex';
@@ -13162,6 +13373,7 @@ function navigate(viewId) {
 
     if (viewId === 'dungeon-view') renderDungeon();
     if (viewId === 'expedition-view') renderExpeditionsList();
+    if (viewId === 'trail-view') renderTrailUI();
     if (viewId === 'arena-view') {
         // LIVE-ARENA (v4.7.6): подтягиваем живых соперников асинхронно,
         // затем перерисовываем список. Первый рендер идёт с кэшем (если есть),
@@ -13768,6 +13980,1178 @@ function refreshBuildingTooltips() {
     }
 }
 
+/* ==========================================================
+   ТРОПА БЕЗДНЫ (v5.3.35) — roguelike-забег
+   Цикл: 3 карты выбора → бой → повторить. 5 жизней. Откат при смерти нет,
+   только потеря жизни. Score растёт с глубиной. Рекорд хранится в gState.
+   ========================================================== */
+
+// v5.3.38: CP карты Тропы по реальным уровню и звёздам героя из колоды.
+// Формула: TIER_BASE_CP × (1 + (lvl-1)×0.02) × (1 + (stars-1)×0.10)
+// v5.3.49: Артефакты Тропы (5% шанс карты в тройке, без повторов).
+const TRAIL_ARTIFACTS = {
+    blood_pact: {
+        id: 'blood_pact',
+        icon: '🩸',
+        name: { RU: 'Кровавый пакт', EN: 'Blood Pact' },
+        desc: { RU: '+15% CP отряду, −1 жизнь', EN: '+15% squad CP, −1 life' }
+    },
+    void_seal: {
+        id: 'void_seal',
+        icon: '🕳',
+        name: { RU: 'Печать пустоты', EN: 'Void Seal' },
+        desc: { RU: 'Эликсиры дают ×2 эффект', EN: 'Elixirs give ×2 effect' }
+    },
+    fate_coin: {
+        id: 'fate_coin',
+        icon: '🪙',
+        name: { RU: 'Монета судьбы', EN: 'Coin of Fate' },
+        desc: { RU: 'Один пропуск тройки за волну', EN: 'One skip per wave' }
+    },
+    hunt_seal: {
+        id: 'hunt_seal',
+        icon: '🏹',
+        name: { RU: 'Печать охоты', EN: 'Hunt Seal' },
+        desc: { RU: '4 карты вместо 3', EN: '4 cards instead of 3' }
+    }
+};
+const TRAIL_ELIXIR_CAP = 10;
+
+function trailCardCp(heroId) {
+    const h = HEROES_CATALOG[heroId];
+    if (!h) return 0;
+    const card = (gState.deck && gState.deck[heroId]) || { stars: 1, lvl: 1 };
+    const tierBase = TIER_BASE_CP[h.tier] || 50;
+    const lvlMult = 1 + ((card.lvl || 1) - 1) * 0.03;
+    // v5.3.43: та же звёздная кривая, что в calculateCardCP — 100★ = 3.75x.
+    const s = Math.max(1, Math.min(100, card.stars || 1));
+    const _ns = 1 + (s - 1) * 9 / 99;
+    const starBonus = (Math.min(5, _ns) - 1) * 0.25 + Math.max(0, _ns - 5) * 0.35;
+    const starMult = 1 + starBonus;
+    return Math.floor(tierBase * lvlMult * starMult);
+}
+
+function getTrailHeroCp(heroId) {
+    return trailCardCp(heroId);
+}
+
+// v5.3.38: тир-окно по глубине. SSS доступны только с 51-й волны.
+function getTrailTierWindow(depth) {
+    // v5.3.49: SSS только с 80-й волны. SS с 60-й.
+    if (depth <= 4) return ['F'];
+    if (depth <= 9) return ['F', 'E'];
+    if (depth <= 19) return ['E', 'D'];
+    if (depth <= 29) return ['D', 'C'];
+    if (depth <= 39) return ['C', 'B'];
+    if (depth <= 49) return ['B', 'A'];
+    if (depth <= 59) return ['A', 'S'];
+    if (depth <= 79) return ['S', 'SS'];
+    return ['S', 'SS', 'SSS'];
+}
+
+function isTrailBossWave(depth) {
+    return depth > 0 && depth % 5 === 0;
+}
+
+// v5.3.41: цены мета-покупок. Прогрессия: первый уровень дешевле последних,
+// чтобы игрок после 2-3 забегов мог что-то купить, а не копил 5 дней.
+const TRAIL_META_PRICES = {
+    extraLife: [500, 1500, 3000],   // 3 уровня
+    startCard: 1500,                // 1 покупка
+    startHpBuff: [800, 2400],       // 2 уровня
+    fourthSlot: 6000                // v5.3.43: 1 покупка, расширяет отряд до 4
+};
+
+// v5.3.41: разовые обмены очков на ресурсы основной игры.
+// Обмен без ограничений — пока есть очки. Цены подобраны так, чтобы 30-минутный
+// забег (глубина 30-40) давал примерно 300-500 очков. Обмен на 500 кристаллов
+// требует двух крепких забегов — курс сопоставим с рекламой и билетами.
+const TRAIL_EXCHANGES = [
+    { id: 'cryst_500', cost: 1000, crystals: 500 },
+    { id: 'gold_50k',  cost: 3000, gold: 50000 },
+    { id: 'tickets_5', cost: 5000, tickets: 5 }
+];
+
+function getTrailMetaNextCost(kind) {
+    const meta = gState.trailMeta || {};
+    if (kind === 'extraLife') {
+        const lvl = meta.extraLifeLvl || 0;
+        if (lvl >= TRAIL_META_PRICES.extraLife.length) return null;
+        return TRAIL_META_PRICES.extraLife[lvl];
+    }
+    if (kind === 'startCard') {
+        return meta.startCardBought ? null : TRAIL_META_PRICES.startCard;
+    }
+    if (kind === 'startHpBuff') {
+        const lvl = meta.startHpBuffLvl || 0;
+        if (lvl >= TRAIL_META_PRICES.startHpBuff.length) return null;
+        return TRAIL_META_PRICES.startHpBuff[lvl];
+    }
+    if (kind === 'fourthSlot') {
+        return meta.fourthSlotBought ? null : TRAIL_META_PRICES.fourthSlot;
+    }
+    return null;
+}
+
+function buyTrailMeta(kind) {
+    const cost = getTrailMetaNextCost(kind);
+    if (cost === null) return pushToast(currentLang === 'RU' ? 'Уже максимальный уровень' : 'Already maxed');
+    if ((gState.trailPoints || 0) < cost) return pushToast(currentLang === 'RU' ? 'Недостаточно очков Тропы' : 'Not enough Trail points');
+    if (!gState.trailMeta) gState.trailMeta = { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false };
+    gState.trailPoints -= cost;
+    if (kind === 'extraLife') gState.trailMeta.extraLifeLvl++;
+    else if (kind === 'startCard') gState.trailMeta.startCardBought = true;
+    else if (kind === 'startHpBuff') gState.trailMeta.startHpBuffLvl++;
+    else if (kind === 'fourthSlot') {
+        gState.trailMeta.fourthSlotBought = true;
+        // v5.3.66 FIX-FOURTH-SLOT: применяем на текущий забег сразу.
+        // Раньше купил за 6000, а эффекта не видел до конца забега.
+        const _run = gState.trailRun;
+        if (_run && _run.active && Array.isArray(_run.roster) && _run.roster.length === 3) {
+            _run.roster.push(null);
+            _lastTrailRenderSig = '';
+        }
+    }
+    playCoinSfx();
+    triggerHaptic('upgrade');
+    saveGame();
+    renderTrailMetaModal();
+    pushToast(currentLang === 'RU' ? 'Прокачка куплена!' : 'Upgrade purchased!');
+}
+
+function exchangeTrailPoints(exchangeId) {
+    const ex = TRAIL_EXCHANGES.find(e => e.id === exchangeId);
+    if (!ex) return;
+    if ((gState.trailPoints || 0) < ex.cost) return pushToast(currentLang === 'RU' ? 'Недостаточно очков Тропы' : 'Not enough Trail points');
+    gState.trailPoints -= ex.cost;
+    if (ex.crystals) { gState.crystals = (gState.crystals || 0) + ex.crystals; }
+    if (ex.gold) { gState.gold = (gState.gold || 0) + ex.gold; gState.lifetimeGold = (gState.lifetimeGold || 0) + ex.gold; }
+    if (ex.tickets) { gState.tickets = (gState.tickets || 0) + ex.tickets; }
+    playCoinSfx();
+    triggerHaptic('upgrade');
+    saveGame();
+    renderTrailMetaModal();
+    renderUI();
+    pushToast(currentLang === 'RU' ? 'Обмен выполнен!' : 'Exchange done!');
+}
+
+// v5.3.40: расчёт наград за завершённый забег.
+// Кристаллы: depth / 2 — глубина 50 → 25 C, 100 → 50 C.
+// Золото: depth^1.5 × 100 — глубина 30 → 16431, 50 → 35355, 100 → 100000.
+// Универсальные осколки: depth / 2 — 100 осколков = +1★ любому герою.
+// Именные осколки: по 15 за каждого героя в финальном ростере. Если ростер пуст
+// (все слоты null) — 0 осколков. Дубликаты не считаются — только уникальные.
+// Бонус × 3 за каждый пройденный босс-этап (depth / 5).
+function calculateTrailRewards(run) {
+    const depth = Math.max(1, run.depth || 1);
+    const bossBonus = Math.floor(depth / 5);
+    const crystals = Math.floor(depth / 2) + bossBonus * 5;
+    // v5.3.49: золото линейно от глубины — ~2200 за волну.
+    // При среднем темпе 1 волна ≈ 27 сек, забег W50 ≈ 22 мин → 110K золота.
+    const gold = Math.floor(depth * 2200);
+    const universalShards = Math.floor(depth / 2) + bossBonus * 3;
+    const heroShardsGain = {};
+    if (run.heroWaves && Object.keys(run.heroWaves).length > 0) {
+        for (const hid in run.heroWaves) {
+            if (run.heroWaves[hid] > 0) heroShardsGain[hid] = run.heroWaves[hid];
+        }
+    } else {
+        const uniqueHeroes = Array.from(new Set((run.roster || []).filter(Boolean)));
+        uniqueHeroes.forEach(hid => { heroShardsGain[hid] = 1; });
+    }
+    const points = run.score || 0;
+    return { crystals, gold, universalShards, heroShardsGain, points, depth, bossBonus };
+}
+
+// v5.3.40: начисление наград и сохранение в рекорды. Единая точка для
+// двух сценариев завершения — смерть (lives <= 0) и ручной Finish.
+function grantTrailRewards(run) {
+    if (run.rewardsGranted) return run.rewards || null;
+    const rw = calculateTrailRewards(run);
+    gState.trailPoints = (gState.trailPoints || 0) + rw.points;
+    gState.crystals = (gState.crystals || 0) + rw.crystals;
+    gState.gold = (gState.gold || 0) + rw.gold;
+    gState.lifetimeGold = (gState.lifetimeGold || 0) + rw.gold;
+    gState.universalShards = (gState.universalShards || 0) + rw.universalShards;
+    if (!gState.heroShards) gState.heroShards = {};
+    for (const hid in rw.heroShardsGain) {
+        gState.heroShards[hid] = (gState.heroShards[hid] || 0) + rw.heroShardsGain[hid];
+    }
+    // Рекорды — топ-5 по очкам.
+    if (!Array.isArray(gState.trailRecords)) gState.trailRecords = [];
+    const _date = new Date().toLocaleDateString(currentLang === 'RU' ? 'ru-RU' : 'en-US', { day: '2-digit', month: '2-digit' });
+    const _newRecordTs = Date.now();
+    gState.trailRecords.push({
+        score: rw.points,
+        depth: rw.depth,
+        roster: (run.roster || []).filter(Boolean).slice(),
+        date: _date,
+        ts: _newRecordTs
+    });
+    run._recordTs = _newRecordTs;
+    gState.trailRecords.sort((a, b) => b.score - a.score);
+    gState.trailRecords = gState.trailRecords.slice(0, 5);
+    run.rewardsGranted = true;
+    run.rewards = rw;
+    return rw;
+}
+
+function trailSynergyMult(roster) {
+    const counts = {};
+    (roster || []).forEach(id => {
+        if (!id || !HEROES_CATALOG[id]) return;
+        const f = HEROES_CATALOG[id].faction || 'chaos';
+        counts[f] = (counts[f] || 0) + 1;
+    });
+    // v5.3.48: новая таблица синергии по СОСТАВУ.
+    // Раньше 4/4 давал +150%, а 2+2 (две пары) — всего +30%.
+    // 4-слот:   4/4 = +100%  |  3+1 = +60%  |  2+2 = +50%  |  2+1+1 = +30%  |  1+1+1+1 = 0%
+    // 3-слот:   3/3 = +75%   |  2+1+1 = +30%  |  1+1+1 = 0%
+    const _rosterHeroes = (roster || []).filter(id => id && HEROES_CATALOG[id]);
+    const _len = _rosterHeroes.length;
+    const _countsArr = Object.values(counts).sort((a, b) => b - a);
+    const _max = _countsArr[0] || 0;
+    const _second = _countsArr[1] || 0;
+    if (_len >= 4) {
+        if (_max >= 4) return 2.00;
+        if (_max === 3 && _second === 1) return 1.60;
+        if (_max === 2 && _second === 2) return 1.50;
+        if (_max === 2) return 1.30;
+        return 1.00;
+    }
+    if (_max >= 3) return 1.75;
+    if (_max === 2) return 1.30;
+    return 1.00;
+}
+
+function trailWeakestSlot(roster) {
+    // v5.3.43: динамическая длина ростера (3 или 4 с поддержкой 4-го слота).
+    let weakestIdx = 0, weakestCp = Infinity;
+    const _len = Array.isArray(roster) ? roster.length : 3;
+    for (let i = 0; i < _len; i++) {
+        const id = roster[i];
+        const cp = id ? getTrailHeroCp(id) : -1;
+        if (cp < weakestCp) { weakestCp = cp; weakestIdx = i; }
+    }
+    return weakestIdx;
+}
+
+// v5.3.38: пул карт = пересечение колоды игрока и тир-окна глубины.
+// Если окно пусто — расширяем на соседние тиры вверх и вниз, пока не найдём owned-героя.
+// Это позволяет игроку с колодой только F-рангов качаться через Тропу.
+function pickTrailHeroId(depth, excludeIds) {
+    if (!gState.deck || Object.keys(gState.deck).length === 0) return null;
+    const excludeSet = new Set((excludeIds || []).filter(Boolean));
+    const ownedHeroes = Object.values(HEROES_CATALOG).filter(h => gState.deck[h.id] && !excludeSet.has(h.id));
+    if (ownedHeroes.length === 0) return null;
+
+    const TIERS_ORDER = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
+    let windowTiers = getTrailTierWindow(depth);
+    let lowScan = TIERS_ORDER.indexOf(windowTiers[0]);
+    let highScan = TIERS_ORDER.indexOf(windowTiers[windowTiers.length - 1]);
+    let matchedPool = ownedHeroes.filter(h => windowTiers.indexOf(h.tier) >= 0);
+    let step = 0;
+    while (matchedPool.length === 0 && step < 10) {
+        step++;
+        lowScan = Math.max(0, lowScan - 1);
+        highScan = Math.min(TIERS_ORDER.length - 1, highScan + 1);
+        const expanded = TIERS_ORDER.slice(lowScan, highScan + 1);
+        matchedPool = ownedHeroes.filter(h => expanded.indexOf(h.tier) >= 0);
+    }
+    if (matchedPool.length === 0) return null;
+    return matchedPool[Math.floor(Math.random() * matchedPool.length)].id;
+}
+
+function pickTrailElixir() {
+    // v5.3.49: кап 10 на тип. На капе — перенаправление на другие типы;
+    // если всё на капе — life с шансом 100%.
+    const run = gState.trailRun;
+    const buffs = (run && run.buffs) || { hp: 0, atk: 0, cp: 0 };
+    const _canHp = buffs.hp < TRAIL_ELIXIR_CAP;
+    const _canAtk = buffs.atk < TRAIL_ELIXIR_CAP;
+    const _canCp = buffs.cp < TRAIL_ELIXIR_CAP;
+    // v5.3.69 FIX-ELIXIR-CAP-FLOOD: на полном капе возвращаем null,
+    // а не 'life'. Иначе после капа каждый эликсир = +1 жизнь,
+    // игрок за 10 волн набирает +30 жизней. Теперь — герой, если есть.
+    if (!_canHp && !_canAtk && !_canCp) return null;
+    const pool = [];
+    if (_canHp) pool.push({ type: 'hp', weight: 40 });
+    if (_canAtk) pool.push({ type: 'atk', weight: 35 });
+    if (_canCp) pool.push({ type: 'cp', weight: 20 });
+    pool.push({ type: 'life', weight: 5 });
+    const totalW = pool.reduce((s, p) => s + p.weight, 0);
+    let roll = Math.random() * totalW;
+    for (const p of pool) {
+        if (roll < p.weight) return p.type;
+        roll -= p.weight;
+    }
+    return pool[pool.length - 1].type;
+}
+
+function generateTrailCard(depth, forceHero, excludeIds, allowArtifact) {
+    // v5.3.49: 5% шанс артефакта (если разрешено и есть не-выпавшие).
+    if (allowArtifact) {
+        const _run = gState.trailRun;
+        const _have = (_run && _run.artifacts) || {};
+        let _available = Object.keys(TRAIL_ARTIFACTS).filter(id => !_have[id]);
+        // v5.3.66 FIX-BLOOD-PACT: не выпадает при 1 жизни.
+        if (_run && _run.lives <= 1) {
+            _available = _available.filter(id => id !== 'blood_pact');
+        }
+        // v5.3.69 FIX-ARTIFACT-GATE: артефакт — событие, не рутина.
+        // Не чаще раза в 12 волн + первый не раньше 15-й. За 40-волновый забег ~2-3 артефакта.
+        const _lastWave = (_run && _run.lastArtifactWave) || 0;
+        const _canDrop = _run && _run.depth >= 15 && (_run.depth - _lastWave) >= 12;
+        if (_canDrop && _available.length > 0 && Math.random() < 0.05) {
+            const pick = _available[Math.floor(Math.random() * _available.length)];
+            return { type: 'artifact', artifactId: pick };
+        }
+    }
+    if (forceHero) {
+        const hid = pickTrailHeroId(depth, excludeIds);
+        if (hid) return { type: 'hero', heroId: hid };
+        const _elx = pickTrailElixir();
+        return { type: 'elixir', elixirType: _elx || 'life' };
+    }
+    // v5.3.69 FIX-ELIXIR-RATE: 80% герой вместо 70%. Эликсиры реже.
+    if (Math.random() < 0.80) {
+        const hid = pickTrailHeroId(depth, excludeIds);
+        if (hid) return { type: 'hero', heroId: hid };
+    }
+    const _elx = pickTrailElixir();
+    if (_elx) return { type: 'elixir', elixirType: _elx };
+    // Все HP/ATK/CP на капе — пробуем героя без процентного гейта.
+    const hid = pickTrailHeroId(depth, excludeIds);
+    if (hid) return { type: 'hero', heroId: hid };
+    // Крайний резерв: нет ни героя, ни не-капнутого эликсира — life.
+    return { type: 'elixir', elixirType: 'life' };
+}
+
+function generateTrailCards(depth, roster, forcedTargetSlot) {
+    // v5.3.36 FIX-TRAIL-START: если ростер пуст или глубина ≤ 2 — первая карта
+    // гарантированно герой. Иначе рандом мог выдать 3 эликсира подряд.
+    // v5.3.37: exclude накапливается — сначала ростер, потом уже выданные
+    // в этой же тройке герои. Гарантирует уникальность всех трёх карт.
+    // v5.3.43: pre-roll targetSlot для замены при полном ростере.
+    // Каждая тройка в одной волне целится в один случайный слот — игрок видит
+    // «Заменит: [имя]» и решает, взять карту или отказаться (эликсир/жизнь).
+    const emptyRoster = !roster || roster.every(id => !id);
+    const forceFirst = emptyRoster || depth <= 2;
+    const exclude = (roster || []).filter(Boolean).slice();
+    const _fullRoster = roster && roster.indexOf(null) === -1;
+    const _targetSlot = (typeof forcedTargetSlot === 'number')
+        ? forcedTargetSlot
+        : (_fullRoster ? Math.floor(Math.random() * roster.length) : null);
+    // v5.3.49: Печать охоты даёт 4 карты вместо 3.
+    const _run = gState.trailRun;
+    const _hasHuntSeal = !!(_run && _run.artifacts && _run.artifacts.hunt_seal);
+    const _cardCount = _hasHuntSeal ? 4 : 3;
+    let _artifactUsed = false;
+    const cards = [];
+    for (let i = 0; i < _cardCount; i++) {
+        const c = generateTrailCard(depth, forceFirst, exclude, !_artifactUsed);
+        if (c.type === 'hero') {
+            exclude.push(c.heroId);
+            c.targetSlot = _targetSlot;
+        }
+        if (c.type === 'artifact') _artifactUsed = true;
+        cards.push(c);
+    }
+    return cards;
+}
+
+// v5.3.38: враг берётся из того же тир-окна, что и карты игрока (симметрия),
+// но НЕ из колоды — иначе враг видел бы тех же героев, что у игрока.
+function generateTrailEnemies(depth) {
+    const windowTiers = getTrailTierWindow(depth);
+    let pool = Object.values(HEROES_CATALOG).filter(h => windowTiers.indexOf(h.tier) >= 0);
+    if (pool.length === 0) pool = Object.values(HEROES_CATALOG);
+    const out = [];
+    const used = new Set();
+    let safety = 20;
+    while (out.length < 3 && safety-- > 0) {
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        if (used.has(pick.id) && pool.length > 3) continue;
+        used.add(pick.id);
+        out.push(pick.id);
+    }
+    while (out.length < 3) out.push('f_und_v');
+    return out;
+}
+
+// v5.3.43 FIX-TRAIL-ENEMY-ANCHOR: якорь врага — не медиана колоды (она привязана
+// к стартовому состоянию и не растёт вместе с удачными пиками карт), а средний
+// TIER_BASE_CP текущего тир-окна волны. Логика:
+//   • Волны 1-4 (F-пул): враг ~46 CP. F 1 lvl (50) проходит впритык.
+//   • Волны 5-9 (F,E): враг ~64 CP. F 1 lvl уже не хватает — нужна прокачка.
+//   • Волны 10-16 (E,D): ~107 CP. Нужен F MAX или введённый E-герой.
+//   • Волны 51+ (S,SS,SSS): ~1700+ CP. Финальная проверка колоды.
+// Игрок с одной прокачанной колодой не может проскочить — математика тир-окна
+// обгоняет его CP. Расти можно только через прокачку героев (или удачные пики).
+function trailTierAvg(depth) {
+    const w = getTrailTierWindow(depth);
+    if (!w || w.length === 0) return 50;
+    let sum = 0;
+    w.forEach(t => { sum += (TIER_BASE_CP[t] || 50); });
+    return sum / w.length;
+}
+
+function trailEnemyCp(depth) {
+    // v5.3.48: враг = отряд из 3 карт, якорь × 2 после wave 5.
+    // Soft-start в первых 5 волнах (1.00 → 1.60) — стартовый F-ростер проходит.
+    // Прогон (без синергии игрока):
+    //   W1=141 W5=322 W10=694 W20=908 W30=2369 W50=6907 W76≈15800 W100≈21000
+    // Проверка прохождения (3/3 синергия 1.75):
+    //   W10 → нужно 397 CP ≈ E lvl 20
+    //   W20 → нужно 519 CP ≈ D lvl 30
+    //   W50 → нужно 3946 CP ≈ A lvl 100
+    //   W76 → нужно 9000 CP ≈ SS lvl 100
+    const anchor = trailTierAvg(depth);
+    const softStart = Math.min(2.0, 1.0 + (depth - 1) * 0.15);
+    const growth = 0.90 + depth * 0.04;
+    const bossMult = isTrailBossWave(depth) ? 1.6 : 1.0;
+    const jitter = 0.95 + Math.random() * 0.10;
+    const squadMult = 3;
+    return Math.max(30, Math.floor(anchor * softStart * growth * bossMult * jitter * squadMult));
+}
+
+// v5.3.67: post-render навешивание title на CP-цифры Тропы.
+// Не привязано к структуре HTML карт (find в renderTrailUI мог скипнуться).
+function applyTrailTooltips() {
+    const hint = (I18N[currentLang] && I18N[currentLang].trail_cp_hint) || '';
+    if (!hint) return;
+    const _slotCps = document.querySelectorAll('.trail-party-row .trail-slot-cp');
+    for (let i = 0; i < _slotCps.length; i++) {
+        if (_slotCps[i].getAttribute('title') !== hint) _slotCps[i].setAttribute('title', hint);
+    }
+    const _choiceStats = document.querySelectorAll('.trail-cards-row .trail-card-stats');
+    for (let i = 0; i < _choiceStats.length; i++) {
+        if (_choiceStats[i].getAttribute('title') !== hint) _choiceStats[i].setAttribute('title', hint);
+    }
+}
+
+function _rerollTrailTargetSlot(run) {
+    if (!run) return;
+    const _rosterLen = Array.isArray(run.roster) ? run.roster.length : 3;
+    const _isFull = run.roster.indexOf(null) === -1;
+    run.currentTargetSlot = _isFull ? Math.floor(Math.random() * _rosterLen) : null;
+}
+
+function startTrailRun() {
+    // Забег доступен только после FTUE — на обучении игрок не должен на него отвлекаться.
+    if (!isFtueCompleted()) {
+        return pushToast(currentLang === 'RU' ? 'Тропа откроется после обучения' : 'Trail unlocks after the tutorial');
+    }
+    const existing = gState.trailRun;
+    if (existing && existing.active && existing.phase !== 'gameover') {
+        navigate('trail-view');
+        renderTrailUI();
+        return;
+    }
+    // v5.3.66 FIX-GAMEOVER-VIEW: не стираем gameover-экран новым забегом.
+    // Иначе награды и рекорды показываются, но при тапе на карточку хаба — просто
+    // начинается новый забег, а старая сводка пропадает без следа.
+    if (existing && existing.phase === 'gameover') {
+        _lastTrailRenderSig = '';
+        navigate('trail-view');
+        renderTrailUI();
+        return;
+    }
+    // v5.3.41: применяем мета-покупки к стартовому состоянию забега.
+    const _meta = gState.trailMeta || {};
+    const _startLives = 5 + (_meta.extraLifeLvl || 0);
+    const _startBuffs = { hp: _meta.startHpBuffLvl || 0, atk: 0, cp: 0 };
+    // v5.3.43: если куплен 4-й слот — стартовый ростер на 4 ячейки.
+    const _startRoster = _meta.fourthSlotBought ? [null, null, null, null] : [null, null, null];
+    // Стартовый герой D-тира — из колоды, если покупка сделана и есть подходящие.
+    if (_meta.startCardBought && gState.deck) {
+        let _startPool = Object.values(HEROES_CATALOG).filter(h => gState.deck[h.id] && (h.tier === 'D' || h.tier === 'E'));
+        if (_startPool.length === 0) {
+            _startPool = Object.values(HEROES_CATALOG).filter(h => gState.deck[h.id] && h.tier === 'F');
+        }
+        if (_startPool.length === 0) {
+            _startPool = Object.values(HEROES_CATALOG).filter(h => gState.deck[h.id]);
+        }
+        if (_startPool.length > 0) {
+            const _pick = _startPool[Math.floor(Math.random() * _startPool.length)];
+            _startRoster[0] = _pick.id;
+        }
+    }
+    gState.trailRun = {
+        active: true,
+        depth: 1,
+        lives: _startLives,
+        score: 0,
+        roster: _startRoster,
+        buffs: _startBuffs,
+        phase: 'choosing',
+        picksInWave: 0,
+        heroWaves: {},
+        // v5.3.50: поля для артефактов и фиксации targetSlot на волну.
+        currentTargetSlot: null,
+        artifacts: {},
+        skipUsedThisWave: false,
+        lastArtifactWave: 0,
+        // v5.3.43 FIX-TRAIL-START-DUP: раньше передавали [null,null,null] — из-за этого
+        // стартовый герой мог выпасть в первой же тройке и занять второй слот.
+        // Передаём _startRoster — герой сразу в эксклюзии.
+        cards: [],
+        enemyRoster: [],
+        enemyCp: 0,
+        playerCp: 0,
+        fightResult: null,
+        newRecord: false
+    };
+    _rerollTrailTargetSlot(gState.trailRun);
+    gState.trailRun.cards = generateTrailCards(1, _startRoster, gState.trailRun.currentTargetSlot);
+    playSfx(720, 'sine', 0.12);
+    saveGame();
+    navigate('trail-view');
+    renderTrailUI();
+}
+
+function closeTrailView() {
+    // Забег НЕ прерывается — можно вернуться к нему позже.
+    navigate('citadel-view');
+}
+
+function openTrailMetaModal() {
+    renderTrailMetaModal();
+    const m = document.getElementById('trail-meta-modal');
+    if (m) m.style.display = 'flex';
+}
+function closeTrailMetaModal() {
+    const m = document.getElementById('trail-meta-modal');
+    if (m) m.style.display = 'none';
+}
+
+function renderTrailMetaModal() {
+    const box = document.getElementById('trail-meta-content');
+    if (!box) return;
+    const L = currentLang;
+    const I = I18N[L];
+    const meta = gState.trailMeta || { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0 };
+    const points = gState.trailPoints || 0;
+    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
+    const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+    const tI = '<img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T">';
+
+    // Верхняя строка: банк очков
+    let html = '<div class="trail-meta-bank"><span>' + (I.trail_points_lbl || 'ОЧКОВ В БАНКЕ') + ':</span><b>' + points + '</b></div>';
+
+    // === ПОСТОЯННЫЕ УЛУЧШЕНИЯ ===
+    html += '<div class="trail-rewards-title">' + (I.trail_meta_upgrades || 'ПОСТОЯННЫЕ УЛУЧШЕНИЯ') + '</div>';
+
+    // Extra Life
+    const _lifeLvl = meta.extraLifeLvl || 0;
+    const _lifeMaxLvl = TRAIL_META_PRICES.extraLife.length;
+    const _lifeCost = getTrailMetaNextCost('extraLife');
+    const _lifeAfford = _lifeCost !== null && points >= _lifeCost;
+    html += '<div class="trail-meta-card">' +
+        '<div class="trail-meta-info"><b>' + (I.trail_meta_extralife_name || '+1 Стартовая жизнь') + '</b>' +
+        '<div class="trail-meta-desc">' + (I.trail_meta_extralife_desc || 'Каждый уровень — +1 жизнь в начале забега.') + '</div>' +
+        '<div class="trail-meta-lvl">' + _lifeLvl + ' / ' + _lifeMaxLvl + '</div></div>' +
+        (_lifeCost === null
+            ? '<span class="trail-meta-max">MAX</span>'
+            : '<button class="btn-action trail-meta-buy ' + (_lifeAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'extraLife\')" ' + (_lifeAfford ? '' : 'disabled') + '>' + _lifeCost + '</button>') +
+        '</div>';
+
+    // Start Card
+    const _cardBought = !!meta.startCardBought;
+    const _cardCost = getTrailMetaNextCost('startCard');
+    const _cardAfford = _cardCost !== null && points >= _cardCost;
+    html += '<div class="trail-meta-card">' +
+        '<div class="trail-meta-info"><b>' + (I.trail_meta_startcard_name || 'Стартовый герой') + '</b>' +
+        '<div class="trail-meta-desc">' + (I.trail_meta_startcard_desc || 'Один D/E-герой из колоды попадает в ростер с 1-й волны.') + '</div>' +
+        '<div class="trail-meta-lvl">' + (_cardBought ? '✓' : '—') + '</div></div>' +
+        (_cardCost === null
+            ? '<span class="trail-meta-max">MAX</span>'
+            : '<button class="btn-action trail-meta-buy ' + (_cardAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'startCard\')" ' + (_cardAfford ? '' : 'disabled') + '>' + _cardCost + '</button>') +
+        '</div>';
+
+    // Start HP Buff
+    const _hpLvl = meta.startHpBuffLvl || 0;
+    const _hpMaxLvl = TRAIL_META_PRICES.startHpBuff.length;
+    const _hpCost = getTrailMetaNextCost('startHpBuff');
+    const _hpAfford = _hpCost !== null && points >= _hpCost;
+    html += '<div class="trail-meta-card">' +
+        '<div class="trail-meta-info"><b>' + (I.trail_meta_starthp_name || '+25% Стартовый HP') + '</b>' +
+        '<div class="trail-meta-desc">' + (I.trail_meta_starthp_desc || 'Отряд начинает забег с бонусом к HP.') + '</div>' +
+        '<div class="trail-meta-lvl">' + _hpLvl + ' / ' + _hpMaxLvl + '</div></div>' +
+        (_hpCost === null
+            ? '<span class="trail-meta-max">MAX</span>'
+            : '<button class="btn-action trail-meta-buy ' + (_hpAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'startHpBuff\')" ' + (_hpAfford ? '' : 'disabled') + '>' + _hpCost + '</button>') +
+        '</div>';
+
+    // v5.3.43: 4-й слот отряда. Разовое расширение ростера 3→4.
+    const _fsBought = !!meta.fourthSlotBought;
+    const _fsCost = getTrailMetaNextCost('fourthSlot');
+    const _fsAfford = _fsCost !== null && points >= _fsCost;
+    const _fsName = I.trail_meta_fourthslot_name || (L === 'RU' ? '4-й слот отряда' : '4th Squad Slot');
+    const _fsDesc = I.trail_meta_fourthslot_desc || (L === 'RU' ? 'Отряд расширяется до 4 героев. Синергия 4/4 даёт +100% БМ.' : 'Squad expands to 4 heroes. 4/4 synergy grants +100% CP.');
+    html += '<div class="trail-meta-card">' +
+        '<div class="trail-meta-info"><b>' + _fsName + '</b>' +
+        '<div class="trail-meta-desc">' + _fsDesc + '</div>' +
+        '<div class="trail-meta-lvl">' + (_fsBought ? '✓' : '—') + '</div></div>' +
+        (_fsCost === null
+            ? '<span class="trail-meta-max">MAX</span>'
+            : '<button class="btn-action trail-meta-buy ' + (_fsAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'fourthSlot\')" ' + (_fsAfford ? '' : 'disabled') + '>' + _fsCost + '</button>') +
+        '</div>';
+
+    // === ОБМЕН ОЧКОВ ===
+    html += '<div class="trail-rewards-title">' + (I.trail_meta_exchange || 'ОБМЕН ОЧКОВ') + '</div>';
+    html += '<div class="trail-meta-exchange-grid">';
+    TRAIL_EXCHANGES.forEach(ex => {
+        const afford = points >= ex.cost;
+        let reward = '';
+        if (ex.crystals) reward = '+' + ex.crystals + ' ' + cI;
+        else if (ex.gold) reward = '+' + formatNumber(ex.gold) + ' ' + gI;
+        else if (ex.tickets) reward = '+' + ex.tickets + ' ' + tI;
+        html += '<button class="trail-exchange-btn ' + (afford ? 'ready' : '') + '" onclick="exchangeTrailPoints(\'' + ex.id + '\')" ' + (afford ? '' : 'disabled') + '>' +
+            '<div class="trail-exchange-reward">' + reward + '</div>' +
+            '<div class="trail-exchange-cost">' + ex.cost + ' pts</div>' +
+            '</button>';
+    });
+    html += '</div>';
+
+    box.innerHTML = html;
+}
+
+function openTrailHelp() {
+    const m = document.getElementById('trail-help-modal');
+    if (m) {
+        // v5.3.67 FIX-RULES-RERENDER: applyLanguage вставляет HTML правил в DOM ДО
+        // override I18N (v5.3.66). Модалка показывает уже устаревший текст.
+        // Перерисовываем body при каждом открытии из актуального I18N.
+        const body = m.querySelector('.trail-help-body');
+        if (body && I18N[currentLang] && I18N[currentLang].trail_help_body) {
+            body.innerHTML = I18N[currentLang].trail_help_body;
+        }
+        m.style.display = 'flex';
+    }
+}
+function closeTrailHelp() {
+    const m = document.getElementById('trail-help-modal');
+    if (m) m.style.display = 'none';
+}
+
+function pickTrailCard(cardIdx) {
+    const run = gState.trailRun;
+    if (!run || !run.active || run.phase !== 'choosing') return;
+    const card = run.cards[cardIdx];
+    if (!card) return;
+    if (card.type === 'hero') {
+        let slotIdx;
+        if (typeof run.currentTargetSlot === 'number' && run.currentTargetSlot >= 0 && run.currentTargetSlot < run.roster.length) {
+            slotIdx = run.currentTargetSlot;
+        } else if (typeof card.targetSlot === 'number' && card.targetSlot >= 0 && card.targetSlot < run.roster.length) {
+            slotIdx = card.targetSlot;
+        } else {
+            slotIdx = run.roster.indexOf(null);
+            if (slotIdx === -1) slotIdx = Math.floor(Math.random() * run.roster.length);
+        }
+        run.roster[slotIdx] = card.heroId;
+        if (run.currentTargetSlot === null && run.roster.indexOf(null) === -1) {
+            run.currentTargetSlot = Math.floor(Math.random() * run.roster.length);
+        }
+    } else if (card.type === 'elixir') {
+        const t = card.elixirType;
+        if (t === 'life') run.lives++;
+        else if (t === 'hp') run.buffs.hp = Math.min(TRAIL_ELIXIR_CAP, (run.buffs.hp || 0) + 1);
+        else if (t === 'atk') run.buffs.atk = Math.min(TRAIL_ELIXIR_CAP, (run.buffs.atk || 0) + 1);
+        else if (t === 'cp') run.buffs.cp = Math.min(TRAIL_ELIXIR_CAP, (run.buffs.cp || 0) + 1);
+    } else if (card.type === 'artifact') {
+        if (!run.artifacts) run.artifacts = {};
+        const aid = card.artifactId;
+        if (aid && !run.artifacts[aid]) {
+            run.artifacts[aid] = true;
+            // v5.3.69: фиксируем волну выпадения — гейт «раз в 12 волн» в generateTrailCard.
+            run.lastArtifactWave = run.depth;
+            if (aid === 'blood_pact') {
+                run.lives = Math.max(0, run.lives - 1);
+            }
+        }
+    }
+    run.picksInWave++;
+    playSfx(580, 'sine', 0.08);
+    triggerHaptic('tap');
+    // v5.3.69 FIX-PICK-CARD-BATTLES-AT-3: всегда 3 выбора до боя, независимо от
+    // длины пула. Печать охоты добавляет 4-ю карту для ПРОСМОТРА, но берётся по-прежнему 3.
+    if (run.picksInWave >= 3) {
+        run.phase = 'fighting';
+        run.enemyRoster = generateTrailEnemies(run.depth);
+        run.enemyCp = trailEnemyCp(run.depth);
+        run.picksInWave = 0;
+    } else {
+        run.cards = generateTrailCards(run.depth, run.roster, run.currentTargetSlot);
+    }
+    saveGame();
+    renderTrailUI();
+}
+
+function skipTrailPicks() {
+    const run = gState.trailRun;
+    if (!run || !run.active || run.phase !== 'choosing') return;
+    // v5.3.55: пропуск доступен ТОЛЬКО с артефактом Монета судьбы, 1 раз за волну.
+    if (!run.artifacts || !run.artifacts.fate_coin) return;
+    if (run.skipUsedThisWave) return;
+    run.skipUsedThisWave = true;
+    run.cards = generateTrailCards(run.depth, run.roster, run.currentTargetSlot);
+    playSfx(480, 'sine', 0.05);
+    triggerHaptic('tap');
+    saveGame();
+    renderTrailUI();
+}
+
+function startTrailFight() {
+    const run = gState.trailRun;
+    if (!run || run.phase !== 'fighting') return;
+    const syn = trailSynergyMult(run.roster);
+    const baseCp = run.roster.reduce((sum, id) => sum + (id ? getTrailHeroCp(id) : 0), 0);
+    // v5.3.49: 7/3/3 вместо 10/5/5 + артефакты.
+    let _elixirMult = 1 + run.buffs.cp * 0.07 + run.buffs.hp * 0.03 + run.buffs.atk * 0.03;
+    if (run.artifacts && run.artifacts.void_seal) {
+        _elixirMult = 1 + (_elixirMult - 1) * 2;
+    }
+    let _artifactCpMult = 1.0;
+    if (run.artifacts && run.artifacts.blood_pact) _artifactCpMult *= 1.15;
+    const playerCp = Math.floor(baseCp * syn * _elixirMult * _artifactCpMult);
+    run.playerCp = playerCp;
+    const won = playerCp >= run.enemyCp;
+    run.fightResult = won ? 'win' : 'lose';
+    if (won) {
+        run.score += 10 + run.depth * 2;
+        playSfx(900, 'triangle', 0.15);
+        triggerHaptic('victory');
+    } else {
+        run.lives--;
+        run.score = Math.max(0, run.score - 5);
+        playSfx(180, 'square', 0.2);
+        triggerHaptic('defeat');
+    }
+    run.phase = 'result';
+    saveGame();
+    renderTrailUI();
+}
+
+function trailNextStep() {
+    const run = gState.trailRun;
+    if (!run || run.phase !== 'result') return;
+    if (run.lives <= 0) {
+        run.phase = 'gameover';
+        run.active = false;
+        const prevBest = gState.trailBestScore || 0;
+        run.newRecord = run.score > prevBest;
+        if (run.newRecord) gState.trailBestScore = run.score;
+        if (run.newRecord) playTriumphFanfare(false);
+        // v5.3.40: начисляем награды только один раз.
+        grantTrailRewards(run);
+        saveGame();
+        renderTrailUI();
+        return;
+    }
+    if (run.fightResult === 'win') {
+        run.depth++;
+    }
+    // v5.3.66 FIX-SHARDS-ALL: осколки за ВСЕ бои (победа и поражение).
+    // Герой отстоял волну в ростере — получил осколок, неважно чем кончился бой.
+    if (!run.heroWaves) run.heroWaves = {};
+    run.roster.forEach(hid => {
+        if (hid) run.heroWaves[hid] = (run.heroWaves[hid] || 0) + 1;
+    });
+    _rerollTrailTargetSlot(run);
+    run.phase = 'choosing';
+    run.picksInWave = 0;
+    run.skipUsedThisWave = false;
+    run.cards = generateTrailCards(run.depth, run.roster, run.currentTargetSlot);
+    run.fightResult = null;
+    saveGame();
+    renderTrailUI();
+}
+
+// v5.3.36: игрок сам может закончить забег в любой момент.
+// Раньше финал наступал только при 5 поражениях — а с новой кривой врага
+// дожить до Game Over может быть долго. Даём кнопку выхода «зафиксировать результат».
+function trailFinishRun() {
+    const run = gState.trailRun;
+    if (!run || run.phase === 'gameover') return;
+    run.active = false;
+    run.phase = 'gameover';
+    const prevBest = gState.trailBestScore || 0;
+    run.newRecord = run.score > prevBest;
+    if (run.newRecord) {
+        gState.trailBestScore = run.score;
+        playTriumphFanfare(false);
+    } else {
+        playSfx(420, 'sine', 0.1);
+    }
+    // v5.3.40: ручной finish начисляет те же награды, что и смерть.
+    grantTrailRewards(run);
+    saveGame();
+    renderTrailUI();
+}
+
+function restartTrailRun() {
+    gState.trailRun = null;
+    startTrailRun();
+}
+
+function exitTrailRun() {
+    gState.trailRun = null;
+    saveGame();
+    navigate('citadel-view');
+}
+
+function renderTrailUI() {
+    const bar = document.getElementById('trail-status-bar');
+    const party = document.getElementById('trail-party-row');
+    const panel = document.getElementById('trail-content-panel');
+    if (!bar || !party || !panel) return;
+    const run = gState.trailRun;
+    if (!run) {
+        if (_lastTrailRenderSig !== 'none') {
+            bar.innerHTML = '';
+            party.innerHTML = '';
+            panel.innerHTML = '';
+            _lastTrailRenderSig = 'none';
+        }
+        return;
+    }
+    // v5.3.65 FIX-TRAIL-RENDER-SIG: skip если состояние не изменилось.
+    // Без этого refreshCurrentView пересоздавал DOM каждые 3с и сбрасывал
+    // CSS-анимации (пульсация слотов, подсветка) с нуля — визуальные «скачки».
+    const _sig = _getTrailRenderSig();
+    if (_sig === _lastTrailRenderSig) return;
+    _lastTrailRenderSig = _sig;
+    const L = currentLang;
+    const I = I18N[L];
+
+    const livesFull = Math.max(0, Math.min(5, run.lives));
+    // v5.3.37: если жизней больше 5 — показываем overflow-счётчик.
+    // Раньше визуал обрезался на 5 символах, и игрок не видел, что реально копил 7-9.
+    let livesStr = '●'.repeat(livesFull) + '○'.repeat(Math.max(0, 5 - livesFull));
+    if (run.lives > 5) {
+        livesStr += ' <b style="color:#fde047; font-weight:900;">+' + (run.lives - 5) + '</b>';
+    }
+    const _bestScore = gState.trailBestScore || 0;
+    // v5.3.36: кнопка «ЗАВЕРШИТЬ» в статус-баре + live-маркер рекорда.
+    const _recordBadge = (run.score > _bestScore)
+        ? '<span class="trail-record-live">★ РЕКОРД</span>'
+        : '';
+    // v5.3.39: бейдж синергии в статус-баре.
+    const _synMult = trailSynergyMult(run.roster);
+    let _synBadge = '';
+    if (_synMult > 1) {
+        const _pct = Math.round((_synMult - 1) * 100);
+        _synBadge = '<span class="trail-syn-badge">+' + _pct + '%</span>';
+    }
+    // v5.3.39: накопленные бонусы эликсиров.
+    // v5.3.43 FIX-TRAIL-ELIXIRS-UI: реальный calc применяет 5/5/10 (см. startTrailFight),
+    // а UI показывал 25/20/10 — рассинхрон в 5 раз. Теперь везде 5/5/10.
+    const _b = run.buffs || { hp: 0, atk: 0, cp: 0 };
+    const _bufParts = [];
+    if (_b.hp > 0) _bufParts.push('HP+' + (_b.hp * 3) + '%');
+    if (_b.atk > 0) _bufParts.push('ATK+' + (_b.atk * 3) + '%');
+    if (_b.cp > 0) _bufParts.push('CP+' + (_b.cp * 7) + '%');
+    const _bank = gState.trailPoints || 0;
+    const _metaBadge = document.getElementById('trail-meta-points-badge');
+    if (_metaBadge) _metaBadge.innerText = _bank;
+    // v5.3.43 FIX-TRAIL-BAR-LAYOUT: статус-бар разбит на 2 строки grid'ом.
+    // Раньше 6 inline-элементов сжимались в одну строку — «ВОЛНА» отрывалась
+    // от цифры, «ОЧКИ» от значения, правая часть уезжала в кашу.
+    const _buffsRow = _bufParts.length > 0
+        ? '<span style="color:#94a3b8;">' + (I.trail_buffs_prefix || 'Бонусы:') + ' ' + _bufParts.join(' · ') + '</span>'
+        : '';
+    const _arts = run.artifacts ? Object.keys(run.artifacts).filter(id => TRAIL_ARTIFACTS[id]) : [];
+    const _artsRow = _arts.length > 0
+        ? '<div class="trail-artifacts-line">' + (I.trail_artifacts_prefix || 'Артефакты:') + ' ' + _arts.map(id => (TRAIL_ARTIFACTS[id] ? (TRAIL_ARTIFACTS[id].name[L] || TRAIL_ARTIFACTS[id].name['EN']) : id)).join(' · ') + '</div>'
+        : '';
+    let _finishBtnHtml = '';
+    if (run.phase === 'gameover') {
+        _finishBtnHtml = '<button class="trail-finish-btn" onclick="restartTrailRun()">' + (I.trail_gameover_restart || 'НОВЫЙ ЗАБЕГ') + '</button>';
+    } else if (run.phase !== 'fighting') {
+        _finishBtnHtml = '<button class="trail-finish-btn" onclick="trailFinishRun()">' + (I.trail_finish_btn || 'ЗАВЕРШИТЬ') + '</button>';
+    }
+    bar.innerHTML =
+        '<div class="trail-bar-row-1">' +
+            '<span class="trail-depth">' + (I.trail_wave || 'ВОЛНА') + ' ' + run.depth + '</span>' +
+            '<span class="trail-lives">' + livesStr + '</span>' +
+            '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + run.score + '</b>' + _recordBadge + ' ' + _synBadge + '</span>' +
+            _finishBtnHtml +
+        '</div>' +
+        '<div class="trail-bar-row-2">' +
+            '<span style="color:#c084fc;">' + (I.trail_points_lbl || 'ОЧКОВ В БАНКЕ') + ': <b>' + _bank + '</b></span>' +
+            _buffsRow +
+        '</div>' +
+        _artsRow;
+
+    // v5.3.43: динамический цикл (3 или 4 слота), иконка стихии, звёзды и БМ,
+    // плюс красная подсветка слота-цели для замены карты (патч B).
+    const _rosterLen = Array.isArray(run.roster) ? run.roster.length : 3;
+    const _isFullRoster = run.roster.indexOf(null) === -1;
+    // v5.3.45 FIX-TRAIL-HIGHLIGHT-SOURCE: подсветка берётся из ПЕРВОЙ hero-карты
+    // тройки, а не из cards[0] (она могла быть эликсиром без targetSlot — тогда
+    // подсветка молча пропадала). Если hero-карты нет вообще — fallback weakest.
+    let _activeReplaceSlot = -1;
+    if (run.phase === 'choosing' && _isFullRoster) {
+        if (typeof run.currentTargetSlot === 'number') {
+            _activeReplaceSlot = run.currentTargetSlot;
+        } else if (run.cards && run.cards.length) {
+            const _heroCard = run.cards.find(c => c && c.type === 'hero' && typeof c.targetSlot === 'number');
+            if (_heroCard) _activeReplaceSlot = _heroCard.targetSlot;
+        }
+    }
+    let partyHtml = '';
+    for (let i = 0; i < _rosterLen; i++) {
+        const hid = run.roster[i];
+        const _isReplaceTarget = (i === _activeReplaceSlot);
+        const _targetClass = _isReplaceTarget ? ' trail-slot-replace-target' : '';
+        if (hid && HEROES_CATALOG[hid]) {
+            const h = HEROES_CATALOG[hid];
+            const heroImg = h.img || (h.id + '.webp');
+            const tColor = 'var(--tier-' + (h.tier || 'f').toLowerCase() + ')';
+            const _card = gState.deck[hid] || { stars: 1, lvl: 1 };
+            const _cpInTrail = trailCardCp(hid);
+            const _faction = h.faction || 'chaos';
+            const _cpLabel = (L === 'RU') ? 'БМ' : 'CP';
+            partyHtml +=
+                '<div class="tcg-card tier-' + (h.tier || 'f').toLowerCase() + ' faction-' + _faction + ' trail-tcg-slot' + _targetClass + '" style="border-color:' + tColor + ';">' +
+                    '<div class="tcg-art-bg-layer">' +
+                        '<img src="assets/heroes/' + heroImg + '" class="tcg-art-img" onerror="this.style.display=\'none\';">' +
+                    '</div>' +
+                    '<div class="tcg-header">' +
+                        '<span class="trail-elem-badge"><img src="assets/icons/elem_' + _faction + '.webp" alt="' + _faction + '"></span>' +
+                        '<span class="tcg-stars-row">' + formatHeroStars(_card.stars || 1) + '</span>' +
+                    '</div>' +
+                    '<div class="tcg-footer-meta">' +
+                        '<div class="tcg-name" style="color:' + tColor + ';">[' + h.tier + '] ' + (h.name[L] || h.name['EN']) + '</div>' +
+                        '<div class="tcg-stats">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + (_card.lvl || 1) + ' | ' + _cpLabel + ': ' + formatNumber(_cpInTrail) + '</div>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            partyHtml += '<div class="trail-party-slot trail-slot-empty-pulse">' + (I.slot_select || '[Свободно]') + '</div>';
+        }
+    }
+    party.style.gridTemplateColumns = 'repeat(' + _rosterLen + ', minmax(0, 1fr))';
+    party.innerHTML = partyHtml;
+
+    if (run.phase === 'choosing') renderTrailChoosing(panel, run, L, I);
+    else if (run.phase === 'fighting') renderTrailFighting(panel, run, L, I);
+    else if (run.phase === 'result') renderTrailResult(panel, run, L, I);
+    else if (run.phase === 'gameover') renderTrailGameover(panel, run, L, I);
+    // v5.3.67: post-render навешивание title на CP-цифры.
+    applyTrailTooltips();
+}
+
+function renderTrailChoosing(panel, run, L, I) {
+    // v5.3.55: кнопка ПРОПУСТИТЬ показывается только с артефактом Монета судьбы
+    // и только если в этой волне пропуск ещё не использован.
+    let html = '<div class="trail-choose-header">' +
+        '<div class="section-title" style="margin:0;">' + (I.trail_choose_card || 'ВЫБЕРИТЕ КАРТУ') + '</div>';
+    if (run.artifacts && run.artifacts.fate_coin && !run.skipUsedThisWave) {
+        html += '<button class="trail-skip-picks-btn" onclick="skipTrailPicks()">' + (I.trail_skip_picks || 'ПРОПУСТИТЬ') + ' (1)</button>';
+    }
+    html += '</div>';
+    // v5.3.53: карты пула — всегда в один ряд (как в ростере), без 2x2.
+    // При Печати охоты — 4 колонки по ~100px, без охоты — 3 по ~135px.
+    const _cols = (run.cards && run.cards.length) || 3;
+    html += '<div class="trail-cards-row cols-' + _cols + '">';
+    for (let i = 0; i < run.cards.length; i++) {
+        const card = run.cards[i];
+        if (card.type === 'hero') {
+            const h = HEROES_CATALOG[card.heroId];
+            if (!h) continue;
+            const heroImg = h.img || (h.id + '.webp');
+            const tColor = 'var(--tier-' + (h.tier || 'f').toLowerCase() + ')';
+            // v5.3.47 FIX-REPLACE-HINT-SYNC: имя замены берётся из card.targetSlot —
+            // тот же источник, что и подсветка слота в ростере. Раньше weakest давал
+            // другое имя, чем подсвеченный слот.
+            const _targetId = (typeof card.targetSlot === 'number' && run.roster[card.targetSlot]) ? run.roster[card.targetSlot] : null;
+            const _targetName = (_targetId && HEROES_CATALOG[_targetId])
+                ? (HEROES_CATALOG[_targetId].name[L] || HEROES_CATALOG[_targetId].name['EN'])
+                : '';
+            const replaceHint = _targetName
+                ? '<div class="trail-card-sub" style="color:#f87171;">↻ ' + (I.trail_replace || 'ЗАМЕНИТ') + ': ' + _targetName + '</div>'
+                : '<div class="trail-card-sub" style="color:#4ade80;">+ ' + (I.trail_add || 'В ОТРЯД') + '</div>';
+            // v5.3.39: значки стихии + реальные ур./зв. из колоды.
+            const _card = gState.deck[card.heroId] || { stars: 1, lvl: 1 };
+            const _cpInTrail = trailCardCp(card.heroId);
+            const _elemIcon = 'assets/icons/elem_' + h.faction + '.webp';
+            const _isReplace = run.roster.indexOf(null) === -1;
+            html +=
+                '<div class="trail-card tcg-style" onclick="pickTrailCard(' + i + ')" style="border-color:' + tColor + ';">' +
+                    '<div class="trail-card-art"><img src="assets/heroes/' + heroImg + '" onerror="this.style.display=\'none\';"></div>' +
+                    '<div class="trail-card-elem"><img src="' + _elemIcon + '" alt="' + h.faction + '"></div>' +
+                    '<div class="trail-card-stars">' + formatHeroStars(_card.stars || 1) + '</div>' +
+                    '<div class="trail-card-overlay">' +
+                        '<div class="trail-card-name" style="color:' + tColor + ';"><span style="color:' + tColor + '; margin-right:3px;">[' + h.tier + ']</span>' + (h.name[L] || h.name['EN']) + '</div>' +
+                        '<div class="trail-card-stats" title="' + (I.trail_cp_hint || '') + '">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + _card.lvl + ' · ' + formatNumber(_cpInTrail) + (L === 'RU' ? ' БМ' : ' CP') + '</div>' +
+                        replaceHint +
+                    '</div>' +
+                '</div>';
+        } else if (card.type === 'artifact') {
+            const _art = TRAIL_ARTIFACTS[card.artifactId];
+            // v5.3.52: артефакт из старого сейва (fate_coin) — рендерим как эликсир жизни,
+            // чтобы карта не была пустой. После сброса старого забега не нужно.
+            if (!_art) {
+                if (IS_DEV_MODE) console.warn('[Trail] artifact not found, fallback to life:', card.artifactId);
+                html +=
+                    '<div class="trail-card tcg-style trail-card-special" onclick="pickTrailCard(' + i + ')">' +
+                        '<div class="trail-card-special-bg elixir"></div>' +
+                        '<div class="trail-card-elem"><img src="assets/icons/hud_pass.webp" alt="" onerror="this.style.display=\'none\';"></div>' +
+                        '<div class="trail-card-special-badge">' + (L === 'RU' ? 'ЭЛИКСИР' : 'ELIXIR') + '</div>' +
+                        '<div class="trail-card-overlay">' +
+                            '<div class="trail-card-name" style="color:#f472b6;">' + (I.trail_elixir_life_name || '+1 жизнь') + '</div>' +
+                            '<div class="trail-card-stats">' + (I.trail_elixir_life_desc || '+1 жизнь') + '</div>' +
+                        '</div>' +
+                    '</div>';
+                continue;
+            }
+            html +=
+                '<div class="trail-card tcg-style trail-card-special" onclick="pickTrailCard(' + i + ')">' +
+                    '<div class="trail-card-special-bg artifact"></div>' +
+                    '<div class="trail-card-elem trail-card-artifact-elem">' + _art.icon + '</div>' +
+                    '<div class="trail-card-special-badge artifact">' + (L === 'RU' ? 'АРТЕФАКТ' : 'ARTIFACT') + '</div>' +
+                    '<div class="trail-card-overlay">' +
+                        '<div class="trail-card-name" style="color:#c084fc;">' + (_art.name[L] || _art.name['EN']) + '</div>' +
+                        '<div class="trail-card-stats">' + (_art.desc[L] || _art.desc['EN']) + '</div>' +
+                    '</div>' +
+                '</div>';
+        } else if (card.type === 'elixir') {
+            const t = card.elixirType;
+            const elixirData = {
+                hp: { name: I.trail_elixir_hp_name, desc: I.trail_elixir_hp_desc, icon: 'icon_energy.webp' },
+                atk: { name: I.trail_elixir_atk_name, desc: I.trail_elixir_atk_desc, icon: 'swords_cp.webp' },
+                cp: { name: I.trail_elixir_cp_name, desc: I.trail_elixir_cp_desc, icon: 'relic.webp' },
+                life: { name: I.trail_elixir_life_name, desc: I.trail_elixir_life_desc, icon: 'hud_pass.webp' }
+            }[t] || { name: '?', desc: '', icon: 'relic.webp' };
+            html +=
+                '<div class="trail-card tcg-style trail-card-special" onclick="pickTrailCard(' + i + ')">' +
+                    '<div class="trail-card-special-bg elixir"></div>' +
+                    '<div class="trail-card-elem"><img src="assets/icons/' + elixirData.icon + '" alt="" onerror="this.style.display=\'none\';"></div>' +
+                    '<div class="trail-card-special-badge">' + (L === 'RU' ? 'ЭЛИКСИР' : 'ELIXIR') + '</div>' +
+                    '<div class="trail-card-overlay">' +
+                        '<div class="trail-card-name" style="color:#f472b6;">' + elixirData.name + '</div>' +
+                        '<div class="trail-card-stats">' + elixirData.desc + '</div>' +
+                    '</div>' +
+                '</div>';
+        }
+    }
+    html += '</div>';
+    panel.innerHTML = html;
+}
+
+function renderTrailFighting(panel, run, L, I) {
+    const _isBoss = isTrailBossWave(run.depth);
+    const _fightTitle = _isBoss
+        ? (I.trail_boss_tag || 'БОСС') + ' · ' + (I.trail_fight_title || 'ВРАГ БЛОКИРУЕТ ПУТЬ')
+        : (I.trail_fight_title || 'ВРАГ БЛОКИРУЕТ ПУТЬ');
+    let html = '<div class="section-title" style="text-align:center; color:' + (_isBoss ? '#fde047' : '#f87171') + ';">' + _fightTitle + '</div>';
+    html += '<div class="trail-fight-enemy-row">';
+    (run.enemyRoster || []).forEach(hid => {
+        const h = HEROES_CATALOG[hid];
+        if (!h) return;
+        const heroImg = h.img || (h.id + '.webp');
+        const tColor = 'var(--tier-' + (h.tier || 'f').toLowerCase() + ')';
+        html +=
+            '<div class="trail-fight-enemy-slot" style="border-color:' + tColor + ';">' +
+                '<img src="assets/heroes/' + heroImg + '" onerror="this.style.display=\'none\';">' +
+                '<div class="trail-slot-info" style="color:' + tColor + ';">[' + h.tier + '] ' + (h.name[L] || h.name['EN']) + '</div>' +
+            '</div>';
+    });
+    html += '</div>';
+    const syn = trailSynergyMult(run.roster);
+    const baseCp = run.roster.reduce((sum, id) => sum + (id ? getTrailHeroCp(id) : 0), 0);
+    let _elixirMult = 1 + run.buffs.cp * 0.07 + run.buffs.hp * 0.03 + run.buffs.atk * 0.03;
+    if (run.artifacts && run.artifacts.void_seal) _elixirMult = 1 + (_elixirMult - 1) * 2;
+    let _artifactCpMult = 1.0;
+    if (run.artifacts && run.artifacts.blood_pact) _artifactCpMult *= 1.15;
+    const previewCp = Math.floor(baseCp * syn * _elixirMult * _artifactCpMult);
+    const synPct = Math.round((syn - 1) * 100);
+    html +=
+        '<div class="trail-fight-stats">' +
+            '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_your_cp || 'Ваш CP') + '</span><b>' + formatNumber(previewCp) + '</b></div>' +
+            '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_synergy || 'Синергия') + '</span><b>+' + synPct + '%</b></div>' +
+            '<div class="trail-fight-stats-row enemy"><span>' + (I.trail_result_enemy_cp || 'CP врага') + '</span><b>' + formatNumber(run.enemyCp) + '</b></div>' +
+        '</div>';
+    html += '<button class="btn-action modal-full-btn" style="margin-top:6px; background:linear-gradient(180deg,#dc2626 0%,#991b1b 100%); border-color:#ef4444;" onclick="startTrailFight()">' + (I.trail_fight_btn || 'В БОЙ') + '</button>';
+    panel.innerHTML = html;
+}
+
+function renderTrailResult(panel, run, L, I) {
+    const won = run.fightResult === 'win';
+    const title = won ? (I.trail_result_win || 'ПОБЕДА') : (I.trail_result_lose || 'ПОРАЖЕНИЕ');
+    const syn = trailSynergyMult(run.roster);
+    const synPct = Math.round((syn - 1) * 100);
+    let html = '<div class="trail-result-box' + (won ? '' : ' defeat') + '">';
+    html += '<div class="trail-result-title">' + title + '</div>';
+    html += '<div class="trail-fight-stats">';
+    html += '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_your_cp || 'Ваш CP') + '</span><b>' + formatNumber(run.playerCp) + '</b></div>';
+    html += '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_synergy || 'Синергия') + '</span><b>+' + synPct + '%</b></div>';
+    html += '<div class="trail-fight-stats-row enemy"><span>' + (I.trail_result_enemy_cp || 'CP врага') + '</span><b>' + formatNumber(run.enemyCp) + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_result_points || 'Очков') + '</span><b style="color:var(--gold);">' + run.score + '</b></div>';
+    html += '</div>';
+    html += '<button class="btn-action modal-full-btn" style="margin-top:8px;" onclick="trailNextStep()">' + (I.trail_result_next || 'ПРОДОЛЖИТЬ') + '</button>';
+    html += '</div>';
+    panel.innerHTML = html;
+}
+
+function renderTrailGameover(panel, run, L, I) {
+    const best = gState.trailBestScore || 0;
+    const rw = run.rewards || calculateTrailRewards(run);
+    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
+    const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+    let html = '<div class="trail-result-box defeat">';
+    html += '<div class="trail-gameover-crest">💀</div>';
+    html += '<div class="trail-result-title">' + (I.trail_gameover_title || 'ЗАБЕГ ЗАВЕРШЁН') + '</div>';
+    if (run.newRecord) html += '<div style="color:#fde047; font-weight:900; font-size:13px;">' + (I.trail_gameover_new_record || 'НОВЫЙ РЕКОРД!') + '</div>';
+    html += '<div class="trail-fight-stats">';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_depth || 'Глубина') + '</span><b>' + run.depth + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_score || 'Очки') + '</span><b style="color:var(--gold);">' + run.score + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_best || 'Рекорд') + '</span><b>' + best + '</b></div>';
+    html += '</div>';
+
+    // v5.3.40: награды за забег.
+    html += '<div class="trail-rewards-title">' + (I.trail_rewards_title || 'НАГРАДЫ ЗА ЗАБЕГ') + '</div>';
+    html += '<div class="trail-fight-stats">';
+    html += '<div class="trail-fight-stats-row"><span>' + cI + ' ' + (I.trail_loot_crystals || 'Кристаллы') + '</span><b style="color:var(--crystal);">+' + rw.crystals + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + gI + ' ' + (I.trail_loot_gold || 'Золото') + '</span><b style="color:var(--gold);">+' + formatNumber(rw.gold) + '</b></div>';
+    // v5.3.71: универсальные осколки заморожены — скрыты из UI.
+    // rw.universalShards продолжает начисляться в gState.universalShards (не ломаем сейвы,
+    // копим на будущее). Если решим включить — вернуть эту строку.
+    for (const hid in rw.heroShardsGain) {
+        const h = HEROES_CATALOG[hid];
+        if (!h) continue;
+        const _tColor = 'var(--tier-' + (h.tier || 'f').toLowerCase() + ')';
+        html += '<div class="trail-fight-stats-row" style="opacity:0.85;"><span style="font-size:11px;">' + (I.trail_loot_hero_shards || 'Осколки') + ' [<span style="color:' + _tColor + ';">' + h.tier + '</span>] ' + (h.name[L] || h.name['EN']) + '</span><b>+' + rw.heroShardsGain[hid] + '</b></div>';
+    }
+    html += '</div>';
+
+    // Топ-5 рекордов
+    if (Array.isArray(gState.trailRecords) && gState.trailRecords.length > 0) {
+        // (строка была здесь — не трогаем порядок остальных блоков)
+    html += '<div class="trail-rewards-title">' + (I.trail_records_title || 'ЛИЧНЫЕ РЕКОРДЫ') + '</div>';
+        html += '<div class="trail-records-list">';
+        gState.trailRecords.forEach((rec, idx) => {
+            const isCurrent = rec.ts === (run._recordTs || 0);
+            html += '<div class="trail-record-row' + (isCurrent ? ' current' : '') + '">';
+            html += '<span style="color:var(--text-muted);">#' + (idx + 1) + '</span>';
+            html += '<span>' + rec.date + '</span>';
+            html += '<span style="color:var(--gold);">' + rec.score + '</span>';
+            html += '<span style="color:#f472b6;">W' + rec.depth + '</span>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    html += '<div style="display:flex; gap:6px; margin-top:8px;">';
+    html += '<button class="btn-action" style="flex:1; background:#273347; color:#fff;" onclick="exitTrailRun()">' + (I.trail_gameover_exit || 'ВЫЙТИ') + '</button>';
+    html += '<button class="btn-action" style="flex:1.4; background:linear-gradient(180deg,#d97706 0%,#b45309 100%); border-color:var(--gold);" onclick="restartTrailRun()">' + (I.trail_gameover_restart || 'НОВЫЙ ЗАБЕГ') + '</button>';
+    html += '</div>';
+    html += '</div>';
+    panel.innerHTML = html;
+}
+
 function updateLiveTimers() {
     const midnightStr = getFormattedMidnightCountdown();
     const sundayStr = getTimeUntilSundayMidnight();
@@ -13859,6 +15243,8 @@ function refreshCurrentView() {
         renderDungeon();
     } else if (activeView === 'expedition-view') {
         renderExpeditionsList();
+    } else if (activeView === 'trail-view') {
+        renderTrailUI();
     } else if (activeView === 'raid-view') {
         renderRaidBossUI();
     } else if (activeView === 'arena-view') {
@@ -14863,6 +16249,23 @@ try {
     // FIX-P9-RACE: IIFE здесь НЕ закрываем — init должен идти ПОСЛЕ loadGame().
     // Закрытие перенесено в самый конец try-блока (после всех render*-вызовов).
     applyLanguage(currentLang);
+    // v5.3.66: актуальные правила Тропы + подсказка про CP.
+    // i18n в data-i18n.js содержит устаревший текст (51-я волна, «от медианы»,
+    // «3 героя» без 4-го слота). Перезаписываем поверх — идемпотентно.
+    (function refreshTrailRules() {
+        const RULES_RU = '<b>Задача</b><br>Собери отряд и пройди как можно глубже. Каждая волна — 3-4 карты, потом бой. Каждые 5 волн — босс (×1.6 БМ).<br><br><b>Карты</b><br>70% — герой из колоды (реальные уровень и звёзды), 25% — эликсир, 5% — артефакт. Стартовый ростер — 3 героя. 4-й слот открывается в мета-дереве за 6000 очков.<br><br><b>Синергия</b><br>3 героя одной стихии: +75%. 4 героя одной стихии: +100%. Трио + одиночка: +60%. Две пары: +50%.<br><br><b>Жизни</b><br>Старт — 5. Проиграл бой — минус жизнь. Жизни копятся без предела.<br><br><b>Враг</b><br>Сила врага растёт по тир-окну глубины — на 50-й идут A/S, на 80-й появляются SSS. Прокачивай героев — иначе упрёшься в стену.<br><br><b>Тир-окно</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>БМ в Тропе</b><br>Мягче, чем в Штабе: (уровень × 3%) × звёзды. Цифры БМ в Тропе не совпадают с БМ в картотеке — это осознанно для баланса забега.<br><br><b>Артефакты</b><br>Кровавый пакт: +15% БМ, −1 жизнь. Печать пустоты: эликсиры ×2. Печать охоты: 4 карты в пуле. Монета судьбы: 1 пропуск тройки за волну.<br><br><b>Пропуск</b><br>С Монетой судьбы — 1 раз за волну взять новые карты без потери права выбора.';
+        const RULES_EN = '<b>Goal</b><br>Build a squad and go as deep as possible. Each wave — 3-4 cards, then a fight. Every 5th wave — a boss (×1.6 CP).<br><br><b>Cards</b><br>70% — hero from deck (real level and stars), 25% — elixir, 5% — artifact. Starting roster — 3 heroes. 4th slot unlocks in meta-tree for 6000 points.<br><br><b>Synergy</b><br>3 same-faction heroes: +75%. 4 same-faction: +100%. Trio + single: +60%. Two pairs: +50%.<br><br><b>Lives</b><br>Start with 5. Lose a fight — lose a life. Lives stack without limit.<br><br><b>Enemy</b><br>Enemy power scales with the tier window of the depth — wave 50+ is A/S, wave 80+ has SSS. Upgrade heroes or hit a wall.<br><br><b>Tier window</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>Trail CP</b><br>Softer than HQ: (level × 3%) × stars. Trail CP is lower than Codex CP by design — the run is balanced for gradual growth.<br><br><b>Artifacts</b><br>Blood Pact: +15% CP, −1 life. Void Seal: elixirs ×2. Hunt Seal: 4 cards per pool. Coin of Fate: 1 skip per wave.<br><br><b>Skip</b><br>With Coin of Fate — 1 skip per wave to draw new cards without losing a pick.';
+        const CP_RU = 'БМ в Тропе считается по мягкой формуле (уровень × 3% × звёзды) — ниже, чем в картотеке. Так балансируется забег.';
+        const CP_EN = 'Trail CP uses a softer formula (level × 3% × stars) — lower than Codex CP. Balanced for the run.';
+        if (typeof I18N !== 'undefined' && I18N.RU) {
+            I18N.RU.trail_help_body = RULES_RU;
+            I18N.RU.trail_cp_hint = CP_RU;
+        }
+        if (typeof I18N !== 'undefined' && I18N.EN) {
+            I18N.EN.trail_help_body = RULES_EN;
+            I18N.EN.trail_cp_hint = CP_EN;
+        }
+    })();
     PlatformBridge.init();
     initMobileLongPressTooltips();
     initDesktopHoverTooltips();

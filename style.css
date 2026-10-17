@@ -267,6 +267,835 @@ html, body {
 #expedition-view {
     background: #0b0f17 url('assets/bg/expedition.webp') center / cover no-repeat;
 }
+/* v5.3.35: Тропа Бездны — отдельный экран roguelike-забега. */
+#trail-view {
+    background: #100810 url('assets/bg/trail.webp') center / cover no-repeat, radial-gradient(circle at 50% 0%, #2a0a24 0%, #0a050f 100%);
+}
+
+.trail-status-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(10, 14, 22, 0.9);
+    border: 1.5px solid rgba(244, 114, 182, 0.5);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: 'Cinzel', serif;
+    font-weight: 800;
+    font-size: 12.5px;
+    color: #fff;
+}
+.trail-bar-row-1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    flex-wrap: nowrap;
+}
+.trail-bar-row-2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(168, 85, 247, 0.25);
+    flex-wrap: wrap;
+}
+.trail-status-bar .trail-lives { color: #ef4444; letter-spacing: 2px; font-size: 14px; }
+.trail-status-bar .trail-score { color: var(--gold); }
+.trail-status-bar .trail-syn-badge {
+    display: inline-block;
+    background: rgba(168, 85, 247, 0.25);
+    border: 1px solid #a855f7;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #e9d5ff;
+    font-size: 10px;
+    font-weight: 900;
+    margin-left: 6px;
+    letter-spacing: 0.3px;
+}
+.trail-buffs-line {
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(245, 176, 65, 0.25);
+    font-size: 10.5px;
+    color: #94a3b8;
+    text-align: center;
+    letter-spacing: 0.3px;
+}
+/* v5.3.41: мета-дерево */
+.trail-meta-open-btn {
+    background: linear-gradient(180deg, #4a0724 0%, #2a0512 100%);
+    border: 1.5px solid #f472b6;
+    color: #fbcfe8;
+    font-family: 'Cinzel', serif;
+    font-size: 11.5px;
+    font-weight: 900;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 0 8px rgba(244, 114, 182, 0.35);
+    transition: transform 0.08s ease;
+}
+.trail-meta-open-btn:active { transform: scale(0.93); }
+.trail-meta-bank {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(10, 14, 22, 0.9);
+    border: 1.5px solid #a855f7;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: 'Cinzel', serif;
+    font-size: 12.5px;
+    font-weight: 800;
+    color: #e9d5ff;
+    margin-bottom: 6px;
+}
+.trail-meta-bank b { color: #fde047; font-size: 14px; }
+.trail-meta-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: rgba(10, 14, 22, 0.85);
+    border: 1px solid var(--border-metal);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 5px;
+}
+.trail-meta-info { flex: 1; min-width: 0; }
+.trail-meta-info b { color: #fff; font-size: 12.5px; display: block; }
+.trail-meta-desc { font-size: 10.5px; color: #cbd5e1; margin-top: 2px; line-height: 1.3; }
+.trail-meta-lvl { font-size: 10.5px; color: var(--gold); font-weight: 900; margin-top: 3px; }
+.trail-meta-buy {
+    font-size: 11.5px !important;
+    padding: 6px 12px !important;
+    min-height: 32px !important;
+    background: linear-gradient(180deg, #831843 0%, #4a0724 100%) !important;
+    border: 1.5px solid #f472b6 !important;
+    color: #fbcfe8 !important;
+    font-weight: 900 !important;
+}
+.trail-meta-buy.ready {
+    background: linear-gradient(180deg, #d97706 0%, #b45309 100%) !important;
+    border-color: var(--gold) !important;
+    color: #fff !important;
+    box-shadow: 0 0 10px var(--gold-glow) !important;
+}
+.trail-meta-buy:disabled { opacity: 0.5; cursor: not-allowed; }
+.trail-meta-max {
+    color: var(--gold);
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 4px 10px;
+}
+.trail-meta-exchange-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.trail-exchange-btn {
+    background: rgba(10, 14, 22, 0.9);
+    border: 1.5px solid var(--border-metal);
+    border-radius: 8px;
+    padding: 10px 6px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: transform 0.08s ease, border-color 0.15s ease;
+    font-family: inherit;
+}
+.trail-exchange-btn.ready {
+    border-color: var(--gold);
+    box-shadow: 0 0 8px rgba(245, 176, 65, 0.25);
+}
+.trail-exchange-btn:active { transform: scale(0.95); }
+.trail-exchange-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.trail-exchange-reward { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 900; color: #fff; }
+.trail-exchange-cost { font-size: 11px; color: var(--crystal); font-weight: 800; }
+
+/* v5.3.53: заголовок и кнопка. Отступ сверху увеличен — раньше прилипали к ростеру. */
+.trail-choose-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0 6px 0;
+    padding: 0 4px;
+}
+.trail-choose-header .section-title {
+    margin: 0 !important;
+    font-size: 12px !important;
+}
+.trail-skip-picks-btn {
+    background: #18202d;
+    border: 1.5px solid var(--border-metal);
+    color: #94a3b8;
+    font-family: 'Cinzel', serif;
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 0.4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: transform 0.08s ease, border-color 0.15s ease, color 0.15s ease;
+}
+/* v5.3.51: TCG-стиль эликсиров и артефактов — как у карт героев. */
+.trail-card-special {
+    position: relative;
+    overflow: hidden;
+}
+.trail-card-special-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+.trail-card-special-bg.elixir {
+    background: radial-gradient(circle at 50% 40%, #2e1a2a 0%, #100810 100%);
+}
+.trail-card-special-bg.artifact {
+    background: radial-gradient(circle at 50% 40%, #3b1e4e 0%, #1a0f24 100%);
+    animation: artifactShimmer 1.8s infinite alternate ease-in-out;
+}
+.trail-card-special-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 2;
+    font-family: 'Cinzel', serif;
+    font-size: 8.5px;
+    font-weight: 900;
+    color: #f472b6;
+    background: rgba(5,7,12,0.85);
+    border: 1px solid #f472b6;
+    border-radius: 3px;
+    padding: 1px 5px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+.trail-card-special-badge.artifact {
+    color: #c084fc;
+    border-color: #c084fc;
+}
+.trail-card.trail-card-special .trail-card-elem {
+    width: 26px !important;
+    height: 26px !important;
+    top: 4px !important;
+    left: 4px !important;
+    z-index: 3 !important;
+}
+.trail-card.trail-card-special .trail-card-elem img {
+    width: 18px !important;
+    height: 18px !important;
+}
+.trail-card-artifact-elem {
+    font-size: 16px !important;
+    color: #e9d5ff !important;
+    background: rgba(5,7,12,0.85) !important;
+    border: 1px solid #c084fc !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    filter: drop-shadow(0 0 6px #a855f7) !important;
+}
+.trail-card.trail-card-special .trail-card-overlay {
+    background: linear-gradient(0deg, rgba(5,7,12,0.98) 0%, rgba(5,7,12,0.7) 70%, rgba(5,7,12,0) 100%) !important;
+}
+.trail-skip-picks-btn:active {
+    transform: scale(0.94);
+    border-color: var(--gold);
+    color: var(--gold);
+}
+/* v5.3.51: реролл удалён — функция заменена кнопкой «ПРОПУСТИТЬ». */
+/* v5.3.51: старые стили артефактов удалены — переехали в .trail-card-special. */
+@keyframes artifactShimmer {
+    0% { box-shadow: 0 0 8px rgba(168, 85, 247, 0.5); }
+    100% { box-shadow: 0 0 22px rgba(168, 85, 247, 0.95), 0 0 32px rgba(192, 132, 252, 0.4); }
+}
+.trail-artifacts-line {
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(168, 85, 247, 0.25);
+    font-size: 10.5px;
+    color: #c084fc;
+    text-align: center;
+    font-weight: 700;
+    line-height: 1.4;
+}
+.trail-help-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #141a24;
+    border: 1.5px solid var(--gold);
+    color: var(--gold);
+    font-family: 'Cinzel', serif;
+    font-size: 15px;
+    font-weight: 900;
+    cursor: pointer;
+}
+.trail-help-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #d8dde6;
+    text-align: left;
+    padding: 8px 4px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.trail-card-elem {
+    position: absolute;
+    top: 26px;
+    left: 4px;
+    width: 22px;
+    height: 22px;
+    background: rgba(5,7,12,0.85);
+    border: 1px solid var(--border-metal);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.trail-card-elem img {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    filter: brightness(1.5) contrast(1.15);
+}
+.trail-card-stats {
+    font-size: 9.5px;
+    color: #cbd5e1;
+    margin-top: 2px;
+    font-weight: 700;
+}
+.trail-slot-empty-pulse {
+    animation: ftueBadgePulse 1.8s infinite alternate ease-in-out;
+    border-color: var(--gold) !important;
+    color: var(--gold) !important;
+}
+/* v5.3.43: слот, который будет заменён следующей картой, пульсирует красным. */
+/* v5.3.64: ВОЗВРАТ v5.3.53 без скачков.
+   Единственное изменение: box-shadow списки теперь одинаковой длины (4 vs 4),
+   filter имеет одинаковый набор функций (brightness + drop-shadow в обоих кадрах).
+   В 0% добавлены «нулевые» слои — они прозрачные/нулевого размера, не видны,
+   но обеспечивают плавную интерполяцию по спецификации CSS.
+   Визуал 100% и 0% идентичен v5.3.53. */
+.trail-slot-replace-target {
+    animation: replaceSlotPulse 1.4s infinite alternate ease-in-out !important;
+    z-index: 5 !important;
+    border-color: #fde047 !important;
+}
+@keyframes replaceSlotPulse {
+    0% {
+        box-shadow: inset 0 0 0 2px #ffffff, 0 0 10px rgba(245, 176, 65, 0.7), 0 0 0 rgba(253, 224, 71, 0), inset 0 0 8px rgba(245, 176, 65, 0.3);
+        filter: brightness(1) drop-shadow(0 0 0 transparent);
+    }
+    100% {
+        box-shadow: inset 0 0 0 3px #fde047, 0 0 22px rgba(245, 176, 65, 1), 0 0 34px rgba(253, 224, 71, 0.55), inset 0 0 14px rgba(245, 176, 65, 0.5);
+        filter: brightness(1.25) drop-shadow(0 0 6px rgba(253, 224, 71, 0.7));
+    }
+}
+
+/* v5.3.40: экран game over — награды и рекорды */
+.trail-rewards-title {
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 900;
+    color: var(--gold);
+    text-align: center;
+    margin: 12px 0 6px 0;
+    letter-spacing: 0.5px;
+    text-shadow: 0 0 8px var(--gold-glow);
+}
+.trail-records-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    background: rgba(10, 14, 22, 0.85);
+    border: 1px solid var(--border-metal);
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+.trail-record-row {
+    display: grid;
+    grid-template-columns: 24px 1fr 60px 44px;
+    gap: 6px;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #cbd5e1;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(40, 51, 68, 0.4);
+}
+.trail-record-row:last-child { border-bottom: none; }
+.trail-record-row.current {
+    background: rgba(245, 176, 65, 0.12);
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+.trail-status-bar .trail-depth { color: #f472b6; }
+.trail-status-bar .trail-record-live {
+    color: #fde047;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    margin-left: 6px;
+    text-shadow: 0 0 6px rgba(253, 224, 71, 0.7);
+    animation: ftueBadgePulse 1.4s infinite alternate ease-in-out;
+}
+.trail-finish-btn {
+    background: rgba(20, 26, 36, 0.95);
+    border: 1.5px solid #ef4444;
+    color: #fca5a5;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: transform 0.08s ease, background 0.15s ease;
+}
+.trail-finish-btn:active {
+    transform: scale(0.92);
+    background: #7f1d1d;
+    border-color: #fff;
+}
+
+.trail-party-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: 6px 0;
+    min-height: 120px;
+}
+.trail-party-slot {
+    background: #0a0d14;
+    border: 1.5px dashed var(--border-metal);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+}
+.trail-party-slot.filled {
+    border-style: solid;
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+}
+.trail-party-slot img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.trail-party-slot .trail-slot-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(0deg, rgba(5,7,12,0.98) 0%, rgba(5,7,12,0.7) 70%, transparent 100%);
+    padding: 10px 4px 4px 4px;
+    text-align: center;
+}
+
+.trail-party-slot .trail-slot-name {
+    font-family: 'Cinzel', serif;
+    font-size: 10.5px;
+    font-weight: 900;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.trail-party-slot .trail-slot-tier {
+    font-size: 9.5px;
+    color: var(--gold);
+    font-weight: 800;
+}
+
+.trail-cards-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 8px 0;
+}
+/* v5.3.53: карты пула — всегда в один ряд (как в ростере).
+   3 карты → 3 колонки, 4 карты (Печать охоты) → 4 колонки. */
+.trail-cards-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px;
+}
+.trail-cards-row.cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px;
+}
+.trail-cards-row .trail-card {
+    aspect-ratio: 3 / 4;
+    width: 100%;
+}
+/* v5.3.43: TCG-карты в Тропе (роутер и выбор) — единый стиль с картотекой. */
+.trail-party-row .tcg-card.trail-tcg-slot,
+.trail-cards-row .tcg-card.trail-tcg-choice {
+    aspect-ratio: 3 / 4;
+    height: auto !important;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+.trail-cards-row .tcg-card.trail-tcg-choice:active {
+    transform: scale(0.94);
+}
+.trail-party-row .tcg-card.trail-tcg-slot.trail-slot-replace-target {
+    animation: replaceSlotPulse 1.4s infinite alternate ease-in-out !important;
+    border-color: #ef4444 !important;
+}
+/* Иконка стихии вместо роли (в левом верхнем углу карты). */
+.trail-elem-badge {
+    width: 22px;
+    height: 22px;
+    background: rgba(5, 7, 12, 0.85);
+    border: 1px solid var(--border-metal);
+    border-radius: 50%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+}
+.trail-elem-badge img {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    filter: brightness(1.5) contrast(1.15);
+}
+/* Компактнее для 4-слотового ростера. */
+.trail-party-row .tcg-card.trail-tcg-slot .tcg-header {
+    padding: 4px 4px 10px 4px;
+}
+.trail-party-row .tcg-card.trail-tcg-slot .tcg-name,
+.trail-cards-row .tcg-card.trail-tcg-choice .tcg-name {
+    font-size: 10.5px;
+}
+.trail-party-row .tcg-card.trail-tcg-slot .tcg-stats,
+.trail-cards-row .tcg-card.trail-tcg-choice .tcg-stats {
+    font-size: 9.5px;
+}
+.trail-card-hint {
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 2px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    line-height: 1.3;
+}
+.trail-card-hint.replace {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+.trail-card-hint.add {
+    color: #86efac;
+    background: rgba(34, 197, 94, 0.2);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+}
+.trail-card {
+    aspect-ratio: 3 / 4;
+    background: #080b12;
+    border: 2px solid var(--border-metal);
+    border-radius: 9px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+/* v5.3.44: TCG-стилизация карт выбора в Тропе.
+   HTML не переписывали (структура .trail-card-art/.trail-card-tier-badge/
+   .trail-card-elem/.trail-card-overlay уже включает нужные элементы) —
+   поэтому просто раскладываем существующие классы по слоям как в .tcg-card. */
+.trail-card.tcg-style {
+    background: #090d14 !important;
+    border-width: 1.5px !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6) !important;
+}
+.trail-card.tcg-style:active {
+    transform: scale(0.94);
+}
+.trail-card.tcg-style .trail-card-art {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 1 !important;
+}
+.trail-card.tcg-style .trail-card-art img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: inherit;
+}
+.trail-card.tcg-style .trail-card-tier-badge {
+    position: absolute !important;
+    top: 4px !important;
+    right: 4px !important;
+    left: auto !important;
+    z-index: 2 !important;
+    font-family: 'Cinzel', serif !important;
+    font-weight: 900 !important;
+    font-size: 11px !important;
+    background: rgba(5,7,12,0.85) !important;
+    border: 1.5px solid currentColor !important;
+    border-radius: 4px !important;
+    padding: 1px 5px !important;
+}
+.trail-card.tcg-style .trail-card-elem {
+    position: absolute !important;
+    top: 4px !important;
+    left: 4px !important;
+    width: 22px !important;
+    height: 22px !important;
+    background: rgba(5,7,12,0.85) !important;
+    border: 1px solid var(--border-metal) !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 2 !important;
+}
+.trail-card.tcg-style .trail-card-elem img {
+    width: 15px !important;
+    height: 15px !important;
+    object-fit: contain !important;
+    filter: brightness(1.5) contrast(1.15) !important;
+}
+/* v5.3.45: звёзды в правом верхнем углу карты выбора (перенесены из нижней
+   полосы). Переносим только для карточек пула — в ростере своя раскладка. */
+.trail-cards-row .trail-card.tcg-style .trail-card-stars {
+    position: absolute !important;
+    top: 4px !important;
+    right: 4px !important;
+    z-index: 2 !important;
+    background: rgba(5, 7, 12, 0.85) !important;
+    border: 1px solid var(--border-metal) !important;
+    border-radius: 4px !important;
+    padding: 1px 5px !important;
+    font-size: 10px !important;
+    letter-spacing: 0.3px !important;
+    color: var(--gold) !important;
+    text-shadow: 0 0 6px var(--gold-glow) !important;
+    white-space: nowrap !important;
+    max-width: 72px !important;
+    overflow: hidden !important;
+    text-overflow: clip !important;
+    line-height: 1.3 !important;
+}
+.trail-card.tcg-style .trail-card-overlay {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    z-index: 2 !important;
+    background: linear-gradient(0deg, rgba(5,7,12,0.98) 0%, rgba(5,7,12,0.82) 65%, rgba(5,7,12,0) 100%) !important;
+    padding: 14px 5px 6px 5px !important;
+    text-align: center !important;
+}
+.trail-card.tcg-style .trail-card-name {
+    font-family: 'Cinzel', serif !important;
+    font-size: 10.5px !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+    text-shadow: 0 2px 5px #000, 0 0 8px currentColor !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    width: 100% !important;
+}
+.trail-card.tcg-style .trail-card-stats {
+    font-size: 9.5px !important;
+    color: #cbd5e1 !important;
+    font-weight: 700 !important;
+    text-shadow: 0 1px 3px #000 !important;
+    margin-top: 1px !important;
+}
+.trail-card.tcg-style .trail-card-sub {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    margin-top: 2px !important;
+    padding: 1px 5px !important;
+    border-radius: 3px !important;
+    background: rgba(5,7,12,0.7) !important;
+}
+.trail-card:active { transform: scale(0.95); }
+.trail-card .trail-card-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.trail-card .trail-card-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.trail-card .trail-card-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(0deg, rgba(5,7,12,0.98) 0%, rgba(5,7,12,0.75) 65%, transparent 100%);
+    padding: 14px 5px 6px 5px;
+    text-align: center;
+}
+.trail-card .trail-card-name {
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1.15;
+    text-shadow: 0 1px 3px #000;
+}
+.trail-card .trail-card-sub {
+    font-size: 10px;
+    color: #cbd5e1;
+    margin-top: 2px;
+}
+.trail-card .trail-card-tier-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    background: rgba(5,7,12,0.9);
+    border: 1.5px solid currentColor;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: 'Cinzel', serif;
+    font-weight: 900;
+    font-size: 10.5px;
+}
+
+/* v5.3.51: старые стили эликсиров удалены — переехали в .trail-card-special. */
+
+.trail-fight-card {
+    background: rgba(10, 14, 22, 0.9);
+    border: 1.5px solid #ef4444;
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+}
+.trail-fight-enemy-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.trail-fight-enemy-slot {
+    aspect-ratio: 3 / 4;
+    background: #0a0d14;
+    border: 1.5px solid var(--border-metal);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+.trail-fight-enemy-slot img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.trail-fight-enemy-slot .trail-slot-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(0deg, rgba(5,7,12,0.98) 0%, transparent 100%);
+    padding: 8px 3px 3px 3px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 900;
+    color: #fff;
+}
+.trail-fight-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    background: rgba(10, 14, 22, 0.9);
+    border: 1px solid var(--border-metal);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+.trail-fight-stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.trail-fight-stats-row.player { color: #4ade80; }
+.trail-fight-stats-row.enemy { color: #f87171; }
+
+.trail-result-box {
+    background: rgba(10, 14, 22, 0.95);
+    border: 2px solid var(--gold);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+}
+.trail-result-box.defeat {
+    border-color: #ef4444;
+}
+.trail-result-title {
+    font-family: 'Cinzel', serif;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: var(--gold);
+    text-shadow: 0 0 14px var(--gold-glow);
+}
+.trail-result-box.defeat .trail-result-title {
+    color: #ef4444;
+    text-shadow: 0 0 14px rgba(239, 68, 68, 0.6);
+}
+.trail-gameover-crest {
+    font-size: 42px;
+    text-align: center;
+    filter: drop-shadow(0 0 12px #f472b6);
+}
+
+.btn-hub-enter.trail {
+    background: linear-gradient(180deg, #831843 0%, #4a0724 100%) !important;
+    border: 1.5px solid #f472b6 !important;
+    color: #fbcfe8 !important;
+    box-shadow: 0 0 12px rgba(244, 114, 182, 0.45) !important;
+}
+.hub-trail-banner {
+    background: linear-gradient(90deg, rgba(30, 8, 24, 0.96) 0%, rgba(30, 8, 24, 0.78) 52%, rgba(30, 8, 24, 0.2) 100%),
+                url('assets/bg/trail.webp') right center / cover no-repeat !important;
+    border: 1.5px solid rgba(244, 114, 182, 0.65) !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8), 0 0 16px rgba(244, 114, 182, 0.25) !important;
+}
+.hub-trail-banner .hub-icon-wrap {
+    border-color: rgba(244, 114, 182, 0.4) !important;
+}
 #raid-view {
     background: #170a0a url('assets/bg/raid.webp') center / cover no-repeat;
 }
@@ -5358,6 +6187,44 @@ img[src*="trophy.webp"] {
     padding-bottom: 4px;
     margin-bottom: 2px;
 }
+/* v5.3.43: кнопки ← → для быстрого перелистывания карточек в инспекторе. */
+.inspect-nav-btn {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    padding: 0 !important;
+    font-size: 20px;
+    font-weight: 900;
+    background: #18202d;
+    border: 1.5px solid var(--gold);
+    color: var(--gold);
+    border-radius: 8px;
+    display: none;
+    line-height: 1;
+}
+.inspect-nav-btn:active {
+    transform: scale(0.92);
+    background: var(--gold);
+    color: #0b0f17;
+}
+/* v5.3.43: фиолетовая точка на карте в картотеке, если у героя ≥100 осколков. */
+/* v5.3.43-FIX: z-index 10 перебивает .tcg-header (z-index 2), иначе бейдж скрыт. */
+.shards-ready-badge {
+    display: block !important;
+    z-index: 10;
+    top: 4px;
+    left: 4px;
+    right: auto;
+    width: 12px;
+    height: 12px;
+    background: #a855f7;
+    box-shadow: 0 0 8px rgba(168, 85, 247, 1), 0 0 4px rgba(255,255,255,0.6);
+    animation: shardsBadgePulse 1.2s infinite alternate ease-in-out;
+}
+@keyframes shardsBadgePulse {
+    from { transform: scale(0.9); filter: brightness(1); }
+    to { transform: scale(1.2); filter: brightness(1.4); }
+}
 
 /* 3D Перспектива */
 .inspect-card-perspective-container {
@@ -5584,6 +6451,11 @@ img[src*="trophy.webp"] {
     font-weight: 900;
     font-family: 'Cinzel', serif;
     padding: 8px 16px;
+}
+/* v5.3.44: кнопка «ПОГЛОТИТЬ 100» пульсирует фиолетовым, когда доступна. */
+#btn-shards-upgrade:not([disabled]) {
+    animation: ftueBadgePulse 1.4s infinite alternate ease-in-out;
+    box-shadow: 0 0 14px rgba(168, 85, 247, 0.7) !important;
 }
 
 /* Модалка Пробуждения Мастерства (G8/G9) */
