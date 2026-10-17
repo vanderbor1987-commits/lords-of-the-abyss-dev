@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.73';
+const BUILD_VERSION = '5.3.74';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -14424,10 +14424,7 @@ function applyTrailTooltips() {
     for (let i = 0; i < _slotCps.length; i++) {
         if (_slotCps[i].getAttribute('title') !== hint) _slotCps[i].setAttribute('title', hint);
     }
-    const _choiceStats = document.querySelectorAll('.trail-cards-row .trail-card-stats');
-    for (let i = 0; i < _choiceStats.length; i++) {
-        if (_choiceStats[i].getAttribute('title') !== hint) _choiceStats[i].setAttribute('title', hint);
-    }
+
 }
 
 function _rerollTrailTargetSlot(run) {
@@ -14925,7 +14922,7 @@ function renderTrailUI() {
                     '</div>' +
                     '<div class="tcg-footer-meta">' +
                         '<div class="tcg-name" style="color:' + tColor + ';">[' + h.tier + '] ' + (h.name[L] || h.name['EN']) + '</div>' +
-                        '<div class="tcg-stats">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + (_card.lvl || 1) + ' | ' + _cpLabel + ': ' + formatNumber(_cpInTrail) + '</div>' +
+                        '<div class="tcg-stats trail-slot-cp">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + (_card.lvl || 1) + ' | ' + _cpLabel + ': ' + formatNumber(_cpInTrail) + '</div>' +
                     '</div>' +
                 '</div>';
         } else {
@@ -15778,7 +15775,7 @@ function initDesktopHoverTooltips() {
             target.removeAttribute('title');
 
             positionTip(tip, target);
-        }, 180);
+        }, 2000);
     }, true);
 
     document.addEventListener('mouseout', (e) => {
