@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.74';
+const BUILD_VERSION = '5.3.75';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -14422,7 +14422,7 @@ function applyTrailTooltips() {
     if (!hint) return;
     const _slotCps = document.querySelectorAll('.trail-party-row .trail-slot-cp');
     for (let i = 0; i < _slotCps.length; i++) {
-        if (_slotCps[i].getAttribute('title') !== hint) _slotCps[i].setAttribute('title', hint);
+        if (_slotCps[i].getAttribute('data-title') !== hint) _slotCps[i].setAttribute('data-title', hint);
     }
 
 }
@@ -14982,7 +14982,7 @@ function renderTrailChoosing(panel, run, L, I) {
                     '<div class="trail-card-stars">' + formatHeroStars(_card.stars || 1) + '</div>' +
                     '<div class="trail-card-overlay">' +
                         '<div class="trail-card-name" style="color:' + tColor + ';"><span style="color:' + tColor + '; margin-right:3px;">[' + h.tier + ']</span>' + (h.name[L] || h.name['EN']) + '</div>' +
-                        '<div class="trail-card-stats" title="' + (I.trail_cp_hint || '') + '">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + _card.lvl + ' · ' + formatNumber(_cpInTrail) + (L === 'RU' ? ' БМ' : ' CP') + '</div>' +
+                        '<div class="trail-card-stats">' + (L === 'RU' ? 'Ур.' : 'Lvl') + ' ' + _card.lvl + ' · ' + formatNumber(_cpInTrail) + (L === 'RU' ? ' БМ' : ' CP') + '</div>' +
                         replaceHint +
                     '</div>' +
                 '</div>';
@@ -15715,15 +15715,17 @@ function initDesktopHoverTooltips() {
     let activeTip = null;
     let activeTarget = null;
     let stashedTitle = null;
+    let _stashAttr = null;
 
     const removeTip = () => {
         if (showTimer) { clearTimeout(showTimer); showTimer = null; }
         if (activeTip) { activeTip.remove(); activeTip = null; }
-        if (activeTarget && stashedTitle !== null) {
-            activeTarget.setAttribute('title', stashedTitle);
+        if (activeTarget && stashedTitle !== null && _stashAttr) {
+            activeTarget.setAttribute(_stashAttr, stashedTitle);
         }
         activeTarget = null;
         stashedTitle = null;
+        _stashAttr = null;
     };
 
     const positionTip = (tip, target) => {
@@ -15748,7 +15750,7 @@ function initDesktopHoverTooltips() {
     };
 
     document.addEventListener('mouseover', (e) => {
-        const target = e.target && e.target.closest && e.target.closest('[title]');
+        const target = e.target && e.target.closest && e.target.closest('[title], [data-title]');
         if (!target) return;
         if (target.id === 'tap-node' || target.closest('.citadel-bottom-tap-zone')) return;
         const tag = (target.tagName || '').toLowerCase();
@@ -15757,8 +15759,13 @@ function initDesktopHoverTooltips() {
 
         removeTip();
         activeTarget = target;
-        const text = target.getAttribute('title');
+        const _hasRealTitle = target.hasAttribute('title');
+        const text = _hasRealTitle ? target.getAttribute('title') : target.getAttribute('data-title');
         if (!text) return;
+
+        stashedTitle = text;
+        _stashAttr = _hasRealTitle ? 'title' : 'data-title';
+        target.removeAttribute(_stashAttr);
 
         showTimer = setTimeout(() => {
             showTimer = null;
@@ -15770,10 +15777,6 @@ function initDesktopHoverTooltips() {
             tip.style.left = '-9999px';
             document.body.appendChild(tip);
             activeTip = tip;
-
-            stashedTitle = text;
-            target.removeAttribute('title');
-
             positionTip(tip, target);
         }, 2000);
     }, true);
