@@ -3608,6 +3608,9 @@ img[src*="trophy.webp"] {
 .tcg-card > * {
     pointer-events: none;
 }
+.tcg-card .trail-slot-cp {
+    pointer-events: auto;
+}
 .tcg-card:active { transform: scale(0.96); }
 .tcg-card.unowned { opacity: 0.35; filter: grayscale(0.85); }
 
