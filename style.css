@@ -6026,6 +6026,7 @@ img[src*="trophy.webp"] {
     position: relative;
     transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
     transform-style: preserve-3d;
+    will-change: transform;
 }
 
 /* Класс для перевернутой карты (лицом вверх) */
@@ -7400,6 +7401,21 @@ img[src*="trophy.webp"] {
     .header-circle-btn,
     .top-sys-btn {
         transition: transform 0.05s ease, filter 0.05s ease !important;
+    }
+
+    /* 5. Отключаем тяжелые анимации аур в бою на тачах */
+    .battle-tcg-card.synergy-aura-light,
+    .battle-tcg-card.synergy-aura-undead,
+    .battle-tcg-card.synergy-aura-chaos,
+    .battle-tcg-card.synergy-aura-demon {
+        animation: none !important;
+    }
+
+    /* 6. Убираем backdrop-filter у модалки призыва (самая тяжелая для GPU) */
+    .gacha-window {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background-color: rgba(13, 17, 24, 0.98) !important;
     }
 }
 

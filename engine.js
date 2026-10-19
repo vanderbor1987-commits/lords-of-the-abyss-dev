@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.77';
+const BUILD_VERSION = '5.3.80';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -5584,16 +5584,23 @@ async function requestSummonLock() {
     if (!canSubmitToLiveArena()) return { ok: true, reason: 'standalone' };
     const query = getLaunchQuery();
     const deviceId = getOrCreateDeviceId();
+    let _ctrl = null;
+    let _tId = null;
     try {
+        _ctrl = new AbortController();
+        _tId = setTimeout(() => _ctrl.abort(), 4000);
         const resp = await fetch(`${WORKER_BASE_URL}/summon/lock`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, deviceId })
+            body: JSON.stringify({ query, deviceId }),
+            signal: _ctrl.signal
         });
+        if (_tId) clearTimeout(_tId);
         const data = await resp.json();
         if (data && typeof data.ok === 'boolean') return data;
         return { ok: true, reason: 'bad_response' };
     } catch (e) {
+        if (_tId) clearTimeout(_tId);
         return { ok: true, reason: 'network' };
     }
 }
@@ -14261,18 +14268,8 @@ function pickTrailHeroId(depth, excludeIds) {
     if (ownedHeroes.length === 0) return null;
 
     const TIERS_ORDER = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
-    let windowTiers = getTrailTierWindow(depth);
-    let lowScan = TIERS_ORDER.indexOf(windowTiers[0]);
-    let highScan = TIERS_ORDER.indexOf(windowTiers[windowTiers.length - 1]);
-    let matchedPool = ownedHeroes.filter(h => windowTiers.indexOf(h.tier) >= 0);
-    let step = 0;
-    while (matchedPool.length === 0 && step < 10) {
-        step++;
-        lowScan = Math.max(0, lowScan - 1);
-        highScan = Math.min(TIERS_ORDER.length - 1, highScan + 1);
-        const expanded = TIERS_ORDER.slice(lowScan, highScan + 1);
-        matchedPool = ownedHeroes.filter(h => expanded.indexOf(h.tier) >= 0);
-    }
+    const windowTiers = getTrailTierWindow(depth);
+    const matchedPool = ownedHeroes.filter(h => windowTiers.indexOf(h.tier) >= 0);
     if (matchedPool.length === 0) return null;
     return matchedPool[Math.floor(Math.random() * matchedPool.length)].id;
 }
@@ -14354,9 +14351,10 @@ function generateTrailCards(depth, roster, forcedTargetSlot) {
     const forceFirst = emptyRoster || depth <= 2;
     const exclude = (roster || []).filter(Boolean).slice();
     const _fullRoster = roster && roster.indexOf(null) === -1;
-    const _targetSlot = (typeof forcedTargetSlot === 'number')
-        ? forcedTargetSlot
-        : (_fullRoster ? Math.floor(Math.random() * roster.length) : null);
+    let _targetSlot = null;
+    if (forcedTargetSlot === -1) _targetSlot = -1;
+    else if (typeof forcedTargetSlot === 'number') _targetSlot = forcedTargetSlot;
+    else if (_fullRoster) _targetSlot = Math.floor(Math.random() * roster.length);
     // v5.3.49: Печать охоты даёт 4 карты вместо 3.
     const _run = gState.trailRun;
     const _hasHuntSeal = !!(_run && _run.artifacts && _run.artifacts.hunt_seal);
@@ -14364,12 +14362,18 @@ function generateTrailCards(depth, roster, forcedTargetSlot) {
     let _artifactUsed = false;
     const cards = [];
     for (let i = 0; i < _cardCount; i++) {
-        const c = generateTrailCard(depth, forceFirst, exclude, !_artifactUsed);
-        if (c.type === 'hero') {
-            exclude.push(c.heroId);
-            c.targetSlot = _targetSlot;
+        let c;
+        if (_targetSlot === -1) {
+            const _elx = pickTrailElixir();
+            c = { type: 'elixir', elixirType: _elx || 'life' };
+        } else {
+            c = generateTrailCard(depth, forceFirst, exclude, !_artifactUsed);
+            if (c.type === 'hero') {
+                exclude.push(c.heroId);
+                c.targetSlot = _targetSlot;
+            }
+            if (c.type === 'artifact') _artifactUsed = true;
         }
-        if (c.type === 'artifact') _artifactUsed = true;
         cards.push(c);
     }
     return cards;
@@ -14446,7 +14450,24 @@ function _rerollTrailTargetSlot(run) {
     if (!run) return;
     const _rosterLen = Array.isArray(run.roster) ? run.roster.length : 3;
     const _isFull = run.roster.indexOf(null) === -1;
-    run.currentTargetSlot = _isFull ? Math.floor(Math.random() * _rosterLen) : null;
+    if (!_isFull) {
+        run.currentTargetSlot = null;
+        return;
+    }
+    const _windowTiers = getTrailTierWindow(run.depth || 1);
+    const _maxTierIdx = Math.max(..._windowTiers.map(t => TIER_ORDER[t] || 0));
+    const _validSlots = [];
+    for (let i = 0; i < _rosterLen; i++) {
+        const hid = run.roster[i];
+        if (!hid) { _validSlots.push(i); continue; }
+        const hTier = HEROES_CATALOG[hid] ? (TIER_ORDER[HEROES_CATALOG[hid].tier] || 0) : 0;
+        if (hTier <= _maxTierIdx) _validSlots.push(i);
+    }
+    if (_validSlots.length > 0) {
+        run.currentTargetSlot = _validSlots[Math.floor(Math.random() * _validSlots.length)];
+    } else {
+        run.currentTargetSlot = -1;
+    }
 }
 
 function startTrailRun() {
@@ -14619,6 +14640,7 @@ function pickTrailCard(cardIdx) {
     const card = run.cards[cardIdx];
     if (!card) return;
     if (card.type === 'hero') {
+        if (run.currentTargetSlot === -1) return;
         let slotIdx;
         if (typeof run.currentTargetSlot === 'number' && run.currentTargetSlot >= 0 && run.currentTargetSlot < run.roster.length) {
             slotIdx = run.currentTargetSlot;
