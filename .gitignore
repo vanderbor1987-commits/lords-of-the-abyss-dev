@@ -4,3 +4,5 @@ applied/
 .vscode/
 patches.json
 SYSTEM INSTRUCTIONS.txt
+.roo/
+.rooignore
