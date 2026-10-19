@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.93';
+const BUILD_VERSION = '5.3.95';
 const BUILD_DATE = '19.10.2026';
 
 // ==========================================================
@@ -151,6 +151,7 @@ let gState = {
     // heroShards — именные осколки: 100 осколков героя X = +1★ X.
     // trailRecords — топ-5 личных рекордов [{score, depth, roster, date, ts}].
     trailPoints: 0,
+    trailDailyClaimedDate: '',
     heroShards: {},
     trailRecords: [],
     // v5.3.41: мета-дерево Тропы — постоянные бонусы за очки.
@@ -14247,7 +14248,138 @@ function grantTrailRewards(run) {
     gState.trailRecords = gState.trailRecords.slice(0, 5);
     run.rewardsGranted = true;
     run.rewards = rw;
+
+    // v5.3.95: суточный рейтинг — отправляем результат на сервер
+    if (typeof submitTrailScore === 'function') {
+        submitTrailScore(run.score, run.depth);
+    }
+
     return rw;
+}
+
+async function submitTrailScore(score, depth) {
+    if (!canSubmitToLiveArena()) return;
+    const query = getLaunchQuery();
+    const name = (gState.playerName || 'Duke Valdor').slice(0, 12);
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/trail/submit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, name, score, depth })
+        });
+        const data = await resp.json();
+        if (data && data.ok && data.rank) {
+            if (DEV_MODE_CHECK()) devLog('[Trail] Daily score submitted, rank:', data.rank);
+        }
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[Trail] Daily submit failed:', e);
+    }
+}
+
+function openTrailDailyModal() {
+    const m = document.getElementById('trail-daily-modal');
+    if (m) m.style.display = 'flex';
+    renderTrailDailyLeaderboard(null);
+    fetchTrailDailyLeaderboard();
+}
+
+function closeTrailDailyModal() {
+    const m = document.getElementById('trail-daily-modal');
+    if (m) m.style.display = 'none';
+}
+
+async function fetchTrailDailyLeaderboard() {
+    if (!canSubmitToLiveArena()) {
+        renderTrailDailyLeaderboard([]);
+        return;
+    }
+    const query = getLaunchQuery();
+    try {
+        const resp = await fetch(`${WORKER_BASE_URL}/trail/daily`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.entries)) {
+            renderTrailDailyLeaderboard(data.entries);
+        } else {
+            renderTrailDailyLeaderboard([]);
+        }
+    } catch (e) {
+        renderTrailDailyLeaderboard([]);
+    }
+}
+
+function renderTrailDailyLeaderboard(entries) {
+    const list = document.getElementById('trail-daily-list');
+    if (!list) return;
+    if (!entries) {
+        list.innerHTML = `<div style="text-align:center; color:var(--text-muted); padding:20px;">Загрузка...</div>`;
+        return;
+    }
+    if (entries.length === 0) {
+        list.innerHTML = `<div style="text-align:center; color:var(--text-muted); padding:20px; font-style:italic;">${I18N[currentLang]?.trail_daily_empty || 'Пока никто не завершил забег.'}</div>`;
+        return;
+    }
+
+    const myUid = getCurrentVkUserId();
+    const today = new Date().toISOString().slice(0, 10);
+    const claimed = gState.trailDailyClaimedDate === today;
+
+    list.innerHTML = '';
+    entries.forEach((e, idx) => {
+        const isMe = e.uid === myUid;
+        const rank = idx + 1;
+        let rewardHtml = '';
+        if (isMe) {
+            if (claimed) {
+                rewardHtml = `<span style="color:var(--text-muted); font-size:11px; font-weight:800;">${I18N[currentLang]?.trail_daily_claimed_btn || 'ПОЛУЧЕНО'}</span>`;
+            } else {
+                rewardHtml = `<button class="btn-action" style="padding:2px 8px; font-size:11px; min-height:24px; background:var(--green); border-color:#22c55e;" onclick="claimTrailDailyReward(${rank})">${I18N[currentLang]?.trail_daily_claim_btn || 'ЗАБРАТЬ'}</button>`;
+            }
+        }
+
+        const row = document.createElement('div');
+        row.className = `trail-daily-row ${isMe ? 'me' : ''}`;
+        row.innerHTML = `
+            <span style="color:var(--gold); width:20px; text-align:center;">#${rank}</span>
+            <div class="trail-daily-name">${escapeHtml(e.name)}${isMe ? ' <span style="font-size:10px; color:var(--text-muted);">(Вы)</span>' : ''}</div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+                <span class="trail-daily-score">${e.score} очк.</span>
+                <span class="trail-daily-depth">Волна ${e.depth}</span>
+            </div>
+            ${isMe ? `<div style="margin-left:6px;">${rewardHtml}</div>` : ''}
+        `;
+        list.appendChild(row);
+    });
+}
+
+function claimTrailDailyReward(rank) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (gState.trailDailyClaimedDate === today) return;
+    
+    let reward = 0;
+    if (rank === 1) reward = 100;
+    else if (rank <= 3) reward = 50;
+    else if (rank <= 5) reward = 25;
+    
+    if (reward > 0) {
+        gState.crystals = (gState.crystals || 0) + reward;
+        gState.trailDailyClaimedDate = today;
+        playCoinSfx();
+        triggerHaptic('legendary');
+        const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+        pushToast(currentLang === 'RU' ? `НАГРАДА РЕЙТИНГА: +${reward} ${cI}` : `LEADERBOARD REWARD: +${reward} ${cI}`);
+        saveGame();
+        renderUI();
+        
+        // Перерисовываем модалку, чтобы кнопка сменилась на "ПОЛУЧЕНО"
+        const list = document.getElementById('trail-daily-list');
+        if (list) {
+            fetchTrailDailyLeaderboard();
+        }
+    }
 }
 
 function trailSynergyMult(roster) {
@@ -14302,8 +14434,14 @@ function pickTrailHeroId(depth, excludeIds) {
     const TIERS_ORDER = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
     const windowTiers = getTrailTierWindow(depth);
     const matchedPool = ownedHeroes.filter(h => windowTiers.indexOf(h.tier) >= 0);
-    if (matchedPool.length === 0) return null;
-    return matchedPool[Math.floor(Math.random() * matchedPool.length)].id;
+    if (matchedPool.length > 0) return matchedPool[Math.floor(Math.random() * matchedPool.length)].id;
+    // v5.3.94: если героев нужного тира нет — даём тиром ниже, а не эликсир.
+    const minWindowIdx = Math.min(...windowTiers.map(t => TIERS_ORDER.indexOf(t)));
+    for (let i = minWindowIdx - 1; i >= 0; i--) {
+        const tierPool = ownedHeroes.filter(h => h.tier === TIERS_ORDER[i]);
+        if (tierPool.length > 0) return tierPool[Math.floor(Math.random() * tierPool.length)].id;
+    }
+    return ownedHeroes[Math.floor(Math.random() * ownedHeroes.length)].id;
 }
 
 function pickTrailElixir() {

@@ -762,6 +762,41 @@ html, body {
     border-bottom: 1px solid rgba(40, 51, 68, 0.4);
 }
 .trail-record-row:last-child { border-bottom: none; }
+.trail-daily-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(10, 14, 22, 0.85);
+    border: 1px solid var(--border-metal);
+    border-radius: 8px;
+    padding: 8px 12px;
+    gap: 8px;
+}
+.trail-daily-row.me {
+    border-color: var(--gold);
+    background: rgba(245, 176, 65, 0.15);
+}
+.trail-daily-row .trail-daily-name {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 800;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.trail-daily-row .trail-daily-score {
+    font-size: 12.5px;
+    font-weight: 900;
+    color: var(--gold);
+    white-space: nowrap;
+}
+.trail-daily-row .trail-daily-depth {
+    font-size: 11px;
+    color: #f472b6;
+    font-weight: 700;
+    white-space: nowrap;
+}
 .trail-record-row.current {
     background: rgba(245, 176, 65, 0.12);
     border-radius: 4px;
