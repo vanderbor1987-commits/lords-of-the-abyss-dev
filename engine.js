@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.98';
+const BUILD_VERSION = '5.3.99';
 const BUILD_DATE = '19.10.2026';
 
 // ==========================================================
@@ -15070,9 +15070,9 @@ function renderTrailUI() {
     // а UI показывал 25/20/10 — рассинхрон в 5 раз. Теперь везде 5/5/10.
     const _b = run.buffs || { hp: 0, atk: 0, cp: 0 };
     const _bufParts = [];
-    if (_b.hp > 0) _bufParts.push('HP+' + (_b.hp * 3) + '%');
-    if (_b.atk > 0) _bufParts.push('ATK+' + (_b.atk * 3) + '%');
-    if (_b.cp > 0) _bufParts.push('CP+' + (_b.cp * 7) + '%');
+    if (_b.hp > 0) _bufParts.push((L === 'RU' ? 'ЗДР+' : 'HP+') + (_b.hp * 3) + '%');
+    if (_b.atk > 0) _bufParts.push((L === 'RU' ? 'АТК+' : 'ATK+') + (_b.atk * 3) + '%');
+    if (_b.cp > 0) _bufParts.push((L === 'RU' ? 'БМ+' : 'CP+') + (_b.cp * 7) + '%');
     const _bank = gState.trailPoints || 0;
     const _metaBadge = document.getElementById('trail-meta-points-badge');
     if (_metaBadge) _metaBadge.innerText = _bank;
