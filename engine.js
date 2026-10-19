@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.75';
+const BUILD_VERSION = '5.3.77';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -158,7 +158,7 @@ let gState = {
     // extraLifeLvl: 0..3 — каждая ступень +1 стартовая жизнь.
     // startCardBought: bool — разовая покупка героя D-тира в стартовый ростер.
     // startHpBuffLvl: 0..2 — каждая ступень +25% HP отряду с начала забега.
-    trailMeta: { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false },
+    trailMeta: { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false, goldBoostLvl: 0, shardBoostLvl: 0 },
     codexClaimed: { light: [], undead: [], chaos: [], demon: [] },
     abyssPassXp: 0,
     abyssPassFreeClaimed: [],
@@ -14056,10 +14056,12 @@ function isTrailBossWave(depth) {
 // v5.3.41: цены мета-покупок. Прогрессия: первый уровень дешевле последних,
 // чтобы игрок после 2-3 забегов мог что-то купить, а не копил 5 дней.
 const TRAIL_META_PRICES = {
-    extraLife: [500, 1500, 3000],   // 3 уровня
-    startCard: 1500,                // 1 покупка
-    startHpBuff: [800, 2400],       // 2 уровня
-    fourthSlot: 6000                // v5.3.43: 1 покупка, расширяет отряд до 4
+    extraLife: [800, 2000, 4000],
+    startCard: 2500,
+    startHpBuff: [1200, 3000],
+    fourthSlot: 8000,
+    goldBoost: [500, 1200, 2500, 4000, 6000],
+    shardBoost: [500, 1200, 2500, 4000, 6000]
 };
 
 // v5.3.41: разовые обмены очков на ресурсы основной игры.
@@ -14067,9 +14069,9 @@ const TRAIL_META_PRICES = {
 // забег (глубина 30-40) давал примерно 300-500 очков. Обмен на 500 кристаллов
 // требует двух крепких забегов — курс сопоставим с рекламой и билетами.
 const TRAIL_EXCHANGES = [
-    { id: 'cryst_500', cost: 1000, crystals: 500 },
-    { id: 'gold_50k',  cost: 3000, gold: 50000 },
-    { id: 'tickets_5', cost: 5000, tickets: 5 }
+    { id: 'gold_5k', cost: 500, gold: 5000 },
+    { id: 'cryst_50', cost: 1000, crystals: 50 },
+    { id: 'tickets_2', cost: 1500, tickets: 2 }
 ];
 
 function getTrailMetaNextCost(kind) {
@@ -14090,6 +14092,16 @@ function getTrailMetaNextCost(kind) {
     if (kind === 'fourthSlot') {
         return meta.fourthSlotBought ? null : TRAIL_META_PRICES.fourthSlot;
     }
+    if (kind === 'goldBoost') {
+        const lvl = meta.goldBoostLvl || 0;
+        if (lvl >= TRAIL_META_PRICES.goldBoost.length) return null;
+        return TRAIL_META_PRICES.goldBoost[lvl];
+    }
+    if (kind === 'shardBoost') {
+        const lvl = meta.shardBoostLvl || 0;
+        if (lvl >= TRAIL_META_PRICES.shardBoost.length) return null;
+        return TRAIL_META_PRICES.shardBoost[lvl];
+    }
     return null;
 }
 
@@ -14102,6 +14114,8 @@ function buyTrailMeta(kind) {
     if (kind === 'extraLife') gState.trailMeta.extraLifeLvl++;
     else if (kind === 'startCard') gState.trailMeta.startCardBought = true;
     else if (kind === 'startHpBuff') gState.trailMeta.startHpBuffLvl++;
+    else if (kind === 'goldBoost') gState.trailMeta.goldBoostLvl++;
+    else if (kind === 'shardBoost') gState.trailMeta.shardBoostLvl++;
     else if (kind === 'fourthSlot') {
         gState.trailMeta.fourthSlotBought = true;
         // v5.3.66 FIX-FOURTH-SLOT: применяем на текущий забег сразу.
@@ -14146,14 +14160,15 @@ function calculateTrailRewards(run) {
     const depth = Math.max(1, run.depth || 1);
     const bossBonus = Math.floor(depth / 5);
     const crystals = Math.floor(depth / 2) + bossBonus * 5;
-    // v5.3.49: золото линейно от глубины — ~2200 за волну.
-    // При среднем темпе 1 волна ≈ 27 сек, забег W50 ≈ 22 мин → 110K золота.
-    const gold = Math.floor(depth * 2200);
+    const _meta = gState.trailMeta || {};
+    const _goldMult = 1 + (_meta.goldBoostLvl || 0) * 0.02;
+    const _shardMult = 1 + (_meta.shardBoostLvl || 0) * 0.02;
+    const gold = Math.floor(depth * 2200 * _goldMult);
     const universalShards = Math.floor(depth / 2) + bossBonus * 3;
     const heroShardsGain = {};
     if (run.heroWaves && Object.keys(run.heroWaves).length > 0) {
         for (const hid in run.heroWaves) {
-            if (run.heroWaves[hid] > 0) heroShardsGain[hid] = run.heroWaves[hid];
+            if (run.heroWaves[hid] > 0) heroShardsGain[hid] = Math.max(1, Math.floor(run.heroWaves[hid] * _shardMult));
         }
     } else {
         const uniqueHeroes = Array.from(new Set((run.roster || []).filter(Boolean)));
@@ -14527,89 +14542,55 @@ function renderTrailMetaModal() {
     if (!box) return;
     const L = currentLang;
     const I = I18N[L];
-    const meta = gState.trailMeta || { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0 };
+    const meta = gState.trailMeta || {};
     const points = gState.trailPoints || 0;
     const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
     const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
     const tI = '<img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T">';
 
-    // Верхняя строка: банк очков
     let html = '<div class="trail-meta-bank"><span>' + (I.trail_points_lbl || 'ОЧКОВ В БАНКЕ') + ':</span><b>' + points + '</b></div>';
 
-    // === ПОСТОЯННЫЕ УЛУЧШЕНИЯ ===
-    html += '<div class="trail-rewards-title">' + (I.trail_meta_upgrades || 'ПОСТОЯННЫЕ УЛУЧШЕНИЯ') + '</div>';
+    html += '<div class="trail-rewards-title">' + (I.trail_meta_upgrades || 'УЛУЧШЕНИЯ ЗАБЕГА') + '</div>';
 
-    // Extra Life
-    const _lifeLvl = meta.extraLifeLvl || 0;
-    const _lifeMaxLvl = TRAIL_META_PRICES.extraLife.length;
-    const _lifeCost = getTrailMetaNextCost('extraLife');
-    const _lifeAfford = _lifeCost !== null && points >= _lifeCost;
-    html += '<div class="trail-meta-card">' +
-        '<div class="trail-meta-info"><b>' + (I.trail_meta_extralife_name || '+1 Стартовая жизнь') + '</b>' +
-        '<div class="trail-meta-desc">' + (I.trail_meta_extralife_desc || 'Каждый уровень — +1 жизнь в начале забега.') + '</div>' +
-        '<div class="trail-meta-lvl">' + _lifeLvl + ' / ' + _lifeMaxLvl + '</div></div>' +
-        (_lifeCost === null
-            ? '<span class="trail-meta-max">MAX</span>'
-            : '<button class="btn-action trail-meta-buy ' + (_lifeAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'extraLife\')" ' + (_lifeAfford ? '' : 'disabled') + '>' + _lifeCost + '</button>') +
-        '</div>';
+    const renderCard = (iconHtml, name, desc, lvl, maxLvl, cost, kind) => {
+        const afford = cost !== null && points >= cost;
+        let dots = '';
+        if (maxLvl > 1) {
+            let d = '';
+            for(let i=0; i<maxLvl; i++) d += (i < lvl ? '●' : '○');
+            dots = '<div class="trail-level-dots">' + d + '</div>';
+        }
+        return '<div class="trail-shop-card">' +
+            '<div class="trail-shop-icon">' + iconHtml + '</div>' +
+            '<div class="trail-shop-info"><b>' + name + '</b>' +
+            '<div class="desc">' + desc + '</div>' + dots + '</div>' +
+            (cost === null
+                ? '<span class="trail-meta-max">MAX</span>'
+                : '<button class="trail-shop-buy ' + (afford ? 'ready' : '') + '" onclick="buyTrailMeta(\'' + kind + '\')" ' + (afford ? '' : 'disabled') + '>' + cost + '</button>') +
+            '</div>';
+    };
 
-    // Start Card
-    const _cardBought = !!meta.startCardBought;
-    const _cardCost = getTrailMetaNextCost('startCard');
-    const _cardAfford = _cardCost !== null && points >= _cardCost;
-    html += '<div class="trail-meta-card">' +
-        '<div class="trail-meta-info"><b>' + (I.trail_meta_startcard_name || 'Стартовый герой') + '</b>' +
-        '<div class="trail-meta-desc">' + (I.trail_meta_startcard_desc || 'Один D/E-герой из колоды попадает в ростер с 1-й волны.') + '</div>' +
-        '<div class="trail-meta-lvl">' + (_cardBought ? '✓' : '—') + '</div></div>' +
-        (_cardCost === null
-            ? '<span class="trail-meta-max">MAX</span>'
-            : '<button class="btn-action trail-meta-buy ' + (_cardAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'startCard\')" ' + (_cardAfford ? '' : 'disabled') + '>' + _cardCost + '</button>') +
-        '</div>';
+    html += renderCard('<img src="assets/icons/hud_pass.webp" alt="life">', I.trail_meta_extralife_name, I.trail_meta_extralife_desc, meta.extraLifeLvl || 0, TRAIL_META_PRICES.extraLife.length, getTrailMetaNextCost('extraLife'), 'extraLife');
+    html += renderCard('<img src="assets/icons/army.webp" alt="hero">', I.trail_meta_startcard_name, I.trail_meta_startcard_desc, meta.startCardBought ? 1 : 0, 1, getTrailMetaNextCost('startCard'), 'startCard');
+    html += renderCard('<img src="assets/icons/icon_energy.webp" alt="hp">', I.trail_meta_starthp_name, I.trail_meta_starthp_desc, meta.startHpBuffLvl || 0, TRAIL_META_PRICES.startHpBuff.length, getTrailMetaNextCost('startHpBuff'), 'startHpBuff');
+    html += renderCard('<img src="assets/icons/swords_cp.webp" alt="slot">', I.trail_meta_fourthslot_name || '4-й слот', I.trail_meta_fourthslot_desc || 'Расширяет отряд', meta.fourthSlotBought ? 1 : 0, 1, getTrailMetaNextCost('fourthSlot'), 'fourthSlot');
+    html += renderCard(gI, I.trail_meta_goldboost_name, I.trail_meta_goldboost_desc, meta.goldBoostLvl || 0, TRAIL_META_PRICES.goldBoost.length, getTrailMetaNextCost('goldBoost'), 'goldBoost');
+    html += renderCard(cI, I.trail_meta_shardboost_name, I.trail_meta_shardboost_desc, meta.shardBoostLvl || 0, TRAIL_META_PRICES.shardBoost.length, getTrailMetaNextCost('shardBoost'), 'shardBoost');
 
-    // Start HP Buff
-    const _hpLvl = meta.startHpBuffLvl || 0;
-    const _hpMaxLvl = TRAIL_META_PRICES.startHpBuff.length;
-    const _hpCost = getTrailMetaNextCost('startHpBuff');
-    const _hpAfford = _hpCost !== null && points >= _hpCost;
-    html += '<div class="trail-meta-card">' +
-        '<div class="trail-meta-info"><b>' + (I.trail_meta_starthp_name || '+25% Стартовый HP') + '</b>' +
-        '<div class="trail-meta-desc">' + (I.trail_meta_starthp_desc || 'Отряд начинает забег с бонусом к HP.') + '</div>' +
-        '<div class="trail-meta-lvl">' + _hpLvl + ' / ' + _hpMaxLvl + '</div></div>' +
-        (_hpCost === null
-            ? '<span class="trail-meta-max">MAX</span>'
-            : '<button class="btn-action trail-meta-buy ' + (_hpAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'startHpBuff\')" ' + (_hpAfford ? '' : 'disabled') + '>' + _hpCost + '</button>') +
-        '</div>';
-
-    // v5.3.43: 4-й слот отряда. Разовое расширение ростера 3→4.
-    const _fsBought = !!meta.fourthSlotBought;
-    const _fsCost = getTrailMetaNextCost('fourthSlot');
-    const _fsAfford = _fsCost !== null && points >= _fsCost;
-    const _fsName = I.trail_meta_fourthslot_name || (L === 'RU' ? '4-й слот отряда' : '4th Squad Slot');
-    const _fsDesc = I.trail_meta_fourthslot_desc || (L === 'RU' ? 'Отряд расширяется до 4 героев. Синергия 4/4 даёт +100% БМ.' : 'Squad expands to 4 heroes. 4/4 synergy grants +100% CP.');
-    html += '<div class="trail-meta-card">' +
-        '<div class="trail-meta-info"><b>' + _fsName + '</b>' +
-        '<div class="trail-meta-desc">' + _fsDesc + '</div>' +
-        '<div class="trail-meta-lvl">' + (_fsBought ? '✓' : '—') + '</div></div>' +
-        (_fsCost === null
-            ? '<span class="trail-meta-max">MAX</span>'
-            : '<button class="btn-action trail-meta-buy ' + (_fsAfford ? 'ready' : '') + '" onclick="buyTrailMeta(\'fourthSlot\')" ' + (_fsAfford ? '' : 'disabled') + '>' + _fsCost + '</button>') +
-        '</div>';
-
-    // === ОБМЕН ОЧКОВ ===
     html += '<div class="trail-rewards-title">' + (I.trail_meta_exchange || 'ОБМЕН ОЧКОВ') + '</div>';
-    html += '<div class="trail-meta-exchange-grid">';
     TRAIL_EXCHANGES.forEach(ex => {
         const afford = points >= ex.cost;
         let reward = '';
-        if (ex.crystals) reward = '+' + ex.crystals + ' ' + cI;
-        else if (ex.gold) reward = '+' + formatNumber(ex.gold) + ' ' + gI;
-        else if (ex.tickets) reward = '+' + ex.tickets + ' ' + tI;
-        html += '<button class="trail-exchange-btn ' + (afford ? 'ready' : '') + '" onclick="exchangeTrailPoints(\'' + ex.id + '\')" ' + (afford ? '' : 'disabled') + '>' +
-            '<div class="trail-exchange-reward">' + reward + '</div>' +
-            '<div class="trail-exchange-cost">' + ex.cost + ' pts</div>' +
-            '</button>';
+        let icon = '';
+        if (ex.crystals) { reward = '+' + ex.crystals + ' ' + cI; icon = cI; }
+        else if (ex.gold) { reward = '+' + formatNumber(ex.gold) + ' ' + gI; icon = gI; }
+        else if (ex.tickets) { reward = '+' + ex.tickets + ' ' + tI; icon = tI; }
+        html += '<div class="trail-shop-card">' +
+            '<div class="trail-shop-icon">' + icon + '</div>' +
+            '<div class="trail-shop-info"><b>' + reward + '</b></div>' +
+            '<button class="trail-shop-buy ' + (afford ? 'ready' : '') + '" onclick="exchangeTrailPoints(\'' + ex.id + '\')" ' + (afford ? '' : 'disabled') + '>' + ex.cost + '</button>' +
+            '</div>';
     });
-    html += '</div>';
 
     box.innerHTML = html;
 }
@@ -15876,7 +15857,7 @@ function initSwipeRightClose() {
         if (!isTracking) return;
         const dx = x - touchStartX;
         const dy = y - touchStartY;
-        if (Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 15) {
+        if (Math.abs(dx) > Math.abs(dy) * 1.2 && Math.abs(dx) > 15) {
             isHorizontalSwipe = true;
         } else if (Math.abs(dy) > 15) {
             isHorizontalSwipe = false;
@@ -15893,7 +15874,7 @@ function initSwipeRightClose() {
         const dx = x - touchStartX;
         const dy = Math.abs(y - touchStartY);
         const dt = Date.now() - touchStartTime;
-        if (dx < SWIPE_MIN_DIST) { if (IS_DEV_MODE) console.log('[Swipe] too short dx=' + dx); return; }
+        if (Math.abs(dx) < SWIPE_MIN_DIST) { if (IS_DEV_MODE) console.log('[Swipe] too short dx=' + dx); return; }
         if (dt > SWIPE_MAX_TIME) { if (IS_DEV_MODE) console.log('[Swipe] too slow dt=' + dt); return; }
         if (dy > 80) { if (IS_DEV_MODE) console.log('[Swipe] too vertical dy=' + dy); return; }
 
@@ -15987,7 +15968,7 @@ function initSwipeRightToCloseView() {
         if (!isTracking) return;
         const dx = x - touchStartX;
         const dy = y - touchStartY;
-        if (Math.abs(dx) > Math.abs(dy) * 1.2 && dx > 15) {
+        if (Math.abs(dx) > Math.abs(dy) * 1.2 && Math.abs(dx) > 15) {
             isHorizontalSwipe = true;
         } else if (Math.abs(dy) > 15) {
             isHorizontalSwipe = false;
