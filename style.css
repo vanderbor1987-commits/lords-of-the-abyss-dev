@@ -268,8 +268,13 @@ html, body {
     background: #0b0f17 url('assets/bg/expedition.webp') center / cover no-repeat;
 }
 /* v5.3.35: Тропа Бездны — отдельный экран roguelike-забега. */
+/* v5.3.90: явное разделение слоёв фона с !important — устраняет конфликт с общими .view-tab */
 #trail-view {
-    background: #100810 url('assets/bg/trail.webp') center / cover no-repeat, radial-gradient(circle at 50% 0%, #2a0a24 0%, #0a050f 100%);
+    background-color: #100810 !important;
+    background-image: url('assets/bg/trail.webp'), radial-gradient(circle at 50% 0%, #2a0a24 0%, #0a050f 100%) !important;
+    background-position: center center, center center !important;
+    background-size: cover, cover !important;
+    background-repeat: no-repeat, no-repeat !important;
 }
 
 .trail-status-bar {
@@ -285,13 +290,28 @@ html, body {
     font-size: 12.5px;
     color: #fff;
 }
+/* v5.3.91: flex с фиксированными зонами — строка неподвижна при скрытии кнопки */
 .trail-bar-row-1 {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 6px;
     width: 100%;
-    flex-wrap: nowrap;
+}
+.trail-depth {
+    min-width: 65px;
+}
+.trail-lives {
+    min-width: 105px;
+}
+.trail-score {
+    flex: 1;
+    text-align: center;
+}
+.trail-finish-btn-wrap {
+    display: flex;
+    justify-content: flex-end;
+    min-width: 80px;
 }
 .trail-bar-row-2 {
     display: flex;
@@ -303,7 +323,16 @@ html, body {
     border-top: 1px solid rgba(168, 85, 247, 0.25);
     flex-wrap: wrap;
 }
-.trail-status-bar .trail-lives { color: #ef4444; letter-spacing: 2px; font-size: 14px; }
+.trail-status-bar .trail-lives { display: flex; align-items: center; gap: 2px; }
+.trail-life-icon {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.8));
+}
+.trail-life-icon.empty {
+    filter: grayscale(1) opacity(0.25);
+}
 .trail-status-bar .trail-score { color: var(--gold); }
 .trail-status-bar .trail-syn-badge {
     display: inline-block;
@@ -569,6 +598,16 @@ html, body {
 .trail-card-special-badge.artifact {
     color: #c084fc;
     border-color: #c084fc;
+}
+.trail-card.tcg-style .trail-card-art .trail-special-art-img {
+    width: 85% !important;
+    height: 85% !important;
+    object-fit: contain !important;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.9)) !important;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
 }
 .trail-card.trail-card-special .trail-card-elem {
     width: 26px !important;

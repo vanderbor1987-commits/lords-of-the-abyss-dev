@@ -72,8 +72,8 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.87';
-const BUILD_DATE = '17.10.2026';
+const BUILD_VERSION = '5.3.92';
+const BUILD_DATE = '19.10.2026';
 
 // ==========================================================
 // P9: VK LAUNCH PARAMS VALIDATION (п. 1.2.2 правил VK Mini Apps)
@@ -151,7 +151,6 @@ let gState = {
     // heroShards — именные осколки: 100 осколков героя X = +1★ X.
     // trailRecords — топ-5 личных рекордов [{score, depth, roster, date, ts}].
     trailPoints: 0,
-    universalShards: 0,
     heroShards: {},
     trailRecords: [],
     // v5.3.41: мета-дерево Тропы — постоянные бонусы за очки.
@@ -11288,14 +11287,11 @@ function checkNotificationBadges() {
     const _hubDungeonPulse = (gState.dungeonStamina || 0) > 0;
     const _hubRaidPulse = isRaidStrikeReady;
     const _hubExpPulse = isExpeditionReady;
-    // v5.3.35: Тропа активна — пульс на карточке хаба.
-    const _hubTrailPulse = !!(gState.trailRun && gState.trailRun.active);
     $id('badge-hub-dungeon')?.classList.toggle('active', _hubDungeonPulse);
     $id('badge-hub-raid')?.classList.toggle('active', _hubRaidPulse);
     $id('badge-hub-exp')?.classList.toggle('active', _hubExpPulse);
-    $id('badge-hub-trail')?.classList.toggle('active', _hubTrailPulse);
     // Иконка Подземелий на карте Цитадели пульсирует если пульсирует любая карточка внутри хаба.
-    $id('badge-district-dungeons')?.classList.toggle('active', _hubDungeonPulse || _hubRaidPulse || _hubExpPulse || _hubTrailPulse);
+    $id('badge-district-dungeons')?.classList.toggle('active', _hubDungeonPulse || _hubRaidPulse || _hubExpPulse);
     // v5.3.28: значок на карточке Походов пульсирует при готовой экспедиции.
     $id('badge-hub-exp')?.classList.toggle('active', isExpeditionReady);
 
@@ -12300,7 +12296,7 @@ function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
     if (_shardsEl) {
         if (_shardsVal > 0 || isOwned) {
             _shardsEl.style.display = 'block';
-            _shardsEl.innerHTML = '🔹 ' + (I18N[currentLang].hero_shards_label || 'Осколки') + ': <b style="color:' + (_shardsVal >= 100 ? '#4ade80' : '#cbd5e1') + ';">' + _shardsVal + ' / 100</b>';
+            _shardsEl.innerHTML = '<img src="assets/icons/hero_shard.webp" class="res-icon-inline" style="width:12px; height:12px; vertical-align:-1px;" alt="shard"> ' + (I18N[currentLang].hero_shards_label || 'Осколки') + ': <b style="color:' + (_shardsVal >= 100 ? '#4ade80' : '#cbd5e1') + ';">' + _shardsVal + ' / 100</b>';
         } else {
             _shardsEl.style.display = 'none';
         }
@@ -14007,25 +14003,25 @@ function refreshBuildingTooltips() {
 const TRAIL_ARTIFACTS = {
     blood_pact: {
         id: 'blood_pact',
-        icon: '🩸',
+        icon: '<img src="assets/icons/trail_artifact_blood_pact.webp" alt="blood_pact">',
         name: { RU: 'Кровавый пакт', EN: 'Blood Pact' },
         desc: { RU: '+15% CP отряду, −1 жизнь', EN: '+15% squad CP, −1 life' }
     },
     void_seal: {
         id: 'void_seal',
-        icon: '🕳',
+        icon: '<img src="assets/icons/trail_artifact_void_seal.webp" alt="void_seal">',
         name: { RU: 'Печать пустоты', EN: 'Void Seal' },
         desc: { RU: 'Эликсиры дают ×2 эффект', EN: 'Elixirs give ×2 effect' }
     },
     fate_coin: {
         id: 'fate_coin',
-        icon: '🪙',
+        icon: '<img src="assets/icons/trail_artifact_fate_coin.webp" alt="fate_coin">',
         name: { RU: 'Монета судьбы', EN: 'Coin of Fate' },
         desc: { RU: 'Один пропуск тройки за волну', EN: 'One skip per wave' }
     },
     hunt_seal: {
         id: 'hunt_seal',
-        icon: '🏹',
+        icon: '<img src="assets/icons/trail_artifact_hunt_seal.webp" alt="hunt_seal">',
         name: { RU: 'Печать охоты', EN: 'Hunt Seal' },
         desc: { RU: '4 карты вместо 3', EN: '4 cards instead of 3' }
     }
@@ -14084,7 +14080,7 @@ const TRAIL_META_PRICES = {
 // забег (глубина 30-40) давал примерно 300-500 очков. Обмен на 500 кристаллов
 // требует двух крепких забегов — курс сопоставим с рекламой и билетами.
 const TRAIL_EXCHANGES = [
-    { id: 'gold_5k', cost: 500, gold: 5000 },
+    { id: 'gold_5k', cost: 500, goldSec: 7200 },
     { id: 'cryst_50', cost: 1000, crystals: 50 },
     { id: 'tickets_2', cost: 1500, tickets: 2 }
 ];
@@ -14158,7 +14154,11 @@ function exchangeTrailPoints(exchangeId) {
     if ((gState.trailPoints || 0) < ex.cost) return pushToast(currentLang === 'RU' ? 'Недостаточно очков Тропы' : 'Not enough Trail points');
     gState.trailPoints -= ex.cost;
     if (ex.crystals) { gState.crystals = (gState.crystals || 0) + ex.crystals; }
-    if (ex.gold) { gState.gold = (gState.gold || 0) + ex.gold; gState.lifetimeGold = (gState.lifetimeGold || 0) + ex.gold; }
+    if (ex.goldSec) {
+        const gAmt = Math.floor(getIncomeRate() * ex.goldSec);
+        gState.gold = (gState.gold || 0) + gAmt;
+        gState.lifetimeGold = (gState.lifetimeGold || 0) + gAmt;
+    }
     if (ex.tickets) { gState.tickets = (gState.tickets || 0) + ex.tickets; }
     playCoinSfx();
     triggerHaptic('upgrade');
@@ -14171,7 +14171,6 @@ function exchangeTrailPoints(exchangeId) {
 // v5.3.40: расчёт наград за завершённый забег.
 // Кристаллы: depth / 2 — глубина 50 → 25 C, 100 → 50 C.
 // Золото: depth^1.5 × 100 — глубина 30 → 16431, 50 → 35355, 100 → 100000.
-// Универсальные осколки: depth / 2 — 100 осколков = +1★ любому герою.
 // Именные осколки: по 15 за каждого героя в финальном ростере. Если ростер пуст
 // (все слоты null) — 0 осколков. Дубликаты не считаются — только уникальные.
 // Бонус × 3 за каждый пройденный босс-этап (depth / 5).
@@ -14183,7 +14182,6 @@ function calculateTrailRewards(run) {
     const _goldMult = 1 + (_meta.goldBoostLvl || 0) * 0.02;
     const _shardMult = 1 + (_meta.shardBoostLvl || 0) * 0.02;
     const gold = Math.floor(depth * 2200 * _goldMult);
-    const universalShards = Math.floor(depth / 2) + bossBonus * 3;
     const heroShardsGain = {};
     if (run.heroWaves && Object.keys(run.heroWaves).length > 0) {
         for (const hid in run.heroWaves) {
@@ -14194,7 +14192,7 @@ function calculateTrailRewards(run) {
         uniqueHeroes.forEach(hid => { heroShardsGain[hid] = 1; });
     }
     const points = run.score || 0;
-    return { crystals, gold, universalShards, heroShardsGain, points, depth, bossBonus };
+    return { crystals, gold, heroShardsGain, points, depth, bossBonus };
 }
 
 // v5.3.40: начисление наград и сохранение в рекорды. Единая точка для
@@ -14206,7 +14204,6 @@ function grantTrailRewards(run) {
     gState.crystals = (gState.crystals || 0) + rw.crystals;
     gState.gold = (gState.gold || 0) + rw.gold;
     gState.lifetimeGold = (gState.lifetimeGold || 0) + rw.gold;
-    gState.universalShards = (gState.universalShards || 0) + rw.universalShards;
     if (!gState.heroShards) gState.heroShards = {};
     for (const hid in rw.heroShardsGain) {
         gState.heroShards[hid] = (gState.heroShards[hid] || 0) + rw.heroShardsGain[hid];
@@ -14615,12 +14612,12 @@ function renderTrailMetaModal() {
             '</div>';
     };
 
-    html += renderCard('<img src="assets/icons/hud_pass.webp" alt="life">', I.trail_meta_extralife_name, I.trail_meta_extralife_desc, meta.extraLifeLvl || 0, TRAIL_META_PRICES.extraLife.length, getTrailMetaNextCost('extraLife'), 'extraLife');
+    html += renderCard('<img src="assets/icons/trail_elixir_life.webp" alt="life">', I.trail_meta_extralife_name, I.trail_meta_extralife_desc, meta.extraLifeLvl || 0, TRAIL_META_PRICES.extraLife.length, getTrailMetaNextCost('extraLife'), 'extraLife');
     html += renderCard('<img src="assets/icons/army.webp" alt="hero">', I.trail_meta_startcard_name, I.trail_meta_startcard_desc, meta.startCardBought ? 1 : 0, 1, getTrailMetaNextCost('startCard'), 'startCard');
-    html += renderCard('<img src="assets/icons/icon_energy.webp" alt="hp">', I.trail_meta_starthp_name, I.trail_meta_starthp_desc, meta.startHpBuffLvl || 0, TRAIL_META_PRICES.startHpBuff.length, getTrailMetaNextCost('startHpBuff'), 'startHpBuff');
+    html += renderCard('<img src="assets/icons/trail_elixir_hp.webp" alt="hp">', I.trail_meta_starthp_name, I.trail_meta_starthp_desc, meta.startHpBuffLvl || 0, TRAIL_META_PRICES.startHpBuff.length, getTrailMetaNextCost('startHpBuff'), 'startHpBuff');
     html += renderCard('<img src="assets/icons/swords_cp.webp" alt="slot">', I.trail_meta_fourthslot_name || '4-й слот', I.trail_meta_fourthslot_desc || 'Расширяет отряд', meta.fourthSlotBought ? 1 : 0, 1, getTrailMetaNextCost('fourthSlot'), 'fourthSlot');
     html += renderCard(gI, I.trail_meta_goldboost_name, I.trail_meta_goldboost_desc, meta.goldBoostLvl || 0, TRAIL_META_PRICES.goldBoost.length, getTrailMetaNextCost('goldBoost'), 'goldBoost');
-    html += renderCard(cI, I.trail_meta_shardboost_name, I.trail_meta_shardboost_desc, meta.shardBoostLvl || 0, TRAIL_META_PRICES.shardBoost.length, getTrailMetaNextCost('shardBoost'), 'shardBoost');
+    html += renderCard('<img src="assets/icons/hero_shard.webp" alt="shard">', I.trail_meta_shardboost_name, I.trail_meta_shardboost_desc, meta.shardBoostLvl || 0, TRAIL_META_PRICES.shardBoost.length, getTrailMetaNextCost('shardBoost'), 'shardBoost');
 
     html += '<div class="trail-rewards-title">' + (I.trail_meta_exchange || 'ОБМЕН ОЧКОВ') + '</div>';
     TRAIL_EXCHANGES.forEach(ex => {
@@ -14628,7 +14625,11 @@ function renderTrailMetaModal() {
         let reward = '';
         let icon = '';
         if (ex.crystals) { reward = '+' + ex.crystals + ' ' + cI; icon = cI; }
-        else if (ex.gold) { reward = '+' + formatNumber(ex.gold) + ' ' + gI; icon = gI; }
+        else if (ex.goldSec) {
+            const gAmt = Math.floor(getIncomeRate() * ex.goldSec);
+            reward = '+' + formatNumber(gAmt) + ' ' + gI;
+            icon = gI;
+        }
         else if (ex.tickets) { reward = '+' + ex.tickets + ' ' + tI; icon = tI; }
         html += '<div class="trail-shop-card">' +
             '<div class="trail-shop-icon">' + icon + '</div>' +
@@ -14692,6 +14693,19 @@ function pickTrailCard(cardIdx) {
             run.lastArtifactWave = run.depth;
             if (aid === 'blood_pact') {
                 run.lives = Math.max(0, run.lives - 1);
+                // v5.3.92: если жизней не осталось — забег завершается здесь же, без ожидания боя.
+                if (run.lives <= 0) {
+                    run.phase = 'gameover';
+                    run.active = false;
+                    const prevBest = gState.trailBestScore || 0;
+                    run.newRecord = run.score > prevBest;
+                    if (run.newRecord) gState.trailBestScore = run.score;
+                    if (run.newRecord) playTriumphFanfare(false);
+                    grantTrailRewards(run);
+                    saveGame();
+                    renderTrailUI();
+                    return;
+                }
             }
         }
     }
@@ -14747,7 +14761,7 @@ function startTrailFight() {
         playSfx(900, 'triangle', 0.15);
         triggerHaptic('victory');
     } else {
-        run.lives--;
+        run.lives = Math.max(0, run.lives - 1);
         run.score = Math.max(0, run.score - 5);
         playSfx(180, 'square', 0.2);
         triggerHaptic('defeat');
@@ -14850,9 +14864,14 @@ function renderTrailUI() {
     const I = I18N[L];
 
     const livesFull = Math.max(0, Math.min(5, run.lives));
-    // v5.3.37: если жизней больше 5 — показываем overflow-счётчик.
-    // Раньше визуал обрезался на 5 символах, и игрок не видел, что реально копил 7-9.
-    let livesStr = '●'.repeat(livesFull) + '○'.repeat(Math.max(0, 5 - livesFull));
+    // v5.3.88: жизни теперь отображаются иконкой эликсира.
+    let livesStr = '';
+    for (let i = 0; i < livesFull; i++) {
+        livesStr += '<img src="assets/icons/trail_elixir_life.webp" class="trail-life-icon" alt="life">';
+    }
+    for (let i = run.lives; i < 5; i++) {
+        livesStr += '<img src="assets/icons/trail_elixir_life.webp" class="trail-life-icon empty" alt="life">';
+    }
     if (run.lives > 5) {
         livesStr += ' <b style="color:#fde047; font-weight:900;">+' + (run.lives - 5) + '</b>';
     }
@@ -14900,7 +14919,7 @@ function renderTrailUI() {
             '<span class="trail-depth">' + (I.trail_wave || 'ВОЛНА') + ' ' + run.depth + '</span>' +
             '<span class="trail-lives">' + livesStr + '</span>' +
             '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + run.score + '</b>' + _recordBadge + ' ' + _synBadge + '</span>' +
-            _finishBtnHtml +
+            '<div class="trail-finish-btn-wrap">' + _finishBtnHtml + '</div>' +
         '</div>' +
         '<div class="trail-bar-row-2">' +
             '<span style="color:#c084fc;">' + (I.trail_points_lbl || 'ОЧКОВ В БАНКЕ') + ': <b>' + _bank + '</b></span>' +
@@ -15032,8 +15051,7 @@ function renderTrailChoosing(panel, run, L, I) {
             }
             html +=
                 '<div class="trail-card tcg-style trail-card-special" onclick="pickTrailCard(' + i + ')">' +
-                    '<div class="trail-card-special-bg artifact"></div>' +
-                    '<div class="trail-card-elem trail-card-artifact-elem">' + _art.icon + '</div>' +
+                    '<div class="trail-card-art" style="background: radial-gradient(circle at 50% 40%, #3b1e4e 0%, #1a0f24 100%);">' + _art.icon.replace('>', ' class="trail-special-art-img">') + '</div>' +
                     '<div class="trail-card-special-badge artifact">' + (L === 'RU' ? 'АРТЕФАКТ' : 'ARTIFACT') + '</div>' +
                     '<div class="trail-card-overlay">' +
                         '<div class="trail-card-name" style="color:#c084fc;">' + (_art.name[L] || _art.name['EN']) + '</div>' +
@@ -15043,15 +15061,14 @@ function renderTrailChoosing(panel, run, L, I) {
         } else if (card.type === 'elixir') {
             const t = card.elixirType;
             const elixirData = {
-                hp: { name: I.trail_elixir_hp_name, desc: I.trail_elixir_hp_desc, icon: 'icon_energy.webp' },
-                atk: { name: I.trail_elixir_atk_name, desc: I.trail_elixir_atk_desc, icon: 'swords_cp.webp' },
-                cp: { name: I.trail_elixir_cp_name, desc: I.trail_elixir_cp_desc, icon: 'relic.webp' },
-                life: { name: I.trail_elixir_life_name, desc: I.trail_elixir_life_desc, icon: 'hud_pass.webp' }
-            }[t] || { name: '?', desc: '', icon: 'relic.webp' };
+                hp: { name: I.trail_elixir_hp_name, desc: I.trail_elixir_hp_desc, icon: 'trail_elixir_hp.webp' },
+                atk: { name: I.trail_elixir_atk_name, desc: I.trail_elixir_atk_desc, icon: 'trail_elixir_atk.webp' },
+                cp: { name: I.trail_elixir_cp_name, desc: I.trail_elixir_cp_desc, icon: 'trail_elixir_cp.webp' },
+                life: { name: I.trail_elixir_life_name, desc: I.trail_elixir_life_desc, icon: 'trail_elixir_life.webp' }
+            }[t] || { name: '?', desc: '', icon: 'trail_elixir_cp.webp' };
             html +=
                 '<div class="trail-card tcg-style trail-card-special" onclick="pickTrailCard(' + i + ')">' +
-                    '<div class="trail-card-special-bg elixir"></div>' +
-                    '<div class="trail-card-elem"><img src="assets/icons/' + elixirData.icon + '" alt="" onerror="this.style.display=\'none\';"></div>' +
+                    '<div class="trail-card-art" style="background: radial-gradient(circle at 50% 40%, #2e1a2a 0%, #100810 100%);"><img src="assets/icons/' + elixirData.icon + '" alt="" class="trail-special-art-img" onerror="this.style.display=\'none\';"></div>' +
                     '<div class="trail-card-special-badge">' + (L === 'RU' ? 'ЭЛИКСИР' : 'ELIXIR') + '</div>' +
                     '<div class="trail-card-overlay">' +
                         '<div class="trail-card-name" style="color:#f472b6;">' + elixirData.name + '</div>' +
@@ -15139,14 +15156,11 @@ function renderTrailGameover(panel, run, L, I) {
     html += '<div class="trail-fight-stats">';
     html += '<div class="trail-fight-stats-row"><span>' + cI + ' ' + (I.trail_loot_crystals || 'Кристаллы') + '</span><b style="color:var(--crystal);">+' + rw.crystals + '</b></div>';
     html += '<div class="trail-fight-stats-row"><span>' + gI + ' ' + (I.trail_loot_gold || 'Золото') + '</span><b style="color:var(--gold);">+' + formatNumber(rw.gold) + '</b></div>';
-    // v5.3.71: универсальные осколки заморожены — скрыты из UI.
-    // rw.universalShards продолжает начисляться в gState.universalShards (не ломаем сейвы,
-    // копим на будущее). Если решим включить — вернуть эту строку.
     for (const hid in rw.heroShardsGain) {
         const h = HEROES_CATALOG[hid];
         if (!h) continue;
         const _tColor = 'var(--tier-' + (h.tier || 'f').toLowerCase() + ')';
-        html += '<div class="trail-fight-stats-row" style="opacity:0.85;"><span style="font-size:11px;">' + (I.trail_loot_hero_shards || 'Осколки') + ' [<span style="color:' + _tColor + ';">' + h.tier + '</span>] ' + (h.name[L] || h.name['EN']) + '</span><b>+' + rw.heroShardsGain[hid] + '</b></div>';
+        html += '<div class="trail-fight-stats-row" style="opacity:0.85;"><span style="font-size:11px;"><img src="assets/icons/hero_shard.webp" class="res-icon-inline" style="width:11px; height:11px; vertical-align:-1px;" alt="shard"> ' + (I.trail_loot_hero_shards || 'Осколки') + ' [<span style="color:' + _tColor + ';">' + h.tier + '</span>] ' + (h.name[L] || h.name['EN']) + '</span><b>+' + rw.heroShardsGain[hid] + '</b></div>';
     }
     html += '</div>';
 

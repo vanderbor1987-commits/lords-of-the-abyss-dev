@@ -3,7 +3,7 @@
    v3.3: Network-First for Code & Cache-First for Heavy Assets
    ========================================================== */
 
-const CACHE_NAME = 'lords-abyss-v5.3.87';
+const CACHE_NAME = 'lords-abyss-v5.3.92';
 
 // Полный набор ядра и ключевой графики для автономной работы в оффлайне
 const STATIC_ASSETS = [
@@ -27,6 +27,17 @@ const STATIC_ASSETS = [
     // FIX-SW-CLEANUP: assets/bg/quests.webp убран из STATIC_ASSETS — файл отсутствует
     // в репозитории, даёт warning при каждой установке SW. CSS-фолбэк (#0d1217) работает.
     'assets/bg/shop.webp',
+    'assets/bg/trail.webp',
+    'assets/icons/hero_shard.webp',
+    'assets/icons/trail_hub.webp',
+    'assets/icons/trail_elixir_life.webp',
+    'assets/icons/trail_elixir_hp.webp',
+    'assets/icons/trail_elixir_atk.webp',
+    'assets/icons/trail_elixir_cp.webp',
+    'assets/icons/trail_artifact_blood_pact.webp',
+    'assets/icons/trail_artifact_void_seal.webp',
+    'assets/icons/trail_artifact_fate_coin.webp',
+    'assets/icons/trail_artifact_hunt_seal.webp',
     'assets/icons/gold.webp',
     'assets/icons/crystal.webp',
     'assets/icons/relic.webp',
