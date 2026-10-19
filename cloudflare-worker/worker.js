@@ -196,8 +196,16 @@ async function handleTrailSubmit(request, env) {
         try { entries = JSON.parse(raw) || []; } catch(e) { entries = []; } 
     }
     
-    // Убираем старую запись этого игрока за сегодня (обновляем)
-    entries = entries.filter(e => e.uid !== uid);
+    // v5.3.97: проверяем, не пытается ли игрок перезаписать свой рекорд меньшим значением
+    const existingIdx = entries.findIndex(e => e.uid === uid);
+    if (existingIdx >= 0 && score <= entries[existingIdx].score) {
+        return json({ ok: true, rank: existingIdx + 1, entries: entries, unchanged: true });
+    }
+    
+    // Убираем старую запись этого игрока (если новый рекорд выше)
+    if (existingIdx >= 0) {
+        entries.splice(existingIdx, 1);
+    }
     
     // Если мест уже 5 и score не выше 5-го места — не пишем (экономия KV)
     if (entries.length >= 5 && score <= entries[4].score) {
