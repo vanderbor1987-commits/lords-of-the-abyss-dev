@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.92';
+const BUILD_VERSION = '5.3.93';
 const BUILD_DATE = '19.10.2026';
 
 // ==========================================================
@@ -202,6 +202,7 @@ let gState = {
     arenaSeasonWeekId: '',
     lifetimeGold: 1000,
     highestKeep: 1,
+    maxCpEver: 0,
     lifetimeWins: 0,
     maxArmyEver: 0,
     achieveStages: { ach_g: 0, ach_a: 0, ach_k: 0, ach_ar: 0, ach_c: 0, ach_asc: 0, ach_dem: 0, ach_dung: 0, ach_wheel: 0 },
@@ -1624,6 +1625,11 @@ function saveGame(immediateCloud = false) {
     if (typeof document !== 'undefined' && document.hidden && !immediateCloud) return;
 
     gState.lastTickTime = Date.now();
+    // v5.3.93: фиксируем пиковый CP для честного расчёта HP Левиафана
+    if (typeof calculateCP === 'function') {
+        const _curCp = calculateCP();
+        if (_curCp > (gState.maxCpEver || 0)) gState.maxCpEver = _curCp;
+    }
     try {
         // v5.3.14: пересчитываем checksum перед сохранением.
         gState._ck = computeSaveChecksum();
@@ -1810,7 +1816,7 @@ function loadGame() {
     // v5.3.9: база HP Левиафана 50k → 2M. При CP 30k босс умирал за 2 удара.
     // 2M HP = ~67 ударов для старта, ~40 для мид-гейма. Фикс множителя *25 → *40.
     if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
-        gState.worldBossMaxHp = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
+        gState.worldBossMaxHp = Math.max(2000000, Math.floor(Math.max(calculateCP(gState.attackFormation), gState.maxCpEver || 0) * 40));
     }
     if (gState.worldBossHp === undefined || gState.worldBossHp > gState.worldBossMaxHp) {
         gState.worldBossHp = gState.worldBossMaxHp;
@@ -8406,9 +8412,12 @@ function farmDungeonShards() {
    ========================================================== */
 function getRaidCooldownMs() { return isVipActive() ? 60000 : 300000; }
 
+let isRaidSpeedupBusy = false;
 function speedupRaidCooldown() {
-    if (isVipActive() || gState.raidSpeedupUsed) return;
+    if (isRaidSpeedupBusy || isVipActive() || gState.raidSpeedupUsed) return;
+    isRaidSpeedupBusy = true;
     showPlatformRewarded(() => {
+        isRaidSpeedupBusy = false;
         const now = Date.now();
         const elapsed = now - (gState.lastRaidAttackTime || 0);
         const totalCd = getRaidCooldownMs();
@@ -8420,6 +8429,8 @@ function speedupRaidCooldown() {
             renderRaidBossUI();
             pushToast(currentLang === 'RU' ? "Откат удара сокращен на 50%!" : "Strike cooldown halved by 50%!");
         }
+    }, () => {
+        isRaidSpeedupBusy = false;
     });
 }
 
@@ -8432,7 +8443,7 @@ function getRaidMaxHp() {
     // Новая база 50K даёт мид-гейму 25 ударов, как задумано в FIX-RAID-HP.
     // v4.9.6: HP = CP × 40 (было ×25). За неделю игрок подрастает — ударов <40.
     if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
-        gState.worldBossMaxHp = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
+        gState.worldBossMaxHp = Math.max(2000000, Math.floor(Math.max(calculateCP(gState.attackFormation), gState.maxCpEver || 0) * 40));
     }
     return gState.worldBossMaxHp;
 }
@@ -8465,7 +8476,7 @@ function checkWeeklyRaidReset() {
     const curWeek = getWeekIdentifier();
     // FIX-RAID-HP: HP Левиафана считается от текущего CP игрока — ~25 ударов до победы.
     // Убрана старая формула relics * 0.35 и верхний потолок 100M, ломавший эндгейм.
-    const calculatedMax = Math.max(2000000, Math.floor(calculateCP(gState.attackFormation) * 40));
+    const calculatedMax = Math.max(2000000, Math.floor(Math.max(calculateCP(gState.attackFormation), gState.maxCpEver || 0) * 40));
 
     if (!gState.worldBossMaxHp || gState.worldBossMaxHp < 2000000) {
         gState.worldBossMaxHp = calculatedMax;
@@ -8482,11 +8493,16 @@ function checkWeeklyRaidReset() {
         gState.worldBossHp = gState.worldBossMaxHp;
         gState.isRaidDefeatedThisWeek = false;
         gState.lastRaidAttackTime = 0;
+        gState.maxCpEver = 0; // v5.3.93: сброс пикового CP для новой недели
         saveGame();
     }
 }
 
+let _isRaidAttacking = false;
 function attackWorldRaidBoss() {
+    if (_isRaidAttacking) return;
+    _isRaidAttacking = true;
+    try {
     if (gState.isRaidDefeatedThisWeek || (gState.worldBossHp || 0) <= 0) {
         return pushToast(currentLang === 'RU' ? "Левиафан уже повержен на этой неделе!" : "Leviathan already defeated this week!");
     }
@@ -8550,6 +8566,9 @@ function attackWorldRaidBoss() {
     saveGame();
     renderRaidBossUI();
     renderUI();
+    } finally {
+        _isRaidAttacking = false;
+    }
 }
 
 function openLeviathanTriumphOverlay() {
@@ -8603,7 +8622,11 @@ function closeLeviathanTriumphOverlay() {
     isLeviathanTriumphInProgress = false;
     const rI = '<img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">';
     const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
-    pushToast(currentLang === 'RU' ? `ТРОФЕИ ПОБЕДИТЕЛЯ: +1 ${rI} • +100 ${cI}` : `RAID SPOILS: +1 ${rI} • +100 ${cI}`);
+    const _gotRelic = gState.lastRaidRelicGot;
+    const _toastMsg = currentLang === 'RU'
+        ? (_gotRelic ? `ТРОФЕИ ПОБЕДИТЕЛЯ: +1 ${rI} • +100 ${cI}` : `ТРОФЕИ ПОБЕДИТЕЛЯ: +100 ${cI}`)
+        : (_gotRelic ? `RAID SPOILS: +1 ${rI} • +100 ${cI}` : `RAID SPOILS: +100 ${cI}`);
+    pushToast(_toastMsg);
     saveGame();
     renderRaidBossUI();
     renderUI();
@@ -15658,10 +15681,14 @@ function initMobileLongPressTooltips() {
     let longPressTimer = null;
     let activeTooltipEl = null;
     let tooltipActive = false;
+    let autoDismissTimer = null;
 
     const removeTooltip = () => {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        if (autoDismissTimer) { clearTimeout(autoDismissTimer); autoDismissTimer = null; }
         if (activeTooltipEl) { activeTooltipEl.remove(); activeTooltipEl = null; }
+        // v5.3.93: страховка от осиротевших тултипов при перекрытии таймеров
+        document.querySelectorAll('.mobile-longpress-tooltip').forEach(el => el.remove());
         tooltipActive = false;
     };
 
@@ -15671,15 +15698,23 @@ function initMobileLongPressTooltips() {
             removeTooltip();
             return;
         }
+        // v5.3.93: сбрасываем таймер от предыдущего касания, если он ещё висел
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+
         const target = e.target.closest('[title]');
         if (!target) return;
-        // v5.3.10: исключаем активно-тапаемые игровые зоны — там тултип мешает.
         if (target.id === 'tap-node' || target.closest('.citadel-bottom-tap-zone')) return;
         const text = target.getAttribute('title');
         if (!text) return;
 
+        const touch = e.touches && e.touches[0];
+        const touchX = touch ? touch.clientX : (window.innerWidth / 2);
+        const touchY = touch ? touch.clientY : (window.innerHeight / 2);
+
         longPressTimer = setTimeout(() => {
             longPressTimer = null;
+            removeTooltip(); // очищаем возможные дубли перед созданием
+
             activeTooltipEl = document.createElement('div');
             activeTooltipEl.className = 'mobile-longpress-tooltip';
             activeTooltipEl.innerText = text;
@@ -15687,22 +15722,25 @@ function initMobileLongPressTooltips() {
             activeTooltipEl.style.left = '0px';
             activeTooltipEl.style.top = '0px';
             document.body.appendChild(activeTooltipEl);
-            // v5.3.22 FIX-TIP-CLAMP: теперь после appendChild измеряем реальные
-            // размеры (учитывая длинный многострочный текст) и клэмпим по всем
-            // четырём краям viewport'а. Раньше длинный тултип обрезался снизу.
-            const touch = e.touches[0];
+
             const tipW = activeTooltipEl.offsetWidth || 200;
             const tipH = activeTooltipEl.offsetHeight || 40;
             const maxLeft = Math.max(10, window.innerWidth - tipW - 10);
             const maxTop = Math.max(10, window.innerHeight - tipH - 10);
-            const desiredLeft = Math.max(10, Math.min(maxLeft, touch.clientX - tipW / 2));
-            let desiredTop = touch.clientY - 46;
-            if (desiredTop + tipH > window.innerHeight - 10) desiredTop = touch.clientY - tipH - 12;
+            const desiredLeft = Math.max(10, Math.min(maxLeft, touchX - tipW / 2));
+            let desiredTop = touchY - 46;
+            if (desiredTop + tipH > window.innerHeight - 10) desiredTop = touchY - tipH - 12;
             desiredTop = Math.max(10, Math.min(maxTop, desiredTop));
             activeTooltipEl.style.left = `${desiredLeft}px`;
             activeTooltipEl.style.top = `${desiredTop}px`;
             activeTooltipEl.style.visibility = 'visible';
             tooltipActive = true;
+
+            // v5.3.93: авто-закрытие через 3.5 секунды
+            autoDismissTimer = setTimeout(() => {
+                removeTooltip();
+            }, 3500);
+
             triggerHaptic('tap');
         }, 400);
     }, { passive: true });
