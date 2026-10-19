@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.81';
+const BUILD_VERSION = '5.3.87';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -14377,7 +14377,17 @@ function generateTrailCards(depth, roster, forcedTargetSlot) {
         let c;
         if (_targetSlot === -1) {
             const _elx = pickTrailElixir();
-            c = { type: 'elixir', elixirType: _elx || 'life' };
+            if (_elx) {
+                c = { type: 'elixir', elixirType: _elx };
+            } else {
+                const _validRoster = (roster || []).map((id, idx) => id ? { id, idx } : null).filter(Boolean);
+                if (_validRoster.length > 0) {
+                    const _dupe = _validRoster[Math.floor(Math.random() * _validRoster.length)];
+                    c = { type: 'hero', heroId: _dupe.id, targetSlot: _dupe.idx };
+                } else {
+                    c = { type: 'elixir', elixirType: 'life' };
+                }
+            }
         } else {
             c = generateTrailCard(depth, forceFirst, exclude, !_artifactUsed);
             if (c.type === 'hero') {
@@ -14654,7 +14664,6 @@ function pickTrailCard(cardIdx) {
     const card = run.cards[cardIdx];
     if (!card) return;
     if (card.type === 'hero') {
-        if (run.currentTargetSlot === -1) return;
         let slotIdx;
         if (typeof run.currentTargetSlot === 'number' && run.currentTargetSlot >= 0 && run.currentTargetSlot < run.roster.length) {
             slotIdx = run.currentTargetSlot;
