@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.80';
+const BUILD_VERSION = '5.3.81';
 const BUILD_DATE = '17.10.2026';
 
 // ==========================================================
@@ -1791,6 +1791,14 @@ function loadGame() {
     // Гарантирует чистое состояние до первого вызова calculateCP, getFormationSynergy и renderFormationSlots.
     gState.attackFormation = sanitizeFormation(gState.attackFormation);
     gState.defenseFormation = sanitizeFormation(gState.defenseFormation);
+
+    if (!gState.trailMeta) gState.trailMeta = {};
+    if (typeof gState.trailMeta.extraLifeLvl !== 'number') gState.trailMeta.extraLifeLvl = 0;
+    if (typeof gState.trailMeta.startHpBuffLvl !== 'number') gState.trailMeta.startHpBuffLvl = 0;
+    if (typeof gState.trailMeta.goldBoostLvl !== 'number') gState.trailMeta.goldBoostLvl = 0;
+    if (typeof gState.trailMeta.shardBoostLvl !== 'number') gState.trailMeta.shardBoostLvl = 0;
+    if (typeof gState.trailMeta.startCardBought !== 'boolean') gState.trailMeta.startCardBought = false;
+    if (typeof gState.trailMeta.fourthSlotBought !== 'boolean') gState.trailMeta.fourthSlotBought = false;
 
     if (gState.stageQuests) {
         delete gState.stageQuests.calendar;
@@ -14116,7 +14124,11 @@ function buyTrailMeta(kind) {
     const cost = getTrailMetaNextCost(kind);
     if (cost === null) return pushToast(currentLang === 'RU' ? 'Уже максимальный уровень' : 'Already maxed');
     if ((gState.trailPoints || 0) < cost) return pushToast(currentLang === 'RU' ? 'Недостаточно очков Тропы' : 'Not enough Trail points');
-    if (!gState.trailMeta) gState.trailMeta = { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false };
+    if (!gState.trailMeta) gState.trailMeta = {};
+    if (typeof gState.trailMeta.extraLifeLvl !== 'number') gState.trailMeta.extraLifeLvl = 0;
+    if (typeof gState.trailMeta.startHpBuffLvl !== 'number') gState.trailMeta.startHpBuffLvl = 0;
+    if (typeof gState.trailMeta.goldBoostLvl !== 'number') gState.trailMeta.goldBoostLvl = 0;
+    if (typeof gState.trailMeta.shardBoostLvl !== 'number') gState.trailMeta.shardBoostLvl = 0;
     gState.trailPoints -= cost;
     if (kind === 'extraLife') gState.trailMeta.extraLifeLvl++;
     else if (kind === 'startCard') gState.trailMeta.startCardBought = true;
@@ -14564,6 +14576,8 @@ function renderTrailMetaModal() {
     const L = currentLang;
     const I = I18N[L];
     const meta = gState.trailMeta || {};
+    if (typeof meta.goldBoostLvl !== 'number') meta.goldBoostLvl = 0;
+    if (typeof meta.shardBoostLvl !== 'number') meta.shardBoostLvl = 0;
     const points = gState.trailPoints || 0;
     const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
     const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
