@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.3.95';
+const BUILD_VERSION = '5.3.96';
 const BUILD_DATE = '19.10.2026';
 
 // ==========================================================
@@ -14336,12 +14336,14 @@ function renderTrailDailyLeaderboard(entries) {
             if (claimed) {
                 rewardHtml = `<span style="color:var(--text-muted); font-size:11px; font-weight:800;">${I18N[currentLang]?.trail_daily_claimed_btn || 'ПОЛУЧЕНО'}</span>`;
             } else {
-                rewardHtml = `<button class="btn-action" style="padding:2px 8px; font-size:11px; min-height:24px; background:var(--green); border-color:#22c55e;" onclick="claimTrailDailyReward(${rank})">${I18N[currentLang]?.trail_daily_claim_btn || 'ЗАБРАТЬ'}</button>`;
+                // v5.3.96: передаём uid, а не rank — защита от вызова из консоли с фейковым рангом
+                rewardHtml = `<button class="btn-action" style="padding:2px 8px; font-size:11px; min-height:24px; background:var(--green); border-color:#22c55e;" onclick="claimTrailDailyReward('${e.uid}')">${I18N[currentLang]?.trail_daily_claim_btn || 'ЗАБРАТЬ'}</button>`;
             }
         }
 
         const row = document.createElement('div');
         row.className = `trail-daily-row ${isMe ? 'me' : ''}`;
+        row.setAttribute('data-uid', e.uid); // v5.3.96: для проверки при клейме
         row.innerHTML = `
             <span style="color:var(--gold); width:20px; text-align:center;">#${rank}</span>
             <div class="trail-daily-name">${escapeHtml(e.name)}${isMe ? ' <span style="font-size:10px; color:var(--text-muted);">(Вы)</span>' : ''}</div>
@@ -14355,10 +14357,25 @@ function renderTrailDailyLeaderboard(entries) {
     });
 }
 
-function claimTrailDailyReward(rank) {
+function claimTrailDailyReward(uid) {
     const today = new Date().toISOString().slice(0, 10);
     if (gState.trailDailyClaimedDate === today) return;
     
+    // v5.3.96: награда выдаётся только за твой реальный ранг из списка
+    const list = document.getElementById('trail-daily-list');
+    if (!list) return;
+    const rows = list.querySelectorAll('.trail-daily-row');
+    let rank = 0;
+    for (let i = 0; i < rows.length; i++) {
+        // Ищем строку, где data-uid совпадает с переданным
+        if (rows[i].getAttribute('data-uid') === String(uid)) {
+            rank = i + 1;
+            break;
+        }
+    }
+    
+    if (rank === 0) return; // Игрок не в списке — награду не даём
+
     let reward = 0;
     if (rank === 1) reward = 100;
     else if (rank <= 3) reward = 50;
