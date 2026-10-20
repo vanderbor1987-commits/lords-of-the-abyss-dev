@@ -72,8 +72,8 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.15';
-const BUILD_DATE = '20.10.2026';
+const BUILD_VERSION = '5.4.16';
+const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
 // P9: VK LAUNCH PARAMS VALIDATION (п. 1.2.2 правил VK Mini Apps)
@@ -226,24 +226,6 @@ let gState = {
 // На повторных визитах completePreloader() читал hasAcceptedTerms = false (дефолт)
 // ещё до того, как loadGame() подтянет true из localStorage — экран согласия
 // показывался каждый раз заново. Читаем ОДИН флаг синхронно — boot не блокируется.
-(function syncHydrateTermsFlag() {
-    try {
-        const raw = localStorage.getItem(SAVE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed.hasAcceptedTerms === 'boolean') {
-                gState.hasAcceptedTerms = parsed.hasAcceptedTerms;
-            }
-        }
-    } catch(e) {}
-})();
-
-// FIX-TERMS-PERSIST: синхронная гидратация флага согласия ДО preloader IIFE.
-// Проблема: loadGame() запускается в async IIFE после fetch к Cloudflare (~300-800ms),
-// а preloader завершается раньше (ассеты из кэша → 50-200ms, либо watchdog на 2.2s).
-// На повторных визитах с warm-cache completePreloader() читал gState.hasAcceptedTerms
-// ещё до того, как loadGame() подтянет его из localStorage → экран согласия показывался
-// каждый раз заново. Читаем ОДИН флаг синхронно — это микросекунды, boot не блокируется.
 (function syncHydrateTermsFlag() {
     try {
         const raw = localStorage.getItem(SAVE_KEY);
@@ -16180,14 +16162,28 @@ async function checkPendingGrants() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query })
         });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+            if (DEV_MODE_CHECK()) console.warn('[LiveGrant] Worker HTTP', resp.status);
+            return;
+        }
         const data = await resp.json();
         if (!data || data.ok !== true || !Array.isArray(data.grants) || data.grants.length === 0) return;
+        const _validGrants = [];
         for (const grant of data.grants) {
-            applyRewardBundle(grant.rewards);
+            if (!grant || typeof grant !== 'object' || !grant.rewards) continue;
+            try {
+                applyRewardBundle(grant.rewards);
+                _validGrants.push(grant);
+            } catch (e) {
+                if (DEV_MODE_CHECK()) console.warn('[LiveGrant] applyRewardBundle failed:', e);
+            }
         }
-        openLiveGrantModal(data.grants);
+        if (_validGrants.length === 0) {
+            if (DEV_MODE_CHECK() && data.grants.length > 0) console.warn('[LiveGrant] all grants skipped:', data.grants.length);
+            return;
+        }
         saveGame();
+        openLiveGrantModal(_validGrants);
         renderUI();
         if (typeof renderCards === 'function') renderCards();
         if (typeof renderFormationSlots === 'function') renderFormationSlots();
@@ -16200,18 +16196,27 @@ async function checkPendingGrants() {
 
 function applyRewardBundle(rewards) {
     if (!rewards || typeof rewards !== 'object') return;
-    if (rewards.gold > 0) {
-        const v = Math.floor(rewards.gold);
-        gState.gold += v;
-        gState.lifetimeGold += v;
+    const _safeInt = (v, max) => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) return 0;
+        return Math.min(Math.floor(n), max);
+    };
+    const g = _safeInt(rewards.gold, 100000000);
+    const c = _safeInt(rewards.crystals, 100000);
+    const r = _safeInt(rewards.relics, 100);
+    const t = _safeInt(rewards.tickets, 1000);
+    const vd = _safeInt(rewards.vipDays, 365);
+    if (g > 0) {
+        gState.gold += g;
+        gState.lifetimeGold += g;
     }
-    if (rewards.crystals > 0) gState.crystals += Math.floor(rewards.crystals);
-    if (rewards.relics > 0) gState.relics += Math.floor(rewards.relics);
-    if (rewards.tickets > 0) gState.tickets += Math.floor(rewards.tickets);
-    if (rewards.vipDays > 0) {
+    if (c > 0) gState.crystals += c;
+    if (r > 0) gState.relics += r;
+    if (t > 0) gState.tickets += t;
+    if (vd > 0) {
         const _dMs = 24 * 3600 * 1000;
         const _base = Math.max(Date.now(), gState.vipUntil || 0);
-        gState.vipUntil = _base + Math.floor(rewards.vipDays) * _dMs;
+        gState.vipUntil = _base + vd * _dMs;
     }
 }
 
