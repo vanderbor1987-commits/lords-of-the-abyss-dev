@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.31';
+const BUILD_VERSION = '5.4.38';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -15587,7 +15587,7 @@ function renderTrailUI() {
     const _bestScore = gState.trailBestScore || 0;
     // v5.3.36: кнопка «ЗАВЕРШИТЬ» в статус-баре + live-маркер рекорда.
     const _recordBadge = (run.score > _bestScore)
-        ? '<span class="trail-record-live">★ РЕКОРД</span>'
+        ? '<span class="trail-record-badge">★ РЕКОРД</span>'
         : '';
     // v5.3.39: бейдж синергии в статус-баре.
     const _synMult = trailSynergyMult(run.roster);
@@ -15625,13 +15625,19 @@ function renderTrailUI() {
     }
     bar.innerHTML =
         '<div class="trail-bar-row-1">' +
-            '<span class="trail-depth">' + (I.trail_wave || 'ВОЛНА') + ' ' + run.depth + '</span>' +
-            '<span class="trail-lives">' + livesStr + '</span>' +
-            '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + run.score + '</b>' + _recordBadge + ' ' + _synBadge + '</span>' +
+            '<div class="trail-top-left">' +
+                '<span class="trail-depth">' + (I.trail_wave || 'ВОЛНА') + ' ' + run.depth + '</span>' +
+                _synBadge +
+                '<span class="trail-lives">' + livesStr + '</span>' +
+            '</div>' +
             '<div class="trail-finish-btn-wrap">' + _finishBtnHtml + '</div>' +
         '</div>' +
         '<div class="trail-bar-row-2">' +
-            _buffsRow +
+            '<div class="trail-score-wrap">' +
+                '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + run.score + '</b></span>' +
+                _recordBadge +
+            '</div>' +
+            '<span class="trail-buffs-wrap">' + (_buffsRow || '') + '</span>' +
         '</div>' +
         _artsRow;
 

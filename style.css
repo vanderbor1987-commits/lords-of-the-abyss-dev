@@ -295,35 +295,102 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 6px;
     width: 100%;
+    margin-bottom: 4px;
+    gap: 6px;
 }
-.trail-depth {
-    min-width: 65px;
-}
-.trail-lives {
-    min-width: 105px;
-}
-.trail-score {
+.trail-center-group {
     flex: 1;
-    text-align: center;
-}
-.trail-finish-btn-wrap {
     display: flex;
-    justify-content: flex-end;
-    min-width: 80px;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
 }
 .trail-bar-row-2 {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 6px;
+    width: 100%;
     font-size: 11px;
     padding-top: 4px;
     border-top: 1px solid rgba(168, 85, 247, 0.25);
-    flex-wrap: wrap;
+    gap: 6px;
+}
+.trail-score-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.trail-buffs-wrap {
+    font-size: 10.5px;
+    color: #94a3b8;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+}
+
+.trail-record-badge {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(180deg, rgba(245, 176, 65, 0.2) 0%, rgba(245, 176, 65, 0.05) 100%);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 10px;
+    font-weight: 900;
+    padding: 1px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    text-shadow: 0 0 6px var(--gold-glow);
+    box-shadow: 0 0 8px rgba(245, 176, 65, 0.3);
+    white-space: nowrap;
 }
 .trail-status-bar .trail-lives { display: flex; align-items: center; gap: 2px; }
+
+.trail-bar-row-1, .trail-bar-row-2 {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    gap: 6px !important;
+}
+.trail-bar-row-1 {
+    margin-bottom: 4px !important;
+}
+.trail-bar-row-2 {
+    font-size: 11px !important;
+    padding-top: 4px !important;
+    border-top: 1px solid rgba(168, 85, 247, 0.25) !important;
+}
+.trail-top-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+}
+.trail-finish-btn-wrap {
+    width: 110px !important;
+    min-width: 110px !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    flex-shrink: 0 !important;
+}
+.trail-score-wrap {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+.trail-buffs-wrap {
+    font-size: 10.5px !important;
+    color: #94a3b8 !important;
+    text-align: right !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 60% !important;
+}
 .trail-life-icon {
     width: 20px;
     height: 20px;
@@ -333,7 +400,13 @@ html, body {
 .trail-life-icon.empty {
     filter: grayscale(1) opacity(0.25);
 }
-.trail-status-bar .trail-score { color: var(--gold); }
+.trail-status-bar .trail-score {
+    color: var(--gold);
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
 .trail-status-bar .trail-syn-badge {
     display: inline-block;
     background: rgba(168, 85, 247, 0.25);
@@ -343,7 +416,6 @@ html, body {
     color: #e9d5ff;
     font-size: 10px;
     font-weight: 900;
-    margin-left: 6px;
     letter-spacing: 0.3px;
 }
 .trail-buffs-line {
@@ -815,15 +887,7 @@ html, body {
     padding: 2px 4px;
 }
 .trail-status-bar .trail-depth { color: #f472b6; }
-.trail-status-bar .trail-record-live {
-    color: #fde047;
-    font-size: 10px;
-    font-weight: 900;
-    letter-spacing: 0.5px;
-    margin-left: 6px;
-    text-shadow: 0 0 6px rgba(253, 224, 71, 0.7);
-    animation: ftueBadgePulse 1.4s infinite alternate ease-in-out;
-}
+/* Старый бейдж РЕКОРД удален */
 .trail-finish-btn {
     background: rgba(20, 26, 36, 0.95);
     border: 1.5px solid #ef4444;
