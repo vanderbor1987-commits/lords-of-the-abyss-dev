@@ -83,7 +83,7 @@ export default {
 
         // v2.2: live-выдача
         if (path === '/admin/grant') return handleAdminGrant(request, env);
-        if (path === '/grant/check') return handleGrantCheck(request, env);
+        if (path === '/grant/check') return handleGrantCheck(request, env, ctx);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -241,10 +241,11 @@ async function handleAdminGrant(request, env) {
 
     await env.LOTA_LADDER.put(key, JSON.stringify(grants), { expirationTtl: ttlDays * 86400 });
 
+    console.log('[LiveGrant] Admin', auth.userId, 'granted to', targetUid, 'rewards:', JSON.stringify(safeRewards));
     return json({ ok: true, grantId, targetUid, rewards: safeRewards, ttlDays });
 }
 
-async function handleGrantCheck(request, env) {
+async function handleGrantCheck(request, env, ctx) {
     const body = await readBody(request);
     if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
     const rawQuery = typeof body.query === 'string' ? body.query : '';
@@ -260,9 +261,11 @@ async function handleGrantCheck(request, env) {
     try { grants = JSON.parse(raw) || []; } catch (e) { grants = []; }
     if (!Array.isArray(grants)) grants = [];
 
-    // Удаляем ДО возврата — защита от двойной выдачи, если клиент дважды дёрнет.
-    await env.LOTA_LADDER.delete(key);
+    // Удаляем ПОСЛЕ возврата через ctx.waitUntil — если сеть оборвётся, награда не сгорит.
+    if (ctx && ctx.waitUntil) ctx.waitUntil(env.LOTA_LADDER.delete(key));
+    else await env.LOTA_LADDER.delete(key);
 
+    console.log('[LiveGrant] Sent grants to:', uid, 'count:', grants.length);
     return json({ ok: true, grants });
 }
 

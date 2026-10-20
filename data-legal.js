@@ -87,7 +87,7 @@ const LEGAL_DOCS = {
                 {
                     heading: '8. Изменение условий',
                     paragraphs: [
-                        'Разработчик вправе изменять условия Соглашения. Актуальная редакция всегда доступна по адресу vk.com/app54817477. Продолжение использования Игры после внесения изменений означает согласие с новой редакцией.'
+                        'Разработчик вправе изменять условия Соглашения. Актуальная редакция всегда доступна в официальном сообществе игры (vk.ru/lordsabyss). Продолжение использования Игры после внесения изменений означает согласие с новой редакцией.'
                     ]
                 },
                 {
@@ -169,7 +169,7 @@ const LEGAL_DOCS = {
                 {
                     heading: '8. Changes to Terms',
                     paragraphs: [
-                        'The Developer reserves the right to change the terms of the Agreement. The current version is always available at vk.com/app54817477. Continued use of the Game after changes are made constitutes acceptance of the new version.'
+                        'The Developer reserves the right to change the terms of the Agreement. The current version is always available in the official game community (vk.ru/lordsabyss). Continued use of the Game after changes are made constitutes acceptance of the new version.'
                     ]
                 },
                 {
@@ -264,7 +264,7 @@ const LEGAL_DOCS = {
                 {
                     heading: '9. Изменения политики',
                     paragraphs: [
-                        'Разработчик вправе изменять настоящую Политику. Актуальная редакция всегда доступна по адресу vk.com/app54817477. Дата последнего обновления указана в начале документа.'
+                        'Разработчик вправе изменять настоящую Политику. Актуальная редакция всегда доступна в официальном сообществе игры (vk.ru/lordsabyss). Дата последнего обновления указана в начале документа.'
                     ]
                 },
                 {
@@ -353,7 +353,7 @@ const LEGAL_DOCS = {
                 {
                     heading: '9. Policy Changes',
                     paragraphs: [
-                        'The Developer reserves the right to modify this Policy. The current version is always available at vk.com/app54817477. The date of the last update is indicated at the beginning of the document.'
+                        'The Developer reserves the right to modify this Policy. The current version is always available in the official game community (vk.ru/lordsabyss). The date of the last update is indicated at the beginning of the document.'
                     ]
                 },
                 {
