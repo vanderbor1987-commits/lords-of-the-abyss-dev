@@ -106,6 +106,10 @@ const PROMO_CODES = {
         "tickets": 104,
         "vipDays": 365
     },
+
+    'TEST_EXPIRED': { gold: 1000, expiresAt: Date.now() - 86400000 },  // вчера
+
+    'TEST_VIP': { vipDays: 30, title: { RU: 'VIP на 30 дней', EN: 'VIP 30 days' } },
 };
     
 // Валидатор формата промокода
