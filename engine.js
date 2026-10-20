@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.25';
+const BUILD_VERSION = '5.4.26';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -14815,12 +14815,16 @@ async function fetchTrailDailyLeaderboard() {
         return;
     }
     const query = getLaunchQuery();
+    let _ctrl = new AbortController();
+    let _tId = setTimeout(() => _ctrl.abort(), 8000);
     try {
         const resp = await fetch(`${WORKER_BASE_URL}/trail/daily`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({ query }),
+            signal: _ctrl.signal
         });
+        clearTimeout(_tId);
         const data = await resp.json();
         if (data && data.ok && Array.isArray(data.entries)) {
             renderTrailDailyLeaderboard(data.entries);
@@ -14828,6 +14832,7 @@ async function fetchTrailDailyLeaderboard() {
             renderTrailDailyLeaderboard([]);
         }
     } catch (e) {
+        if (typeof _tId !== 'undefined') clearTimeout(_tId);
         renderTrailDailyLeaderboard([]);
     }
 }
@@ -16353,13 +16358,17 @@ async function checkPendingGrants() {
     if (typeof canSubmitToLiveArena !== 'function' || !canSubmitToLiveArena()) return;
     if (_liveGrantInProgress) return;
     _liveGrantInProgress = true;
+    let _ctrl = new AbortController();
+    let _tId = setTimeout(() => _ctrl.abort(), 8000);
     try {
         const query = getLaunchQuery();
         const resp = await fetch(`${WORKER_BASE_URL}/grant/check`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({ query }),
+            signal: _ctrl.signal
         });
+        clearTimeout(_tId);
         if (!resp.ok) {
             if (DEV_MODE_CHECK()) console.warn('[LiveGrant] Worker HTTP', resp.status);
             return;
