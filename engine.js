@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.30';
+const BUILD_VERSION = '5.4.31';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -14624,7 +14624,7 @@ const TRAIL_META_PRICES = {
 // забег (глубина 30-40) давал примерно 300-500 очков. Обмен на 500 кристаллов
 // требует двух крепких забегов — курс сопоставим с рекламой и билетами.
 const TRAIL_EXCHANGES = [
-    { id: 'gold_5k', cost: 500, goldSec: 7200 },
+    { id: 'gold_5k', cost: 500, goldSec: 1800 },
     { id: 'cryst_50', cost: 1000, crystals: 50 },
     { id: 'tickets_2', cost: 1500, tickets: 2 }
 ];
@@ -14736,7 +14736,7 @@ function calculateTrailRewards(run) {
         const uniqueHeroes = Array.from(new Set((run.roster || []).filter(Boolean)));
         uniqueHeroes.forEach(hid => { heroShardsGain[hid] = 1; });
     }
-    const points = run.score || 0;
+    const points = Math.floor((run.score || 0) * 0.5);
     return { crystals, gold, heroShardsGain, points, depth, bossBonus };
 }
 
