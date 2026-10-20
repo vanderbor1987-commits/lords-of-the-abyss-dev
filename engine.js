@@ -72,8 +72,8 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.02';
-const BUILD_DATE = '19.10.2026';
+const BUILD_VERSION = '5.4.03';
+const BUILD_DATE = '20.10.2026';
 
 // ==========================================================
 // P9: VK LAUNCH PARAMS VALIDATION (п. 1.2.2 правил VK Mini Apps)
@@ -5781,6 +5781,10 @@ async function silentInboxSync() {
             renderUI();
             renderArena();
             renderLeaderboard();
+            // v5.4.03 FIX-INBOX-KV-LEAK: после успешного silent-применения чистим KV-inbox.
+            // Раньше чистка шла только в closeArenaInbox() — если игрок никогда не открывал
+            // модалку, сервер хранил все атаки до конца сезона, плодя мусор в KV.
+            if (typeof clearArenaInboxOnServer === 'function') clearArenaInboxOnServer();
             if (DEV_MODE_CHECK()) devLog('[LiveArena] silent sync applied', _applied, 'delta', _deltaSum);
         }
     } finally {
@@ -5803,30 +5807,30 @@ async function checkArenaInbox() {
     // trophyChange в inbox УЖЕ от лица защитника (см. worker.js handleArenaAttack,
     // где delta = result==='win' ? -trophyChange : trophyChange и записывается в inbox напрямую).
     // Дедуп по (attackerUid + ts) — защита от двойного применения при перезаходе.
-    let _deltaSum = 0, _newCount = 0;
+    // v5.4.03 FIX-INBOX-HISTORY-DEDUP: собираем новые атаки в одном проходе.
+    // Раньше dedup-барьер ставился в первом проходе (начисление кубков), и второй
+    // проход (battleHistory) натыкался на тот же ключ — запись в журнал не создавалась.
+    let _deltaSum = 0;
+    const _newAttacks = [];
     attacks.forEach(atk => {
         const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
         if (gState._seenInboxKeys[dedupKey]) return;
         gState._seenInboxKeys[dedupKey] = 1;
         _deltaSum += Math.floor(atk.trophyChange || 0);
-        _newCount++;
+        _newAttacks.push(atk);
     });
-    if (_newCount > 0) {
+    if (_newAttacks.length > 0) {
         gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
-        if (DEV_MODE_CHECK()) devLog('[LiveArena] inbox applied', _newCount, 'delta', _deltaSum);
+        if (DEV_MODE_CHECK()) devLog('[LiveArena] inbox applied', _newAttacks.length, 'delta', _deltaSum);
     }
     // Снимаем блок submit — inbox прочитан, кубки актуальны.
     _inboxSyncPending = false;
     if (_inboxSyncFallbackTimer) { clearTimeout(_inboxSyncFallbackTimer); _inboxSyncFallbackTimer = null; }
 
-    // v4.9.6: дублируем входящие PvP-атаки в журнал сражений на Арене.
-    // FIX-INBOX-HISTORY-DEDUP: дедуп по (attackerUid + ts) — иначе при каждом
-    // переоткрытии игры одни и те же атаки перезаписывались в журнал заново.
+    // v5.4.03 FIX-INBOX-HISTORY-DEDUP: пишем в battleHistory из _newAttacks.
+    // Дедуп уже отработал в первом проходе — второй проверки не нужно.
     const _trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="Trophy">';
-    attacks.slice(0, 5).forEach(atk => {
-        const dedupKey = String(atk.attackerUid || '?') + '_' + String(atk.ts || 0);
-        if (gState._seenInboxKeys[dedupKey]) return;
-        gState._seenInboxKeys[dedupKey] = 1;
+    _newAttacks.slice(0, 5).forEach(atk => {
         const isLossForPlayer = atk.result === 'win';
         const delta = Math.abs(Math.floor(atk.trophyChange || 0));
         const timeStr = atk.ts ? new Date(atk.ts * 1000).toLocaleTimeString().slice(0, 5) : '';
@@ -6761,9 +6765,30 @@ function getLeagueLordByRank(botRank) {
 // Кэш соперников для арены
 let cachedArenaRivals = [];
 
+function _getArenaRenderSig() {
+    const rivals = gState.arenaActiveRivals || [];
+    const rivalsSig = rivals.map(r => `${r.rank}:${r.name}:${Math.floor(r.trophies||0)}:${r.cp}:${r.gain}:${r.isRevenge?1:0}:${r.isReal?'L':'B'}:${r.uid||''}`).join('|');
+    const topBotsSig = (gState.arenaTopTenBots||[]).map(b => `${b.rank}:${b.name}:${Math.floor(b.trophies||0)}:${b.cp}`).join('|');
+    const liveTs = gState.liveRivalsCacheTs || 0;
+    const liveLen = (gState.liveRivalsCache || []).length;
+    const liveTopTs = gState.liveTopCacheTs || 0;
+    const cacheFresh = (gState.liveRivalsCacheTs && (Date.now() - gState.liveRivalsCacheTs < 120000)) ? 1 : 0;
+    return `a1|${currentLang}|${Math.floor(gState.trophies||0)}|${gState.arenaLeague||'bronze'}|${rivalsSig}|${topBotsSig}|${liveTs}|${liveLen}|${liveTopTs}|${cacheFresh}`;
+}
+
+let _lastArenaRenderSig = '';
+
 function renderArena() {
     const oppEl = document.getElementById('arena-opp-list');
     if (!oppEl) return;
+    // v5.4.03 FIX-ARENA-DIRTY-CHECK: refreshCurrentView() дёргает renderArena()
+    // каждые 3с. Полный innerHTML-rebuild списка соперников вхолостую = лишняя
+    // нагрузка на слабых Android. Сигнатура покрывает лигу, кубки, состав
+    // соперников, ботов Топ-10, живых и свежесть кэша — всё, что влияет на UI.
+    ensureTopTenBots();
+    const _sig = _getArenaRenderSig();
+    if (_sig === _lastArenaRenderSig) return;
+    _lastArenaRenderSig = _sig;
     oppEl.innerHTML = '';
 
     const curLeague = getCurrentLeague();
@@ -7633,10 +7658,11 @@ function renderLeaderboard() {
     const topTen = pool.slice(0, 10).map((p, idx) => ({ ...p, rank: idx + 1 }));
     const meIdx = pool.findIndex(p => p.isMe);
     const meInTop = meIdx >= 0 && meIdx < 10;
-    // v5.3.4 FIX-LEADERBOARD-HONEST-RANK: rank в подвале = честная позиция в объединённом пуле.
-    // Раньше fallback шёл на myUnifiedRank (глобальная формула) — она не знает про живых,
-    // и давала rank, не согласованный с топ-10 таблицей (игрок #9 в подвале, но в топ-10 его нет).
-    const myRealRank = meIdx >= 0 ? (meIdx + 1) : myUnifiedRank;
+    // v5.4.03 FIX-LEADERBOARD-FOOTER-RANK: подвал всегда использует единый rank шапки.
+    // Раньше fallback шёл на meIdx+1 (максимум 21 по размеру пула), а шапка —
+    // getCurrentUnifiedRank() → calculatePlayerRank() (до #1000). Игрок вне топ-10
+    // видел #13 в подвале и #487 в шапке.
+    const myRealRank = meInTop ? (meIdx + 1) : myUnifiedRank;
     const myDisplayTrophies = Math.floor(myTrophies);
 
     let html = '';
