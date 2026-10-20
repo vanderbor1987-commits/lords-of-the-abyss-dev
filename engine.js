@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.38';
+const BUILD_VERSION = '5.4.42';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -5484,12 +5484,12 @@ function renderCards() {
 function inspectNavPrev() {
     if (!activeInspectHeroList || activeInspectHeroList.length < 2) return;
     activeInspectHeroIdx = (activeInspectHeroIdx - 1 + activeInspectHeroList.length) % activeInspectHeroList.length;
-    openCardInspect(activeInspectHeroList[activeInspectHeroIdx]);
+    openCardInspect(activeInspectHeroList[activeInspectHeroIdx], false, '', true);
 }
 function inspectNavNext() {
     if (!activeInspectHeroList || activeInspectHeroList.length < 2) return;
     activeInspectHeroIdx = (activeInspectHeroIdx + 1) % activeInspectHeroList.length;
-    openCardInspect(activeInspectHeroList[activeInspectHeroIdx]);
+    openCardInspect(activeInspectHeroList[activeInspectHeroIdx], false, '', true);
 }
 function updateInspectNavButtons() {
     const prevBtn = document.getElementById('btn-inspect-prev');
@@ -12722,26 +12722,36 @@ function spendHeroShards(heroId) {
     renderUI();
 }
 
-function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '') {
+function openCardInspect(heroId, isShowcase = false, showcaseSourceStr = '', skipNavListRebuild = false) {
     activeInspectHeroId = heroId;
     const hero = HEROES_CATALOG[heroId];
     if (!hero) return;
     // v5.3.43: строим список для листания ← → по текущему фильтру картотеки.
     // ALL → вся колода; фракция → только её герои. Сортировка как в картотеке.
     if (!isShowcase) {
+        if (skipNavListRebuild && activeInspectHeroList && activeInspectHeroList.length > 0) {
+            activeInspectHeroIdx = activeInspectHeroList.indexOf(heroId);
+            if (activeInspectHeroIdx === -1) activeInspectHeroIdx = 0;
+        } else {
         let _navList = Object.values(HEROES_CATALOG).filter(h => !!gState.deck[h.id]);
         if (activeRosterFactionFilter !== 'all') {
             _navList = _navList.filter(h => h.faction === activeRosterFactionFilter);
         }
         _navList.sort((a, b) => {
-            const tA = TIER_ORDER[a.tier] || 0, tB = TIER_ORDER[b.tier] || 0;
-            if (tB !== tA) return tB - tA;
-            const cA = (gState.deck[a.id] && gState.deck[a.id].lvl) || 1;
-            const cB = (gState.deck[b.id] && gState.deck[b.id].lvl) || 1;
-            return cB - cA;
+            const cardA = gState.deck[a.id] || { lvl: 1, stars: 1 };
+            const cardB = gState.deck[b.id] || { lvl: 1, stars: 1 };
+            if (activeRosterSortMode === 'lvl') {
+                const diff = cardB.lvl - cardA.lvl;
+                return activeRosterLvlDesc ? diff : -diff;
+            } else {
+                const diff = (TIER_ORDER[b.tier] || 0) - (TIER_ORDER[a.tier] || 0);
+                return activeRosterTierDesc ? diff : -diff;
+            }
         });
         activeInspectHeroList = _navList.map(h => h.id);
         activeInspectHeroIdx = activeInspectHeroList.indexOf(heroId);
+        if (activeInspectHeroIdx === -1) activeInspectHeroIdx = 0;
+        }
     } else {
         activeInspectHeroList = [];
         activeInspectHeroIdx = -1;
@@ -15487,8 +15497,9 @@ function trailNextStep() {
         run.phase = 'gameover';
         run.active = false;
         const prevBest = gState.trailBestScore || 0;
-        run.newRecord = run.score > prevBest;
-        if (run.newRecord) gState.trailBestScore = run.score;
+        const _halvedScore = Math.floor(run.score * 0.5);
+        run.newRecord = _halvedScore > prevBest;
+        if (run.newRecord) gState.trailBestScore = _halvedScore;
         if (run.newRecord) playTriumphFanfare(false);
         // v5.3.40: начисляем награды только один раз.
         grantTrailRewards(run);
@@ -15524,9 +15535,10 @@ function trailFinishRun() {
     run.active = false;
     run.phase = 'gameover';
     const prevBest = gState.trailBestScore || 0;
-    run.newRecord = run.score > prevBest;
+    const _halvedScore = Math.floor(run.score * 0.5);
+    run.newRecord = _halvedScore > prevBest;
     if (run.newRecord) {
-        gState.trailBestScore = run.score;
+        gState.trailBestScore = _halvedScore;
         playTriumphFanfare(false);
     } else {
         playSfx(420, 'sine', 0.1);
@@ -15634,7 +15646,7 @@ function renderTrailUI() {
         '</div>' +
         '<div class="trail-bar-row-2">' +
             '<div class="trail-score-wrap">' +
-                '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + run.score + '</b></span>' +
+                '<span class="trail-score">' + (I.trail_score_lbl || 'ОЧКИ') + ': <b>' + Math.floor(run.score * 0.5) + '</b></span>' +
                 _recordBadge +
             '</div>' +
             '<span class="trail-buffs-wrap">' + (_buffsRow || '') + '</span>' +
@@ -15926,7 +15938,7 @@ function renderTrailResult(panel, run, L, I) {
     html += '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_your_cp || 'Ваш CP') + '</span><b>' + formatNumber(run.playerCp) + '</b></div>';
     html += '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_synergy || 'Синергия') + '</span><b>+' + synPct + '%</b></div>';
     html += '<div class="trail-fight-stats-row enemy"><span>' + (I.trail_result_enemy_cp || 'CP врага') + '</span><b>' + formatNumber(run.enemyCp) + '</b></div>';
-    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_result_points || 'Очков') + '</span><b style="color:var(--gold);">' + run.score + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_result_points || 'Очков') + '</span><b style="color:var(--gold);">' + Math.floor(run.score * 0.5) + '</b></div>';
     html += '</div>';
     html += '<button class="btn-action modal-full-btn" style="margin-top:8px;" onclick="trailNextStep()">' + (I.trail_result_next || 'ПРОДОЛЖИТЬ') + '</button>';
     html += '</div>';
@@ -15944,7 +15956,7 @@ function renderTrailGameover(panel, run, L, I) {
     if (run.newRecord) html += '<div style="color:#fde047; font-weight:900; font-size:13px;">' + (I.trail_gameover_new_record || 'НОВЫЙ РЕКОРД!') + '</div>';
     html += '<div class="trail-fight-stats">';
     html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_depth || 'Глубина') + '</span><b>' + run.depth + '</b></div>';
-    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_score || 'Очки') + '</span><b style="color:var(--gold);">' + run.score + '</b></div>';
+    html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_score || 'Очки') + '</span><b style="color:var(--gold);">' + Math.floor(run.score * 0.5) + '</b></div>';
     html += '<div class="trail-fight-stats-row"><span>' + (I.trail_gameover_best || 'Рекорд') + '</span><b>' + best + '</b></div>';
     html += '</div>';
 
