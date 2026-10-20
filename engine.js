@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.42';
+const BUILD_VERSION = '5.4.43';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -14782,7 +14782,7 @@ function grantTrailRewards(run) {
 
     // v5.3.95: суточный рейтинг — отправляем результат на сервер
     if (typeof submitTrailScore === 'function') {
-        submitTrailScore(run.score, run.depth);
+        submitTrailScore(rw.points, run.depth);
     }
 
     return rw;
