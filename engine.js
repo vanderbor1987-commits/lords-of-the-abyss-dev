@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.13';
+const BUILD_VERSION = '5.4.15';
 const BUILD_DATE = '20.10.2026';
 
 // ==========================================================
@@ -8973,7 +8973,8 @@ function summonGacha(type, count = 1) {
         if (type === 'gold' && now - (gState.lastFreeBasicSummon || 0) >= 8 * 3600 * 1000) {
             isFree = true;
             gState.lastFreeBasicSummon = now;
-        } else if (type === 'crystal' && now - (gState.lastFreeEliteSummon || 0) >= 48 * 3600 * 1000) {
+        // v5.4.14: элитный бесплатный призыв 48ч → 24ч.
+        } else if (type === 'crystal' && now - (gState.lastFreeEliteSummon || 0) >= 24 * 3600 * 1000) {
             isFree = true;
             gState.lastFreeEliteSummon = now;
         }
@@ -13596,7 +13597,8 @@ function renderUI() {
     const basicReady = basicElapsed >= basicCd;
 
     const eliteElapsed = now - (gState.lastFreeEliteSummon || 0);
-    const eliteCd = 48 * 3600 * 1000;
+    // v5.4.14: elite 48ч → 24ч.
+    const eliteCd = 24 * 3600 * 1000;
     const eliteReady = eliteElapsed >= eliteCd;
 
     const pBasic = document.getElementById('price-sum-g1');
@@ -14041,7 +14043,9 @@ function applyLanguage(lang) {
     // v5.3.25: Табы Штаба
     setTip('btn-roster-tab-cards', tips.roster_cards);
     setTip('btn-roster-tab-formation', tips.roster_formation);
-    setTip('mode-exp-btn', tips.roster_expeditions);
+    // v5.4.14: mode-exp-btn удалён — Походы вынесены в отдельный экран (v5.3.27),
+    // ID в HTML отсутствует. Тултип для кнопки Походов в хабе Подземелий
+    // ставится отдельно через hub-expedition-banner (см. refreshBuildingTooltips).
     setTip('mode-codex-btn', tips.roster_codex);
 
     // v5.3.26: Магазин — тултипы на иконки товаров, не на кнопки с ценой.
@@ -14314,7 +14318,15 @@ function toggleLanguage() {
 // title только когда состояние реально изменилось.
 let _lastBuildingTooltipSig = '';
 function refreshBuildingTooltips() {
-    const _sig = `${currentLang}|${(gState.buildings&&gState.buildings.mine)||1}|${(gState.buildings&&gState.buildings.keep)||1}|${(gState.buildings&&gState.buildings.barracks)||0}|${gState.relics||0}|${(gState.buildings&&gState.buildings.keep)||1 >= getAscendKeepReq() ? 1 : 0}`;
+    // v5.4.14 FIX-TOOLTIP-SIG-STALE: раньше сигнатура учитывала ТОЛЬКО уровни зданий,
+    // relics и язык. Все динамические тексты (готовность бесплатного призыва, энергия
+    // Бездны, кубки/билеты Арены, ежедневный дар) замораживались до следующего апгрейда
+    // здания. Плюс приоритет операторов в `keep||1 >= req ? 1 : 0` давал always-truthy —
+    // тултип Трона не обновлялся при разблокировке Возвышения. Все параметры, влияющие
+    // на текст, теперь в сигнатуре; пересборка — только при их реальном изменении.
+    const _keepLvl = ((gState.buildings && gState.buildings.keep) || 1);
+    const _ascendReady = _keepLvl >= getAscendKeepReq() ? 1 : 0;
+    const _sig = `${currentLang}|${(gState.buildings&&gState.buildings.mine)||1}|${(gState.buildings&&gState.buildings.keep)||1}|${(gState.buildings&&gState.buildings.barracks)||0}|${gState.relics||0}|${_ascendReady}|${gState.lastFreeBasicSummon||0}|${gState.lastFreeEliteSummon||0}|${gState.dungeonStamina||0}|${gState.dungeonFloor||1}|${gState.isRaidDefeatedThisWeek?1:0}|${Math.floor(gState.trophies||0)}|${gState.tickets||0}|${gState.dailyFreebieClaimedToday?1:0}`;
     if (_sig === _lastBuildingTooltipSig) return;
     _lastBuildingTooltipSig = _sig;
 
@@ -14380,10 +14392,11 @@ function refreshBuildingTooltips() {
     {
         const now = Date.now();
         const basicReady = (now - (gState.lastFreeBasicSummon || 0)) >= 8 * 3600 * 1000;
-        const eliteReady = (now - (gState.lastFreeEliteSummon || 0)) >= 48 * 3600 * 1000;
+        // v5.4.14: elite 48ч → 24ч.
+        const eliteReady = (now - (gState.lastFreeEliteSummon || 0)) >= 24 * 3600 * 1000;
         let txt = isRU ? 'Алтарь Призыва' : 'Summon Altar';
-        txt += isRU ? '\nБазовый призыв: F–A ранги (10 Кристаллов)' : '\nBasic: Ranks F–A (10 Crystals)';
-        txt += isRU ? '\nЭлитный призыв: D–SSS ранги (100 Кристаллов)' : '\nElite: Ranks D–SSS (100 Crystals)';
+        txt += isRU ? '\nБазовый призыв: F–A ранги (10 Кристаллов, бесплатный раз в 8ч)' : '\nBasic: Ranks F–A (10 Crystals, free every 8h)';
+        txt += isRU ? '\nЭлитный призыв: D–SSS ранги (100 Кристаллов, бесплатный раз в 24ч)' : '\nElite: Ranks D–SSS (100 Crystals, free every 24h)';
         if (basicReady) txt += isRU ? '\n\n◆ Бесплатный базовый призыв готов!' : '\n\n◆ Free basic summon ready!';
         if (eliteReady) txt += isRU ? '\n◆ Бесплатный элитный призыв готов!' : '\n◆ Free elite summon ready!';
         setT('.district-altar .district-hitbox', txt);

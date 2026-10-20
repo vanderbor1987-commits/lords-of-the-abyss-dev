@@ -139,7 +139,7 @@ const I18N = {
             // Алтарь
             altar_basic: 'Базовый призыв ×1 — герои ранга F–A.\nСтоимость: 10 Кристаллов. Раз в 8 ч — бесплатно.',
             altar_basic_10: 'Базовый призыв ×10 — 10 героев со скидкой 10%.\nСтоимость: 90 Кристаллов вместо 100.',
-            altar_elite: 'Элитный призыв ×1 — шанс на героев S, SS и SSS.\nСтоимость: 100 Кристаллов. Раз в 48 ч — бесплатно.',
+            altar_elite: 'Элитный призыв ×1 — шанс на героев S, SS и SSS.\nСтоимость: 100 Кристаллов. Раз в 24 ч — бесплатно.',
             altar_elite_10: 'Элитный призыв ×10 — 10 героев со скидкой 10%.\nСтоимость: 900 Кристаллов вместо 1,000.',
 
             // Бездна
@@ -297,7 +297,7 @@ const I18N = {
             },
             {
                 chapter: '4. ВЕЛИКОЕ ВОЗВЫШЕНИЕ',
-                lore: 'Ты уперся в потолок смертной плоти. Стены трещат, золото обратится в тлен. Единственный путь наверх — ритуал Великого Возвышения. Слушай приказ: СНАЧАЛА нажми «Вложить излишки золота» — уровни героев огонь не тронет. А затем вознесись за Реликвией Вечности (+15% ко всему)!',
+                lore: 'Ты уперся в потолок смертной плоти. Стены трещат, золото обратится в тлен. Единственный путь наверх — ритуал Великого Возвышения. Слушай приказ: СНАЧАЛА нажми «Вложить излишки золота» — уровни героев огонь не тронет. А затем вознесись за Реликвией Вечности (+10% ко всему)!',
                 task: 'Вложите излишки золота в героев и совершите Возвышение!'
             }
         ],
@@ -962,7 +962,7 @@ const I18N = {
 
             altar_basic: 'Basic summon ×1 — heroes of Rank F–A.\nCost: 10 Crystals. Free every 8 hours.',
             altar_basic_10: 'Basic summon ×10 — 10 heroes with 10% discount.\nCost: 90 Crystals instead of 100.',
-            altar_elite: 'Elite summon ×1 — chance for S, SS and SSS heroes.\nCost: 100 Crystals. Free every 48 hours.',
+            altar_elite: 'Elite summon ×1 — chance for S, SS and SSS heroes.\nCost: 100 Crystals. Free every 24 hours.',
             altar_elite_10: 'Elite summon ×10 — 10 heroes with 10% discount.\nCost: 900 Crystals instead of 1,000.',
 
             dung_attack: 'Assault current floor — battle with the Guardian.\nCosts 1 Abyss Energy.',
@@ -1106,7 +1106,7 @@ const I18N = {
             },
             {
                 chapter: '4. GRAND ASCENSION',
-                lore: 'You have struck the absolute ceiling of mortal flesh. The ramparts groan; mortal gold will turn to dust. The sole path upward is the rite of Grand Ascension. Obey this strict decree: FIRST click "Invest excess gold"—their power survives the pyre. Then Ascend to claim the Relic of Eternity (+15% forever)!',
+                lore: 'You have struck the absolute ceiling of mortal flesh. The ramparts groan; mortal gold will turn to dust. The sole path upward is the rite of Grand Ascension. Obey this strict decree: FIRST click "Invest excess gold"—their power survives the pyre. Then Ascend to claim the Relic of Eternity (+10% forever)!',
                 task: 'Invest surplus gold into heroes and execute Grand Ascension!'
             }
         ],
