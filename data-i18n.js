@@ -94,7 +94,7 @@ const I18N = {
         settings_rank_active: 'АКТИВЕН',
         settings_rank_select: 'ВЫБРАТЬ',
         settings_reset_confirm_title: 'ПОЛНЫЙ СБРОС',
-        settings_reset_confirm_desc: 'Вы действительно хотите удалить все сохранения и начать игру с чистого листа?',
+        settings_reset_confirm_desc: 'ВНИМАНИЕ! БУДЕТ УДАЛЕНО НАВСЕГДА:<br>• Все герои, их уровни и звёзды.<br>• Всё золото, кристаллы, реликвии и билеты.<br>• Прогресс Цитадели, Бездны и Арены.<br><br>СОХРАНИТСЯ ТОЛЬКО оплаченный VIP-статус.<br><br>Вы уверены, что хотите продолжить?',
         settings_reset_confirm_del: 'УДАЛИТЬ',
 
         // Стихии и Роли
@@ -924,7 +924,7 @@ const I18N = {
         settings_rank_active: 'ACTIVE',
         settings_rank_select: 'SELECT',
         settings_reset_confirm_title: 'HARD RESET',
-        settings_reset_confirm_desc: 'Do you really want to delete all saves and start completely fresh?',
+        settings_reset_confirm_desc: 'WARNING! PERMANENTLY DELETED:<br>• All heroes, their levels and stars.<br>• All gold, crystals, relics and tickets.<br>• Citadel, Abyss and Arena progress.<br><br>ONLY the paid VIP status will be kept.<br><br>Are you sure you want to continue?',
         settings_reset_confirm_del: 'DELETE',
 
         // Elements & Roles

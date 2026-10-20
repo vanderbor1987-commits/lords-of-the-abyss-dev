@@ -73,7 +73,8 @@ const LEGAL_DOCS = {
                         'могут быть изменены Разработчиком в рамках балансировки игровых механик.'
                     ],
                     trailingParagraphs: [
-                        'Покупка виртуальных ценностей осуществляется через платёжные инструменты платформы VK. Разработчик не обрабатывает платёжные данные Пользователя.'
+                        'Покупка виртуальных ценностей осуществляется через платёжные инструменты платформы VK. Разработчик не обрабатывает платёжные данные Пользователя.',
+                        'В случае добровольного использования функции «Сбросить прогресс» (Hard Reset) Пользователь безвозвратно утрачивает все виртуальные ценности (Золото, Кристаллы, Реликвии, Билеты, Герои), полученные как за игровую активность, так и за реальные денежные средства. Исключением является только оплаченный VIP-статус, срок действия которого сохраняется. Разработчик не осуществляет возврат денежных средств за виртуальные ценности, утраченные в результате добровольного сброса прогресса.'
                     ]
                 },
                 {
@@ -154,7 +155,8 @@ const LEGAL_DOCS = {
                         'may be modified by the Developer as part of game mechanics balancing.'
                     ],
                     trailingParagraphs: [
-                        'Purchase of virtual valuables is carried out via the payment instruments of the VK platform. The Developer does not process the User\'s payment data.'
+                        'Purchase of virtual valuables is carried out via the payment instruments of the VK platform. The Developer does not process the User\'s payment data.',
+                        'In the event of voluntary use of the "Reset Progress" (Hard Reset) function, the User irrevocably loses all virtual valuables (Gold, Crystals, Relics, Tickets, Heroes) obtained both through gameplay and real money. The only exception is the paid VIP status, the duration of which is preserved. The Developer does not refund money for virtual valuables lost as a result of a voluntary progress reset.'
                     ]
                 },
                 {
@@ -248,7 +250,7 @@ const LEGAL_DOCS = {
                     heading: '7. Права пользователя',
                     paragraphs: ['Пользователь вправе:'],
                     list: [
-                        'удалить весь игровой прогресс — через кнопку «Сбросить прогресс» в настройках Игры. Все локальные и облачные данные будут обнулены в течение 24 часов.',
+                        'удалить весь игровой прогресс — через кнопку «Сбросить прогресс» в настройках Игры. Все локальные и облачные данные будут обнулены в течение 24 часов. При этом все виртуальные ценности удаляются без возможности восстановления (исключение — оплаченный VIP-статус).',
                         'прекратить обработку данных — достаточно прекратить использование Игры и удалить приложение из профиля VK.',
                         'запросить сведения об обработке своих данных через обращение к Разработчику.'
                     ]
@@ -337,7 +339,7 @@ const LEGAL_DOCS = {
                     heading: '7. User Rights',
                     paragraphs: ['The User has the right to:'],
                     list: [
-                        'delete all game progress — via the "Reset progress" button in the Game settings. All local and cloud data will be zeroed within 24 hours.',
+                        'delete all game progress — via the "Reset progress" button in the Game settings. All local and cloud data will be zeroed within 24 hours. All virtual valuables are deleted without the possibility of recovery (except for the paid VIP status).',
                         'cease data processing — simply stop using the Game and remove the application from the VK profile.',
                         'request information about the processing of their data by contacting the Developer.'
                     ]
