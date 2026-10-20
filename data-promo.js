@@ -109,7 +109,13 @@ const PROMO_CODES = {
 
     'TEST_EXPIRED': { gold: 1000, expiresAt: Date.now() - 86400000 },  // вчера
 
-    'TEST_VIP': { vipDays: 30, title: { RU: 'VIP на 30 дней', EN: 'VIP 30 days' } },
+    'OCT25_GIFT': {
+    gold: 50000,
+    crystals: 200,
+    tickets: 5,
+    title: { RU: 'Дар до 25 октября', EN: 'Gift until October 25' },
+    expiresAt: 1792972799000
+    },
 };
     
 // Валидатор формата промокода

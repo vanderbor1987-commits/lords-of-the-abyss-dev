@@ -1,6 +1,6 @@
 /* ==========================================================
-   LORDS OF THE ABYSS — CLOUDFLARE WORKER v2.1
-   + Добавлен суточный рейтинг Тропы Бездны
+   LORDS OF THE ABYSS — CLOUDFLARE WORKER v2.2
+   + Добавлена live-выдача наград через админ-панель
    ========================================================== */
 
 const TS_WINDOW_VALIDATE = 3600;
@@ -21,6 +21,12 @@ const DEFENSE_SQUAD_SIZE = 3;
 const NAME_MIN_LEN = 2;
 const NAME_MAX_LEN = 12;
 const NAME_PATTERN = /^[a-zA-Zа-яА-ЯёЁ0-9 \-_]{2,12}$/;
+
+// v2.2: Live-выдача — должен совпадать с ADMIN_VK_ID в data-admin.js.
+// При смене админа — менять в двух местах (или вынести в env.ADMIN_VK_ID).
+const ADMIN_VK_ID = '12216517';
+const GRANT_MAX_REWARDS = 20;
+const GRANT_MAX_TTL_DAYS = 30;
 
 const submitRateLimits = new Map();
 const attackRateLimits = new Map();
@@ -71,10 +77,13 @@ export default {
         if (path === '/arena/top') return handleArenaTop(request, env);
         if (path === '/summon/lock') return handleSummonLock(request, env);
         if (path === '/profile/reset') return handleProfileReset(request, env);
-        
-        // НОВЫЕ РОУТЫ ДЛЯ ТРОПЫ
+
         if (path === '/trail/submit') return handleTrailSubmit(request, env);
         if (path === '/trail/daily') return handleTrailDaily(request, env);
+
+        // v2.2: live-выдача
+        if (path === '/admin/grant') return handleAdminGrant(request, env);
+        if (path === '/grant/check') return handleGrantCheck(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -170,6 +179,94 @@ async function handleValidate(request, env) {
 }
 
 /* ==========================================================
+   v2.2: LIVE-ВЫДАЧА НАГРАД
+   ========================================================== */
+
+async function handleAdminGrant(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    // Только админ — uid из подписи, подделать нельзя
+    if (String(auth.userId) !== String(ADMIN_VK_ID)) {
+        return json({ ok: false, reason: 'not_admin' }, 403);
+    }
+
+    const targetUid = String(body.targetUid || '');
+    if (!targetUid || !/^\d{4,20}$/.test(targetUid)) {
+        return json({ ok: false, reason: 'invalid_target' }, 400);
+    }
+
+    const r = body.rewards || {};
+    const safeRewards = {};
+    const g = parseInt(r.gold, 10);
+    if (Number.isFinite(g) && g > 0) safeRewards.gold = Math.min(100000000, g);
+    const c = parseInt(r.crystals, 10);
+    if (Number.isFinite(c) && c > 0) safeRewards.crystals = Math.min(100000, c);
+    const rel = parseInt(r.relics, 10);
+    if (Number.isFinite(rel) && rel > 0) safeRewards.relics = Math.min(100, rel);
+    const t = parseInt(r.tickets, 10);
+    if (Number.isFinite(t) && t > 0) safeRewards.tickets = Math.min(1000, t);
+    const vd = parseInt(r.vipDays, 10);
+    if (Number.isFinite(vd) && vd > 0) safeRewards.vipDays = Math.min(365, vd);
+
+    if (Object.keys(safeRewards).length === 0) {
+        return json({ ok: false, reason: 'empty_rewards' }, 400);
+    }
+
+    const title = (body.title && typeof body.title === 'object')
+        ? { RU: String(body.title.RU || 'Подарок от Императора').slice(0, 60),
+            EN: String(body.title.EN || 'Gift from the Emperor').slice(0, 60) }
+        : { RU: 'Подарок от Императора', EN: 'Gift from the Emperor' };
+    const ttlDays = Math.max(1, Math.min(GRANT_MAX_TTL_DAYS, parseInt(body.ttlDays, 10) || 30));
+
+    const grantId = 'g_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    const grant = {
+        id: grantId,
+        rewards: safeRewards,
+        title,
+        ts: Date.now(),
+        byAdmin: auth.userId
+    };
+
+    const key = `pending_grant:${targetUid}`;
+    const raw = await env.LOTA_LADDER.get(key);
+    let grants = [];
+    if (raw) { try { grants = JSON.parse(raw) || []; } catch (e) { grants = []; } }
+    if (!Array.isArray(grants)) grants = [];
+    grants.push(grant);
+    if (grants.length > GRANT_MAX_REWARDS) grants = grants.slice(-GRANT_MAX_REWARDS);
+
+    await env.LOTA_LADDER.put(key, JSON.stringify(grants), { expirationTtl: ttlDays * 86400 });
+
+    return json({ ok: true, grantId, targetUid, rewards: safeRewards, ttlDays });
+}
+
+async function handleGrantCheck(request, env) {
+    const body = await readBody(request);
+    if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
+    const rawQuery = typeof body.query === 'string' ? body.query : '';
+    const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
+    if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
+
+    const uid = auth.userId;
+    const key = `pending_grant:${uid}`;
+    const raw = await env.LOTA_LADDER.get(key);
+    if (!raw) return json({ ok: true, grants: [] });
+
+    let grants = [];
+    try { grants = JSON.parse(raw) || []; } catch (e) { grants = []; }
+    if (!Array.isArray(grants)) grants = [];
+
+    // Удаляем ДО возврата — защита от двойной выдачи, если клиент дважды дёрнет.
+    await env.LOTA_LADDER.delete(key);
+
+    return json({ ok: true, grants });
+}
+
+/* ==========================================================
    ТРОПА БЕЗДНЫ — СУТОЧНЫЙ РЕЙТИНГ
    ========================================================== */
 async function handleTrailSubmit(request, env) {
@@ -178,44 +275,41 @@ async function handleTrailSubmit(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const uid = auth.userId;
     const score = parseInt(body.score, 10);
     const depth = parseInt(body.depth, 10);
     if (!Number.isFinite(score) || score < 0 || !Number.isFinite(depth) || depth < 1) {
         return json({ ok: false, reason: 'invalid_score' }, 400);
     }
-    
+
     const name = String(body.name || '???').slice(0, 12);
     const today = new Date().toISOString().slice(0, 10);
     const key = `trail:daily:${today}`;
-    
+
     const raw = await env.LOTA_LADDER.get(key);
     let entries = [];
-    if (raw) { 
-        try { entries = JSON.parse(raw) || []; } catch(e) { entries = []; } 
+    if (raw) {
+        try { entries = JSON.parse(raw) || []; } catch (e) { entries = []; }
     }
-    
-    // v5.3.97: проверяем, не пытается ли игрок перезаписать свой рекорд меньшим значением
+
     const existingIdx = entries.findIndex(e => e.uid === uid);
     if (existingIdx >= 0 && score <= entries[existingIdx].score) {
         return json({ ok: true, rank: existingIdx + 1, entries: entries, unchanged: true });
     }
-    
-    // Убираем старую запись этого игрока (если новый рекорд выше)
+
     if (existingIdx >= 0) {
         entries.splice(existingIdx, 1);
     }
-    
-    // Если мест уже 5 и score не выше 5-го места — не пишем (экономия KV)
+
     if (entries.length >= 5 && score <= entries[4].score) {
         return json({ ok: true, rank: null, entries: entries });
     }
-    
+
     entries.push({ uid, name, score, depth, ts: Date.now() });
     entries.sort((a, b) => b.score - a.score);
     entries = entries.slice(0, 5);
-    
+
     await env.LOTA_LADDER.put(key, JSON.stringify(entries), { expirationTtl: 2 * 86400 });
     const rank = entries.findIndex(e => e.uid === uid) + 1;
     return json({ ok: true, rank, entries });
@@ -227,13 +321,13 @@ async function handleTrailDaily(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const today = new Date().toISOString().slice(0, 10);
     const key = `trail:daily:${today}`;
     const raw = await env.LOTA_LADDER.get(key);
     let entries = [];
-    if (raw) { 
-        try { entries = JSON.parse(raw) || []; } catch(e) { entries = []; } 
+    if (raw) {
+        try { entries = JSON.parse(raw) || []; } catch (e) { entries = []; }
     }
     return json({ ok: true, entries });
 }
@@ -250,7 +344,7 @@ async function handleArenaSubmit(request, env) {
     const uid = auth.userId;
     const rlCheck = checkRateLimit(submitRateLimits, uid, SUBMIT_COOLDOWN_MS);
     if (!rlCheck.ok) return json({ ok: false, reason: 'rate_limited', retryIn: rlCheck.retryIn }, 429);
-    
+
     const now = Date.now();
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!NAME_PATTERN.test(name) || name.length < NAME_MIN_LEN || name.length > NAME_MAX_LEN) {
@@ -266,7 +360,7 @@ async function handleArenaSubmit(request, env) {
     }
     const defenseSquad = Array.isArray(body.defenseSquad) ? body.defenseSquad : [];
     if (defenseSquad.length !== DEFENSE_SQUAD_SIZE) return json({ ok: false, reason: 'invalid_squad' }, 400);
-    
+
     const squadOk = defenseSquad.every(el => {
         if (typeof el === 'string') return el.length > 0 && el.length <= 40;
         if (el && typeof el === 'object') {
@@ -279,15 +373,15 @@ async function handleArenaSubmit(request, env) {
         return false;
     });
     if (!squadOk) return json({ ok: false, reason: 'invalid_squad' }, 400);
-    
+
     const playerKey = `player:${uid}`;
     const playerData = { uid, name, trophies, cp, defenseSquad, suspicious: !!body.suspicious, updatedAt: now };
     await env.LOTA_LADDER.put(playerKey, JSON.stringify(playerData), { expirationTtl: 90 * 86400 });
-    
+
     const nowMs = Date.now();
     const sortedUpdatedAt = parseInt(await env.LOTA_LADDER.get('sorted_updated_at'), 10) || 0;
     let rank = null, total = 0;
-    
+
     if (nowMs - sortedUpdatedAt >= 60000) {
         const sorted = await readSortedTrophies(env);
         const existingIdx = sorted.findIndex(p => p.uid === uid);
@@ -330,18 +424,18 @@ async function handleArenaRivals(request, env) {
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
     const uid = auth.userId;
     const count = Math.max(1, Math.min(RIVALS_MAX, parseInt(body.count, 10) || 3));
-    
+
     const myRaw = await env.LOTA_LADDER.get(`player:${uid}`);
     let myTrophies = 150;
     if (myRaw) { try { myTrophies = JSON.parse(myRaw).trophies || 150; } catch (e) {} }
-    
+
     const sorted = await readSortedTrophies(env);
     if (sorted.length === 0) return json({ ok: true, rivals: [] });
-    
+
     const candidates = sorted.filter(p => p.uid !== uid);
     if (candidates.length === 0) return json({ ok: true, rivals: [] });
     candidates.sort((a, b) => Math.abs(a.trophies - myTrophies) - Math.abs(b.trophies - myTrophies));
-    
+
     const rivals = [];
     for (const p of candidates) {
         if (rivals.length >= count) break;
@@ -363,18 +457,18 @@ async function handleArenaAttack(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const attackerUid = auth.userId;
     const targetUid = String(body.targetUid || '');
     const result = body.result === 'win' ? 'win' : (body.result === 'loss' ? 'loss' : null);
     const clientTrophyChange = parseInt(body.trophyChange, 10);
-    
+
     if (!targetUid || targetUid === attackerUid) return json({ ok: false, reason: 'invalid_target' }, 400);
     if (!result) return json({ ok: false, reason: 'invalid_result' }, 400);
     if (!Number.isFinite(clientTrophyChange) || clientTrophyChange < TROPHY_CHANGE_MIN || clientTrophyChange > TROPHY_CHANGE_MAX) {
         return json({ ok: false, reason: 'invalid_trophy_change' }, 400);
     }
-    
+
     const _sortedForAttack = await readSortedTrophies(env);
     const _attackerEntry = _sortedForAttack.find(p => p.uid === attackerUid);
     const _targetEntry = _sortedForAttack.find(p => p.uid === targetUid);
@@ -382,7 +476,7 @@ async function handleArenaAttack(request, env) {
     if (!_targetEntry) return json({ ok: false, reason: 'target_not_ranked' }, 400);
     const _trophyGap = Math.abs(_attackerEntry.trophies - _targetEntry.trophies);
     if (_trophyGap > 200) return json({ ok: false, reason: 'target_too_far', gap: _trophyGap }, 400);
-    
+
     let _serverTrophyChange = 15;
     if (_attackerEntry.trophies < _targetEntry.trophies) {
         if (_trophyGap >= 150) _serverTrophyChange = 30;
@@ -396,27 +490,27 @@ async function handleArenaAttack(request, env) {
         else _serverTrophyChange = 16;
     }
     const trophyChange = _serverTrophyChange;
-    
+
     const _attackPairKey = attackerUid + '|' + targetUid;
     const rlAttackCheck = checkRateLimit(attackRateLimits, _attackPairKey, ATTACK_COOLDOWN_MS);
     if (!rlAttackCheck.ok) return json({ ok: false, reason: 'rate_limited', retryIn: rlAttackCheck.retryIn }, 429);
-    
+
     const now = Date.now();
     const attackerRaw = await env.LOTA_LADDER.get(`player:${attackerUid}`);
     let attackerName = 'Неизвестный';
     if (attackerRaw) { try { attackerName = JSON.parse(attackerRaw).name || attackerName; } catch (e) {} }
-    
+
     const targetRaw = await env.LOTA_LADDER.get(`player:${targetUid}`);
     if (!targetRaw) return json({ ok: false, reason: 'target_not_found' }, 404);
     let targetData;
     try { targetData = JSON.parse(targetRaw); } catch (e) { return json({ ok: false, reason: 'target_corrupted' }, 500); }
-    
+
     const delta = result === 'win' ? -trophyChange : trophyChange;
     const newTrophies = Math.max(TROPHIES_MIN, Math.min(TROPHIES_MAX, (targetData.trophies || 150) + delta));
     targetData.trophies = newTrophies;
     targetData.updatedAt = now;
     await env.LOTA_LADDER.put(`player:${targetUid}`, JSON.stringify(targetData));
-    
+
     const sorted = await readSortedTrophies(env);
     const idx = sorted.findIndex(p => p.uid === targetUid);
     if (idx >= 0) {
@@ -428,7 +522,7 @@ async function handleArenaAttack(request, env) {
         sortedCache = trimmed;
         sortedCacheTs = now;
     }
-    
+
     const inboxKey = `inbox:${targetUid}`;
     const inboxRaw = await env.LOTA_LADDER.get(inboxKey);
     let inbox = [];
@@ -436,7 +530,7 @@ async function handleArenaAttack(request, env) {
     inbox.unshift({ attackerUid, attackerName, result, trophyChange: delta, ts: Math.floor(now / 1000) });
     inbox = inbox.slice(0, INBOX_MAX_ENTRIES);
     await env.LOTA_LADDER.put(inboxKey, JSON.stringify(inbox), { expirationTtl: 30 * 86400 });
-    
+
     return json({ ok: true, actualDelta: trophyChange });
 }
 
@@ -446,7 +540,7 @@ async function handleArenaInbox(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const uid = auth.userId;
     const inboxRaw = await env.LOTA_LADDER.get(`inbox:${uid}`);
     let inbox = [];
@@ -460,7 +554,7 @@ async function handleArenaInboxClear(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const uid = auth.userId;
     await env.LOTA_LADDER.put(`inbox:${uid}`, '[]', { expirationTtl: 86400 });
     return json({ ok: true });
@@ -472,13 +566,13 @@ async function handleArenaProfile(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const targetUid = String(body.targetUid || '');
     if (!targetUid || targetUid.length > 40) return json({ ok: false, reason: 'invalid_target' }, 400);
-    
+
     const raw = await env.LOTA_LADDER.get(`player:${targetUid}`);
     if (!raw) return json({ ok: false, reason: 'not_found' }, 404);
-    try { return json({ ok: true, player: JSON.parse(raw) }); } 
+    try { return json({ ok: true, player: JSON.parse(raw) }); }
     catch (e) { return json({ ok: false, reason: 'corrupted' }, 500); }
 }
 
@@ -488,7 +582,7 @@ async function handleArenaTop(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const limit = Math.max(1, Math.min(20, parseInt(body.limit, 10) || 10));
     const sorted = await readSortedTrophies(env);
     const top = sorted.slice(0, limit).map(p => ({
@@ -506,12 +600,12 @@ async function handleProfileReset(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const uid = auth.userId;
     await env.LOTA_LADDER.delete(`player:${uid}`);
     await env.LOTA_LADDER.delete(`inbox:${uid}`);
     await env.LOTA_LADDER.delete(`summon_lock:${uid}`);
-    
+
     const sorted = await readSortedTrophies(env);
     const filtered = sorted.filter(p => p.uid !== uid);
     await env.LOTA_LADDER.put('sorted:trophies', JSON.stringify(filtered));
@@ -527,15 +621,15 @@ async function handleSummonLock(request, env) {
     const rawQuery = typeof body.query === 'string' ? body.query : '';
     const auth = await validateSign(rawQuery, env.APP_SECRET, TS_WINDOW_ARENA);
     if (!auth.ok) return json({ ok: false, reason: auth.reason }, 401);
-    
+
     const uid = auth.userId;
     const deviceId = String(body.deviceId || '').slice(0, 64);
     if (!deviceId || deviceId.length < 4) return json({ ok: false, reason: 'no_device_id' }, 400);
-    
+
     const key = `summon_lock:${uid}`;
     const now = Date.now();
     const raw = await env.LOTA_LADDER.get(key);
-    
+
     if (raw) {
         try {
             const lock = JSON.parse(raw);

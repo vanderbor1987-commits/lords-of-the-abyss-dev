@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5.4.12">
+    <link rel="stylesheet" href="style.css?v=5.4.13">
         <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
          Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
          запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
@@ -78,7 +78,7 @@
 
             <!-- FIX-BUILD-VERSION: маленький индикатор сборки в углу предзагрузки.
                  По дате сразу видно, применился ли последний патч из GitHub. -->
-            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.12 · 20.10.2026</div>
+            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.13 · 20.10.2026</div>
         </div>
 
         <!-- ==========================================================
@@ -1598,7 +1598,7 @@
                 <button class="btn-action modal-full-btn" style="margin-top:4px;" onclick="saveAndCloseSettings()" data-i18n="settings_btn_save">СОХРАНИТЬ И ЗАКРЫТЬ</button>
                 <div style="text-align: center; color: var(--border-metal-light); font-size: 11px; font-weight: 800; margin-top: 8px; letter-spacing: 0.5px;">DEVELOPED BY VANDER BOR</div>
                 <!-- FIX-BUILD-VERSION: версия сборки для QA — сразу видно, применился ли патч из репо. -->
-                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.12 · 20.10.2026</div>
+                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.13 · 20.10.2026</div>
             </div>
         </div>
 
@@ -1839,7 +1839,7 @@
                     </button>
 
                     <!-- Индикатор сборки: по дате видно, применился ли последний патч -->
-                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.12 · 20.10.2026</div>
+                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.13 · 20.10.2026</div>
                 </div>
             </div>
         </div>
@@ -1928,15 +1928,55 @@
                     <button class="btn-action admin-btn preview" onclick="adminPreviewLegalDoc()">Соглашение</button>
                 </div>
 
-                <div class="admin-preview-group-title">ПРОМОКОДЫ</div>
+                <div class="admin-preview-group-title">ПРОМОКОДЫ И ВЫДАЧА</div>
                 <div class="admin-btn-grid">
                     <button class="btn-action admin-btn promo-action" onclick="openAdminPromoGenerator()">Генератор промокодов</button>
                     <button class="btn-action admin-btn promo-action" onclick="adminPromoList()">История генераций</button>
+                    <button class="btn-action admin-btn promo-action" style="grid-column:1 / -1; background:linear-gradient(180deg,#7c3aed 0%,#4c1d95 100%) !important; border-color:#a855f7 !important;" onclick="openAdminLiveGrant()">LIVE-ВЫДАЧА</button>
                 </div>
 
                 <div class="admin-section-label">ИНФО</div>
                 <div class="admin-btn-grid">
                     <div class="admin-btn" style="grid-column:1 / -1; cursor:default; text-align:center; font-size:11px; padding:10px;">Полный сброс доступен в ☰ Главном меню</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN: live-выдача наград через Worker (v5.4.13) -->
+        <div class="modal-backdrop" id="admin-live-grant-modal" style="display: none; z-index: 5210;">
+            <div class="modal-window admin-subpanel-window admin-promo-generator-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline">LIVE-ВЫДАЧА НАГРАД</h3>
+                    <span class="modal-close-x" onclick="closeAdminLiveGrant()">✖</span>
+                </div>
+                <p class="modal-desc-txt" style="font-size:11.5px;">Награды запишутся в KV Cloudflare. Игрок получит их при следующей загрузке игры. Требует наличия Cloudflare Worker v2.2.</p>
+
+                <div class="admin-promo-form">
+                    <label class="admin-promo-label">VK ID получателя</label>
+                    <input type="text" id="live-grant-vk-id" class="admin-promo-input" placeholder="999999" inputmode="numeric" autocomplete="off">
+
+                    <div class="admin-promo-rewards-grid">
+                        <label class="admin-promo-label">Золото</label>
+                        <input type="number" id="live-grant-gold" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Кристаллы</label>
+                        <input type="number" id="live-grant-crystals" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Реликвии</label>
+                        <input type="number" id="live-grant-relics" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Билеты</label>
+                        <input type="number" id="live-grant-tickets" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">VIP (дней)</label>
+                        <input type="number" id="live-grant-vip" class="admin-promo-input" min="0" placeholder="0">
+                    </div>
+
+                    <label class="admin-promo-label" style="margin-top:8px;">TTL в KV (дней, макс. 30)</label>
+                    <input type="number" id="live-grant-ttl" class="admin-promo-input" min="1" max="30" value="30">
+
+                    <button class="btn-action modal-full-btn" id="btn-live-grant-send" onclick="adminLiveGrantSend()" style="margin-top:10px; background:linear-gradient(180deg,#7c3aed 0%,#4c1d95 100%); border-color:#a855f7; color:#fff; font-weight:900;">ВЫДАТЬ</button>
+                </div>
+
+                <div id="admin-live-grant-result" style="display:none; margin-top:10px;">
+                    <div class="admin-promo-result-label">Результат:</div>
+                    <textarea id="admin-live-grant-result-text" class="admin-promo-result-textarea" style="height:100px; color:#c084fc; border-color:#a855f7;" readonly></textarea>
                 </div>
             </div>
         </div>
@@ -1967,14 +2007,9 @@
                         <input type="number" id="promo-gen-vip" class="admin-promo-input" min="0" placeholder="0">
                     </div>
 
-                    <label class="admin-promo-label" style="margin-top:8px;">Срок действия</label>
-                    <select id="promo-gen-expires" class="admin-promo-input">
-                        <option value="0">Бессрочно</option>
-                        <option value="1">24 часа</option>
-                        <option value="7">7 дней</option>
-                        <option value="30">30 дней</option>
-                        <option value="90">90 дней</option>
-                    </select>
+                    <label class="admin-promo-label" style="margin-top:8px;">Действует до (пусто = бессрочно)</label>
+                    <input type="date" id="promo-gen-expires" class="admin-promo-input" placeholder="2026-10-25">
+                    <div style="font-size:10.5px; color:#64748b; margin-top:-2px;">Код работает до 23:59:59 UTC указанной даты.</div>
 
                     <button class="btn-action modal-full-btn" onclick="adminPromoGenerate()" style="margin-top:10px; background:linear-gradient(180deg,#0e7490 0%,#155e75 100%); border-color:#06b6d4; color:#fff; font-weight:900;">СГЕНЕРИРОВАТЬ</button>
                 </div>
@@ -2019,6 +2054,16 @@
                     </button>
                 </div>
                 <button class="btn-action modal-full-btn" onclick="closeAdminLeaguePicker()" style="background:#273347; color:#fff;">ОТМЕНА</button>
+            </div>
+        </div>
+
+        <!-- v5.4.13: модалка подарка от Императора (live-выдача через Worker) -->
+        <div class="modal-backdrop" id="live-grant-modal" style="display: none; z-index: 3600;">
+            <div class="modal-window live-grant-window">
+                <h3 class="modal-headline live-grant-title" id="live-grant-title">★ ПОДАРОК ОТ ИМПЕРАТОРА ★</h3>
+                <p class="modal-desc-txt" id="live-grant-desc" style="font-size:12px;">Ваш сюзерен жалует вам награды за верную службу:</p>
+                <div class="live-grant-list" id="live-grant-list"></div>
+                <button class="btn-action modal-full-btn live-grant-claim-btn" onclick="closeLiveGrantModal()">ПРИНЯТЬ</button>
             </div>
         </div>
 
@@ -2104,11 +2149,11 @@
     </div>
 </div>
 
-<script src="data-i18n.js?v=5.4.12"></script>
-<script src="data-heroes.js?v=5.4.12"></script>
-<script src="data-legal.js?v=5.4.12"></script>
-<script src="data-promo.js?v=5.4.12"></script>
-<script src="data-admin.js?v=5.4.12"></script>
-<script src="engine.js?v=5.4.12"></script>
+<script src="data-i18n.js?v=5.4.13"></script>
+<script src="data-heroes.js?v=5.4.13"></script>
+<script src="data-legal.js?v=5.4.13"></script>
+<script src="data-promo.js?v=5.4.13"></script>
+<script src="data-admin.js?v=5.4.13"></script>
+<script src="engine.js?v=5.4.13"></script>
 </body>
 </html>

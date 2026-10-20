@@ -1,6 +1,6 @@
 /* ==========================================================
    LORDS OF THE ABYSS — МАСТЕР-ПАНЕЛЬ (data-admin.js)
-   v1.2 (2026-10-20): +Генератор персональных промокодов (ownerVkId + vipDays + expiresAt)
+   v1.3 (2026-10-20): +LIVE-выдача наград через Cloudflare Worker + input type=date в генераторе промокодов
    
    Назначение: локальный админ-инструмент для QA и live-ops.
    Даёт разработчику GUI с кнопками начисления ресурсов,
@@ -82,6 +82,11 @@ function registerAdminAPI() {
             generate: adminPromoGenerate,
             copy: adminPromoCopy,
             list: adminPromoList
+        },
+        liveGrant: {
+            open: openAdminLiveGrant,
+            close: closeAdminLiveGrant,
+            send: adminLiveGrantSend
         },
         preview: {
             season: adminPreviewSeasonCeremony,
@@ -713,8 +718,13 @@ function adminPromoGenerate() {
     if (gold + crystals + relics + tickets + vipDays === 0) {
         return adminToast('Заполни хотя бы одну награду');
     }
-    const expDays = num('promo-gen-expires');
-    const expiresAt = expDays > 0 ? Date.now() + expDays * 24 * 3600 * 1000 : null;
+    // v5.4.13: input type=date → конец дня UTC. Пустое значение = бессрочно.
+    const expEl = document.getElementById('promo-gen-expires');
+    let expiresAt = null;
+    if (expEl && expEl.value) {
+        const parsed = new Date(expEl.value + 'T23:59:59Z').getTime();
+        if (Number.isFinite(parsed) && parsed > Date.now()) expiresAt = parsed;
+    }
 
     let code = _adminPromoGenCode(vkId);
     let attempts = 0;
@@ -773,4 +783,88 @@ function adminPromoList() {
     if (hist.length === 0) return adminToast('История пуста');
     console.log('[ADMIN] Generated promos:', hist);
     adminToast(`История: ${hist.length} кодов (console)`);
+}
+
+// ===== LIVE-ВЫДАЧА ЧЕРЕЗ CLOUDFLARE WORKER (v1.3) =====
+function openAdminLiveGrant() {
+    if (!isAdminSession) return;
+    const m = document.getElementById('admin-live-grant-modal');
+    if (!m) return adminToast('Модалка не найдена');
+    const fld = document.getElementById('live-grant-vk-id');
+    if (fld) fld.value = '';
+    ['live-grant-gold', 'live-grant-crystals', 'live-grant-relics', 'live-grant-tickets', 'live-grant-vip'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const ttl = document.getElementById('live-grant-ttl');
+    if (ttl) ttl.value = '30';
+    const res = document.getElementById('admin-live-grant-result');
+    if (res) res.style.display = 'none';
+    m.style.display = 'flex';
+}
+
+function closeAdminLiveGrant() {
+    const m = document.getElementById('admin-live-grant-modal');
+    if (m) m.style.display = 'none';
+}
+
+async function adminLiveGrantSend() {
+    if (!isAdminSession) return;
+    const vkIdEl = document.getElementById('live-grant-vk-id');
+    const targetUid = vkIdEl ? String(vkIdEl.value || '').trim() : '';
+    if (!targetUid || !/^\d{4,20}$/.test(targetUid)) {
+        return adminToast('Укажи корректный VK ID');
+    }
+    const num = (id) => {
+        const el = document.getElementById(id);
+        const v = el ? parseInt(el.value, 10) : 0;
+        return (Number.isFinite(v) && v > 0) ? v : 0;
+    };
+    const rewards = {};
+    const g = num('live-grant-gold'); if (g) rewards.gold = g;
+    const c = num('live-grant-crystals'); if (c) rewards.crystals = c;
+    const r = num('live-grant-relics'); if (r) rewards.relics = r;
+    const t = num('live-grant-tickets'); if (t) rewards.tickets = t;
+    const v = num('live-grant-vip'); if (v) rewards.vipDays = v;
+    if (Object.keys(rewards).length === 0) {
+        return adminToast('Заполни хотя бы одну награду');
+    }
+    const ttlEl = document.getElementById('live-grant-ttl');
+    const ttlDays = ttlEl ? Math.max(1, Math.min(30, parseInt(ttlEl.value, 10) || 30)) : 30;
+
+    if (typeof canSubmitToLiveArena !== 'function' || !canSubmitToLiveArena()) {
+        return adminToast('Только в VK (нужна подпись)');
+    }
+
+    const btn = document.getElementById('btn-live-grant-send');
+    if (btn) btn.disabled = true;
+    try {
+        const query = getLaunchQuery();
+        const resp = await fetch(`${WORKER_BASE_URL}/admin/grant`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, targetUid, rewards, ttlDays })
+        });
+        const data = await resp.json();
+        if (data && data.ok) {
+            adminToast(`Выдано ${targetUid}: ${data.grantId}`);
+            const res = document.getElementById('admin-live-grant-result');
+            const resText = document.getElementById('admin-live-grant-result-text');
+            if (resText) {
+                resText.value =
+                    `Grant ID:  ${data.grantId}\n` +
+                    `Target:    ${data.targetUid}\n` +
+                    `Rewards:   ${JSON.stringify(data.rewards)}\n` +
+                    `TTL:       ${data.ttlDays} дней\n` +
+                    `Игрок получит при следующей загрузке игры.`;
+            }
+            if (res) res.style.display = 'block';
+        } else {
+            adminToast('Ошибка: ' + (data && data.reason ? data.reason : 'unknown'));
+        }
+    } catch (e) {
+        adminToast('Сеть: ' + (e && e.message ? e.message : 'fail'));
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }

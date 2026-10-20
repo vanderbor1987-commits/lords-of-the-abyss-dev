@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.12';
+const BUILD_VERSION = '5.4.13';
 const BUILD_DATE = '20.10.2026';
 
 // ==========================================================
@@ -16149,6 +16149,103 @@ function closeFirstPurchaseModal() {
     _fpCelebrationActive = false;
 }
 
+/* ==========================================================
+   v5.4.13: LIVE-ВЫДАЧА ЧЕРЕЗ CLOUDFLARE WORKER
+   Админ отправляет POST /admin/grant → Worker пишет pending_grant:<uid> в KV.
+   Клиент при загрузке игры делает POST /grant/check → получает награды → модалка.
+   ========================================================== */
+let _liveGrantInProgress = false;
+
+async function checkPendingGrants() {
+    if (typeof canSubmitToLiveArena !== 'function' || !canSubmitToLiveArena()) return;
+    if (_liveGrantInProgress) return;
+    _liveGrantInProgress = true;
+    try {
+        const query = getLaunchQuery();
+        const resp = await fetch(`${WORKER_BASE_URL}/grant/check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data || data.ok !== true || !Array.isArray(data.grants) || data.grants.length === 0) return;
+        for (const grant of data.grants) {
+            applyRewardBundle(grant.rewards);
+        }
+        openLiveGrantModal(data.grants);
+        saveGame();
+        renderUI();
+        if (typeof renderCards === 'function') renderCards();
+        if (typeof renderFormationSlots === 'function') renderFormationSlots();
+    } catch (e) {
+        if (DEV_MODE_CHECK()) console.warn('[LiveGrant] check failed:', e);
+    } finally {
+        _liveGrantInProgress = false;
+    }
+}
+
+function applyRewardBundle(rewards) {
+    if (!rewards || typeof rewards !== 'object') return;
+    if (rewards.gold > 0) {
+        const v = Math.floor(rewards.gold);
+        gState.gold += v;
+        gState.lifetimeGold += v;
+    }
+    if (rewards.crystals > 0) gState.crystals += Math.floor(rewards.crystals);
+    if (rewards.relics > 0) gState.relics += Math.floor(rewards.relics);
+    if (rewards.tickets > 0) gState.tickets += Math.floor(rewards.tickets);
+    if (rewards.vipDays > 0) {
+        const _dMs = 24 * 3600 * 1000;
+        const _base = Math.max(Date.now(), gState.vipUntil || 0);
+        gState.vipUntil = _base + Math.floor(rewards.vipDays) * _dMs;
+    }
+}
+
+function openLiveGrantModal(grants) {
+    const m = document.getElementById('live-grant-modal');
+    if (!m) return;
+    const isRU = currentLang === 'RU';
+    const titleEl = document.getElementById('live-grant-title');
+    const descEl = document.getElementById('live-grant-desc');
+    const listEl = document.getElementById('live-grant-list');
+
+    const firstTitle = (grants[0] && grants[0].title)
+        ? (grants[0].title[currentLang] || grants[0].title['EN'])
+        : (isRU ? 'ПОДАРОК ОТ ИМПЕРАТОРА' : 'GIFT FROM THE EMPEROR');
+    if (titleEl) titleEl.innerText = '★ ' + String(firstTitle).toUpperCase() + ' ★';
+    if (descEl) descEl.innerText = isRU
+        ? 'Ваш сюзерен жалует вам награды за верную службу:'
+        : 'Your sovereign grants you rewards for faithful service:';
+
+    const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
+    const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
+    const rI = '<img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">';
+    const tI = '<img src="assets/icons/shop_tickets.webp" class="res-icon-inline" alt="T">';
+
+    let html = '';
+    for (const grant of grants) {
+        const r = grant.rewards || {};
+        if (r.gold > 0) html += `<div class="live-grant-row"><span>${isRU ? 'Золото' : 'Gold'}</span><b style="color:var(--gold);">+${formatNumber(r.gold)} ${gI}</b></div>`;
+        if (r.crystals > 0) html += `<div class="live-grant-row"><span>${isRU ? 'Кристаллы' : 'Crystals'}</span><b style="color:var(--crystal);">+${r.crystals} ${cI}</b></div>`;
+        if (r.relics > 0) html += `<div class="live-grant-row"><span>${isRU ? 'Реликвии' : 'Relics'}</span><b style="color:var(--gold);">+${r.relics} ${rI}</b></div>`;
+        if (r.tickets > 0) html += `<div class="live-grant-row"><span>${isRU ? 'Билеты' : 'Tickets'}</span><b style="color:var(--blue);">+${r.tickets} ${tI}</b></div>`;
+        if (r.vipDays > 0) html += `<div class="live-grant-row"><span>VIP</span><b style="color:#fde047;">+${r.vipDays}d</b></div>`;
+    }
+    if (listEl) listEl.innerHTML = html;
+
+    try { playTriumphFanfare(false); } catch (e) {}
+    try { triggerHaptic('legendary'); } catch (e) {}
+    try { spawnCelebrationConfetti(); } catch (e) {}
+
+    m.style.display = 'flex';
+}
+
+function closeLiveGrantModal() {
+    const m = document.getElementById('live-grant-modal');
+    if (m) m.style.display = 'none';
+}
+
 function openChronicleModal(floor, isArchiveView = false) {
     const data = CHRONICLES_LORE[floor] || { 
         chapter: { RU: `ГЛАВА ${floor}: ТАЙНЫ ГЛУБИН`, EN: `CHAPTER ${floor}: DEPTH SECRETS` }, 
@@ -16493,7 +16590,10 @@ const MODAL_CLOSERS_SWIPE = {
     'admin-league-modal': () => closeAdminLeaguePicker(),
     // v5.4.06 FIX-SUMMON-SWIPE: модалка результата призыва теперь закрывается свайпом.
     // Герои уже в deck (saveGame прошёл до openSummonResultModal) — потери данных нет.
-    'summon-result-modal': () => closeSummonResultModal()
+    'summon-result-modal': () => closeSummonResultModal(),
+    // v5.4.13: live-выдача — игрок закрывает модалку свайпом/back
+    'live-grant-modal': () => closeLiveGrantModal(),
+    'admin-live-grant-modal': () => closeAdminLiveGrant()
 };
 
 function initSwipeRightClose() {
@@ -16735,7 +16835,10 @@ function initHardwareBackNavigation() {
             { id: 'admin-league-modal', close: closeAdminLeaguePicker },
             { id: 'admin-panel-modal', close: closeAdminPanel },
             // v5.4.06 FIX-SUMMON-BACK: аппаратная кнопка «Назад» на Android закрывает модалку призыва.
-            { id: 'summon-result-modal', close: closeSummonResultModal }
+            { id: 'summon-result-modal', close: closeSummonResultModal },
+            // v5.4.13: live-выдача
+            { id: 'live-grant-modal', close: () => { if (typeof closeLiveGrantModal === 'function') closeLiveGrantModal(); } },
+            { id: 'admin-live-grant-modal', close: () => { if (typeof closeAdminLiveGrant === 'function') closeAdminLiveGrant(); } }
         ];
 
         for (let m of activeModals) {
@@ -16979,6 +17082,11 @@ try {
         }, 15000);
         if (typeof checkArenaInbox === 'function') {
             setTimeout(checkArenaInbox, 3000);
+        }
+
+        // v5.4.13: проверка live-выдач с Worker'а. Один вызов на загрузку страницы.
+        if (typeof checkPendingGrants === 'function') {
+            setTimeout(checkPendingGrants, 2500);
         }
 
     })(); // FIX-P9-RACE: закрываем async IIFE ТОЛЬКО после полной инициализации UI.
