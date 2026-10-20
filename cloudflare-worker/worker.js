@@ -255,7 +255,10 @@ async function handleGrantCheck(request, env, ctx) {
     const uid = auth.userId;
     const key = `pending_grant:${uid}`;
     const raw = await env.LOTA_LADDER.get(key);
-    if (!raw) return json({ ok: true, grants: [] });
+    if (!raw) {
+        console.log('[LiveGrant] No grants found for', uid);
+        return json({ ok: true, grants: [] });
+    }
 
     let grants = [];
     try { grants = JSON.parse(raw) || []; } catch (e) { grants = []; }
