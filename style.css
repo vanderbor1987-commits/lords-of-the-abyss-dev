@@ -712,9 +712,12 @@ html, body {
     font-weight: 700;
 }
 .trail-slot-empty-pulse {
-    animation: ftueBadgePulse 1.8s infinite alternate ease-in-out;
+    animation: ftueBadgePulse 1.0s infinite alternate ease-in-out;
     border-color: var(--gold) !important;
     color: var(--gold) !important;
+    border-width: 2.5px !important;
+    border-style: dashed !important;
+    box-shadow: 0 0 20px var(--gold-glow), inset 0 0 10px rgba(245, 176, 65, 0.3) !important;
 }
 /* v5.3.43: слот, который будет заменён следующей картой, пульсирует красным. */
 /* v5.3.64: ВОЗВРАТ v5.3.53 без скачков.
@@ -730,12 +733,12 @@ html, body {
 }
 @keyframes replaceSlotPulse {
     0% {
-        box-shadow: inset 0 0 0 2px #ffffff, 0 0 10px rgba(245, 176, 65, 0.7), 0 0 0 rgba(253, 224, 71, 0), inset 0 0 8px rgba(245, 176, 65, 0.3);
-        filter: brightness(1) drop-shadow(0 0 0 transparent);
+        box-shadow: inset 0 0 0 2px #ffffff, 0 0 12px rgba(253, 224, 71, 0.8), inset 0 0 10px rgba(253, 224, 71, 0.4);
+        filter: brightness(1.1);
     }
     100% {
-        box-shadow: inset 0 0 0 3px #fde047, 0 0 22px rgba(245, 176, 65, 1), 0 0 34px rgba(253, 224, 71, 0.55), inset 0 0 14px rgba(245, 176, 65, 0.5);
-        filter: brightness(1.25) drop-shadow(0 0 6px rgba(253, 224, 71, 0.7));
+        box-shadow: inset 0 0 0 3px #fde047, 0 0 35px rgba(253, 224, 71, 1), inset 0 0 20px rgba(253, 224, 71, 0.7);
+        filter: brightness(1.4) drop-shadow(0 0 10px #fde047);
     }
 }
 
@@ -929,8 +932,13 @@ html, body {
     transform: scale(0.94);
 }
 .trail-party-row .tcg-card.trail-tcg-slot.trail-slot-replace-target {
-    animation: replaceSlotPulse 1.4s infinite alternate ease-in-out !important;
-    border-color: #ef4444 !important;
+    animation: replaceSlotPulse 1.0s infinite alternate ease-in-out !important;
+    z-index: 50 !important;
+    position: relative !important;
+    border: 2.5px solid #fde047 !important;
+    outline: 2px dashed #ffffff !important;
+    outline-offset: -4px !important;
+    box-shadow: 0 0 25px #fde047, inset 0 0 15px rgba(253, 224, 71, 0.5) !important;
 }
 /* Иконка стихии вместо роли (в левом верхнем углу карты). */
 .trail-elem-badge {
