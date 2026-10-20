@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.24';
+const BUILD_VERSION = '5.4.25';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -16807,6 +16807,9 @@ const MODAL_CLOSERS_SWIPE = {
     // v5.4.06 FIX-SUMMON-SWIPE: модалка результата призыва теперь закрывается свайпом.
     // Герои уже в deck (saveGame прошёл до openSummonResultModal) — потери данных нет.
     'summon-result-modal': () => closeSummonResultModal(),
+    'trail-meta-modal': () => closeTrailMetaModal(),
+    'trail-help-modal': () => closeTrailHelp(),
+    'trail-daily-modal': () => closeTrailDailyModal(),
     // v5.4.13: live-выдача — игрок закрывает модалку свайпом/back
     'live-grant-modal': () => closeLiveGrantModal(),
     'admin-live-grant-modal': () => closeAdminLiveGrant()
