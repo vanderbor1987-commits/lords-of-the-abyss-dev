@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5.4.03">
+    <link rel="stylesheet" href="style.css?v=5.4.12">
         <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
          Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
          запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
@@ -78,7 +78,7 @@
 
             <!-- FIX-BUILD-VERSION: маленький индикатор сборки в углу предзагрузки.
                  По дате сразу видно, применился ли последний патч из GitHub. -->
-            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.03 · 20.10.2026</div>
+            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.12 · 20.10.2026</div>
         </div>
 
         <!-- ==========================================================
@@ -1598,7 +1598,7 @@
                 <button class="btn-action modal-full-btn" style="margin-top:4px;" onclick="saveAndCloseSettings()" data-i18n="settings_btn_save">СОХРАНИТЬ И ЗАКРЫТЬ</button>
                 <div style="text-align: center; color: var(--border-metal-light); font-size: 11px; font-weight: 800; margin-top: 8px; letter-spacing: 0.5px;">DEVELOPED BY VANDER BOR</div>
                 <!-- FIX-BUILD-VERSION: версия сборки для QA — сразу видно, применился ли патч из репо. -->
-                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.03 · 20.10.2026</div>
+                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.12 · 20.10.2026</div>
             </div>
         </div>
 
@@ -1839,7 +1839,7 @@
                     </button>
 
                     <!-- Индикатор сборки: по дате видно, применился ли последний патч -->
-                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.03 · 20.10.2026</div>
+                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.12 · 20.10.2026</div>
                 </div>
             </div>
         </div>
@@ -1888,9 +1888,102 @@
                     <button class="btn-action admin-btn" onclick="adminShowState()">Показать состояние</button>
                 </div>
 
+                <div class="admin-section-label">ПРЕВЬЮ ЭКРАНОВ</div>
+
+                <div class="admin-preview-group-title">ТРИУМФЫ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewSeasonCeremony()">Сезон сезона</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewLeviathanTriumph()">Триумф Левиафана</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewAscensionRitual()">Ритуал Возвышения</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewEpicQuoteSSS()">Epic Quote SSS</button>
+                </div>
+
+                <div class="admin-preview-group-title">ОСОБЫЕ УСЛОВИЯ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewFirstPurchase()">Дар первой покупки</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewMasteryAwakening()">Пробуждение Мастерства</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewOfflineIncome()">Оффлайн-доход</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewArenaInbox()">Атаки на гарнизон</button>
+                </div>
+
+                <div class="admin-preview-group-title">ТРОПА БЕЗДНЫ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewTrailDaily()">Рейтинг дня</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewTrailMeta()">Лавка Тропы</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewTrailHelp()">Правила Тропы</button>
+                </div>
+
+                <div class="admin-preview-group-title">ИНСПЕКТОРЫ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewHeroSSS()">Карта SSS-героя</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewPlayerInspect()">Разведка соперника</button>
+                </div>
+
+                <div class="admin-preview-group-title">ПРОЧЕЕ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewBattleHub()">Hub Подземелий</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewChroniclesArchive()">Архив Хроник</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewChronicle100()">Хроника 100F</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewPromo()">Промокод</button>
+                    <button class="btn-action admin-btn preview" onclick="adminPreviewLegalDoc()">Соглашение</button>
+                </div>
+
+                <div class="admin-preview-group-title">ПРОМОКОДЫ</div>
+                <div class="admin-btn-grid">
+                    <button class="btn-action admin-btn promo-action" onclick="openAdminPromoGenerator()">Генератор промокодов</button>
+                    <button class="btn-action admin-btn promo-action" onclick="adminPromoList()">История генераций</button>
+                </div>
+
                 <div class="admin-section-label">ИНФО</div>
                 <div class="admin-btn-grid">
                     <div class="admin-btn" style="grid-column:1 / -1; cursor:default; text-align:center; font-size:11px; padding:10px;">Полный сброс доступен в ☰ Главном меню</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ADMIN: генератор персональных промокодов (v5.4.12) -->
+        <div class="modal-backdrop" id="admin-promo-generator-modal" style="display: none; z-index: 5200;">
+            <div class="modal-window admin-subpanel-window admin-promo-generator-window">
+                <div class="modal-header-row">
+                    <h3 class="modal-headline">ГЕНЕРАТОР ПРОМОКОДОВ</h3>
+                    <span class="modal-close-x" onclick="closeAdminPromoGenerator()">✖</span>
+                </div>
+                <p class="modal-desc-txt" style="font-size:11.5px;">Персональный код для конкретного игрока по VK ID. Активируется только им и только внутри VK. Срок действия — опционально.</p>
+
+                <div class="admin-promo-form">
+                    <label class="admin-promo-label">VK ID игрока</label>
+                    <input type="text" id="promo-gen-vk-id" class="admin-promo-input" placeholder="12216517" inputmode="numeric" autocomplete="off">
+
+                    <div class="admin-promo-rewards-grid">
+                        <label class="admin-promo-label">Золото</label>
+                        <input type="number" id="promo-gen-gold" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Кристаллы</label>
+                        <input type="number" id="promo-gen-crystals" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Реликвии</label>
+                        <input type="number" id="promo-gen-relics" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">Билеты</label>
+                        <input type="number" id="promo-gen-tickets" class="admin-promo-input" min="0" placeholder="0">
+                        <label class="admin-promo-label">VIP (дней)</label>
+                        <input type="number" id="promo-gen-vip" class="admin-promo-input" min="0" placeholder="0">
+                    </div>
+
+                    <label class="admin-promo-label" style="margin-top:8px;">Срок действия</label>
+                    <select id="promo-gen-expires" class="admin-promo-input">
+                        <option value="0">Бессрочно</option>
+                        <option value="1">24 часа</option>
+                        <option value="7">7 дней</option>
+                        <option value="30">30 дней</option>
+                        <option value="90">90 дней</option>
+                    </select>
+
+                    <button class="btn-action modal-full-btn" onclick="adminPromoGenerate()" style="margin-top:10px; background:linear-gradient(180deg,#0e7490 0%,#155e75 100%); border-color:#06b6d4; color:#fff; font-weight:900;">СГЕНЕРИРОВАТЬ</button>
+                </div>
+
+                <div id="admin-promo-result" style="display:none; margin-top:10px;">
+                    <div class="admin-promo-result-label">Готовый фрагмент для data-promo.js:</div>
+                    <textarea id="admin-promo-result-text" class="admin-promo-result-textarea" readonly></textarea>
+                    <button class="btn-action modal-full-btn" onclick="adminPromoCopy()" style="margin-top:6px; background:#14532d; border-color:#22c55e; color:#fff; font-weight:900;">СКОПИРОВАТЬ</button>
+                    <div class="admin-promo-result-hint">Вставь в PROMO_CODES в data-promo.js → задеплой. Игрок введёт код → получит награды → код сгорит (одноразовый).</div>
                 </div>
             </div>
         </div>
@@ -2011,11 +2104,11 @@
     </div>
 </div>
 
-<script src="data-i18n.js?v=5.4.03"></script>
-<script src="data-heroes.js?v=5.4.03"></script>
-<script src="data-legal.js?v=5.4.03"></script>
-<script src="data-promo.js?v=5.4.03"></script>
-<script src="data-admin.js?v=5.4.03"></script>
-<script src="engine.js?v=5.4.03"></script>
+<script src="data-i18n.js?v=5.4.12"></script>
+<script src="data-heroes.js?v=5.4.12"></script>
+<script src="data-legal.js?v=5.4.12"></script>
+<script src="data-promo.js?v=5.4.12"></script>
+<script src="data-admin.js?v=5.4.12"></script>
+<script src="engine.js?v=5.4.12"></script>
 </body>
 </html>

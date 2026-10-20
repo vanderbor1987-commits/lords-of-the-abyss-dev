@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.03';
+const BUILD_VERSION = '5.4.12';
 const BUILD_DATE = '20.10.2026';
 
 // ==========================================================
@@ -1064,7 +1064,7 @@ const PlatformBridge = {
         handleFail(currentLang === 'RU' ? "Реклама недоступна" : "Ads unavailable");
     },
 
-    purchase(itemKey, priceRub, onSuccess) {
+    purchase(itemKey, priceRub, onSuccess, onError) {
         // T-A (Critical): запрет fallback в бесплатный товар при поломке платежей в Yandex.
         // Если мы внутри Yandex, но платежи ещё не инициализированы или упали —
         // НЕ отдаём товар бесплатно, а просим повторить попытку через секунду.
@@ -1092,6 +1092,8 @@ const PlatformBridge = {
                 pushToast(currentLang === 'RU'
                     ? (isCancelled ? "Оплата отменена" : "Ошибка платежа. Попробуйте позже")
                     : (isCancelled ? "Order cancelled" : "Payment error. Try again later"));
+                // v5.4.07 FIX-IAP-ONERROR: снимаем isPurchaseInProgress при отмене Yandex IAP.
+                if (typeof onError === 'function') onError();
             });
             return;
         }
@@ -1111,6 +1113,8 @@ const PlatformBridge = {
                     onSuccess();
                 } else {
                     pushToast(currentLang === 'RU' ? "Оплата отменена" : "Order cancelled");
+                    // v5.4.07 FIX-IAP-ONERROR: снимаем isPurchaseInProgress при отмене VK IAP.
+                    if (typeof onError === 'function') onError();
                 }
             }).catch((err) => {
                 // FIX-CLEAN-CONSOLE: warn только в dev-режиме. В проде — молча, потому что
@@ -1118,6 +1122,8 @@ const PlatformBridge = {
                 // «item not found» — это ожидаемое поведение, не проблема для модератора.
                 if (IS_DEV_MODE) console.warn('[VK IAP] Order failed:', err);
                 pushToast(currentLang === 'RU' ? "Оплата отменена" : "Order cancelled");
+                // v5.4.07 FIX-IAP-ONERROR: снимаем isPurchaseInProgress при ошибке VK IAP.
+                if (typeof onError === 'function') onError();
             });
             return;
         }
@@ -1182,6 +1188,38 @@ function redeemPromoCode(source = 'modal') {
         return pushToast(currentLang === 'RU' ? 'Промокод не найден' : 'Promo code not found');
     }
 
+    // v5.4.12 FIX-PROMO-OWNER-VK: персональные коды (ownerVkId) активируются
+    // ТОЛЬКО владельцем и ТОЛЬКО внутри VK. Вне VK getCurrentVkUserId() возвращает
+    // URL-параметр, который игрок может подставить руками (?vk_user_id=...) — дыра.
+    // Для несовпадения используем тот же ответ «Промокод не найден» (не раскрываем
+    // существование персональных). Dev-режим (localhost / ?debug=1) — bypass для QA.
+    if (promo.ownerVkId) {
+        const _inVK = isRunningInsideVK();
+        const _curUid = getCurrentVkUserId();
+        const _devBypass = (typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE && !_inVK);
+        if (_devBypass) {
+            console.warn('[Promo] DEV BYPASS: personal code activated outside VK for testing');
+        } else {
+            if (!_inVK) {
+                if (typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE) console.warn('[Promo] Personal code blocked outside VK');
+                triggerHaptic('defeat');
+                return pushToast(currentLang === 'RU' ? 'Промокод не найден' : 'Promo code not found');
+            }
+            if (!_curUid || String(_curUid) !== String(promo.ownerVkId)) {
+                if (typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE) console.warn('[Promo] ownerVkId mismatch:', _curUid, 'vs', promo.ownerVkId);
+                triggerHaptic('defeat');
+                return pushToast(currentLang === 'RU' ? 'Промокод не найден' : 'Promo code not found');
+            }
+        }
+    }
+
+    // v5.4.12 FIX-PROMO-EXPIRES: временные коды (акции). После expiresAt — «не найден».
+    if (promo.expiresAt && Date.now() > promo.expiresAt) {
+        if (typeof IS_DEV_MODE !== 'undefined' && IS_DEV_MODE) console.warn('[Promo] Expired code:', rawCode, 'expired at', new Date(promo.expiresAt).toISOString());
+        triggerHaptic('defeat');
+        return pushToast(currentLang === 'RU' ? 'Промокод не найден' : 'Promo code not found');
+    }
+
     if (!Array.isArray(gState.usedPromoCodes)) gState.usedPromoCodes = [];
     if (gState.usedPromoCodes.includes(rawCode)) {
         return pushToast(currentLang === 'RU' ? 'Этот промокод уже использован' : 'This code has already been used');
@@ -1210,6 +1248,13 @@ function redeemPromoCode(source = 'modal') {
     if (promo.tickets) {
         gState.tickets += promo.tickets;
         lootParts.push(`+${promo.tickets} ${tI}`);
+    }
+    // v5.4.12 FIX-PROMO-VIP: vipDays — стакается с текущим VIP (продлевает).
+    if (promo.vipDays && promo.vipDays > 0) {
+        const _dayMs = 24 * 3600 * 1000;
+        const _base = Math.max(Date.now(), gState.vipUntil || 0);
+        gState.vipUntil = _base + Math.floor(promo.vipDays) * _dayMs;
+        lootParts.push(`+${promo.vipDays}d VIP`);
     }
     // PROMO-HERO: выдача конкретного героя. Если он уже есть — +1★,
     // если MAX 10★ — компенсация кристаллами. Защита от повторной выдачи
@@ -1845,12 +1890,18 @@ function loadGame() {
     }
 
     // MAJOR-M1: если Колесо было запущено, но приз не начислен (закрытие вкладки в момент анимации) —
-    // начисляем его сейчас. Идемпотентно: pendingWheelPrize обнуляется сразу после вызова.
+    // начисляем его сейчас.
+    // v5.4.10 FIX-WHEEL-MULTITAB: saveGame ДО claimWheelPrize — атомарный захват orphan'а.
+    // Вторая вкладка прочитает pendingWheelPrize=null и не начислит повторно.
     if (gState.pendingWheelPrize) {
-        const orphanPrize = gState.pendingWheelPrize;
+        const _orphan = gState.pendingWheelPrize;
         gState.pendingWheelPrize = null;
-        try { claimWheelPrize(orphanPrize); } catch(e) { console.warn('[Wheel] Orphan prize restore failed:', e); }
         saveGame();
+        const _orphanType = _wheelPendingType(_orphan);
+        if (_orphanType) {
+            try { claimWheelPrize(_orphanType); } catch(e) { console.warn('[Wheel] Orphan prize restore failed:', e); }
+            saveGame();
+        }
     }
 
     checkDailyReset();
@@ -2303,6 +2354,9 @@ const FTUE_STEPS_CONFIG = [
             const allBusy = Object.keys(gState.deck || {}).every(id => isHeroBusy(id));
             if (allBusy && !gState.deck['e_dem_v']) {
                 gState.deck['e_dem_v'] = { stars: 1, lvl: 1 };
+                // v5.4.09 FIX-FTUE-EXP-FALLBACK-SAVE: без saveGame fallback-герой
+                // исчезал при F5, и шаг 8 (Экспедиции) снова залочивался.
+                saveGame();
                 renderCards();
             }
 
@@ -3638,25 +3692,28 @@ function closeCombatSimulation(multiplier = 1) {
         if (btnClose) btnClose.disabled = false;
         if (btnDouble) btnDouble.disabled = false;
 
-        activeCombatData = null;
-
-        if (typeof claimHandler === 'function') {
-            try {
-                claimHandler(m);
-            } catch(err) {
-                console.error("claimHandler error:", err);
-            }
-        }
+        // v5.4.04 FIX-FINALIZE-ORDER: activeCombatData сбрасывается в finally,
+        // а не до claimHandler. Если claimHandler частично начислил награды и бросил —
+        // state полусырой, но activeCombatData ещё есть (можно отладить).
         try {
-            saveGame();
-            renderArena();
-            renderLeaderboard();
-            renderBattleHistory();
-            renderDungeon();
-            renderFtue();
-            renderUI();
+            if (typeof claimHandler === 'function') {
+                claimHandler(m);
+            }
         } catch(err) {
-            console.error("render update error:", err);
+            console.error("claimHandler error:", err);
+        } finally {
+            activeCombatData = null;
+            try {
+                saveGame();
+                renderArena();
+                renderLeaderboard();
+                renderBattleHistory();
+                renderDungeon();
+                renderFtue();
+                renderUI();
+            } catch(err) {
+                console.error("render update error:", err);
+            }
         }
     };
 
@@ -4687,6 +4744,24 @@ function confirmExpeditionDeployment() {
     const config = EXPEDITIONS_CONFIG.find(e => e.id === activeAssignExpId);
     if (!config || selectedExpHeroes.length !== config.requiredHeroes) return;
 
+    // v5.4.09 FIX-EXP-CONFIRM-OVERWRITE: не перезаписываем уже запущенную экспедицию.
+    // Симметрия с autoDeployExpedition/openExpHeroPicker (FIX-EXP-DOUBLE-DEPLOY, v5.3.2).
+    // Раньше confirm мог запуститься поверх активной экспедиции — старый состав
+    // освобождался без награды, endTime сбрасывался на полную длительность.
+    if (gState.expeditions[activeAssignExpId]) {
+        closeExpHeroPicker();
+        return pushToast(currentLang === 'RU' ? 'Экспедиция уже в пути!' : 'Expedition already underway!');
+    }
+    // v5.4.09 FIX-EXP-CONFIRM-BUSY: герой мог стать занятым (строй/другая экспедиция)
+    // между выбором в пикере и подтверждением. Без фильтра герой оказывался в двух
+    // местах, и isHeroBusy начинал возвращать противоречивые результаты.
+    const _busySelected = selectedExpHeroes.filter(id => isHeroBusy(id));
+    if (_busySelected.length > 0) {
+        return pushToast(currentLang === 'RU'
+            ? 'Некоторые герои уже заняты. Обновите выбор.'
+            : 'Some heroes are busy. Update selection.');
+    }
+
     // Для VIP поход сразу отправляется с ускорением на 50% без рекламы!
     const duration = isVipActive() ? Math.floor(config.durationSec * 0.5) : config.durationSec;
     gState.expeditions[activeAssignExpId] = {
@@ -5373,6 +5448,7 @@ function closeCardInspect() {
    ========================================================== */
 
 let liveArenaSubmitDebounce = null;
+let _submitArenaAbortCtrl = null; // v5.4.04: force-submit всегда отменяет предыдущий
 let liveArenaSubmitRetry = null;  // B3: таймер ретрая при rate_limited
 let liveArenaSubmitErrorShown = false; // v4.8.8: one-shot toast при отказе сервера live-арены
 // v5.2.4 FIX-INBOX-SYNC: пока inbox не прочитан при загрузке — блокируем submit,
@@ -5457,6 +5533,18 @@ async function submitArenaProfile(force = false) {
         return { ok: false, reason: 'deferred' };
     }
 
+    // v5.4.04 FIX-SUBMIT-RACE: force-submit отменяет предыдущий force-submit.
+    // Раньше два параллельных force (покупка + победа/поражение) могли прийти на
+    // сервер в обратном порядке и перезаписать актуальные кубки старыми.
+    let _myAbortCtrl = null;
+    if (force) {
+        if (_submitArenaAbortCtrl) {
+            try { _submitArenaAbortCtrl.abort(); } catch (_e) {}
+        }
+        _submitArenaAbortCtrl = new AbortController();
+        _myAbortCtrl = _submitArenaAbortCtrl;
+    }
+
     try {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/submit`, {
             method: 'POST',
@@ -5465,7 +5553,8 @@ async function submitArenaProfile(force = false) {
                 query, name, trophies, cp, defenseSquad,
                 // v5.3.14: флаг suspicion — уходит в KV, пригодится для блокировки в ладдере.
                 suspicious: !!gState._suspicious
-            })
+            }),
+            signal: _myAbortCtrl ? _myAbortCtrl.signal : undefined
         });
         const data = await resp.json();
         if (DEV_MODE_CHECK()) devLog('[LiveArena] submit →', data);
@@ -5526,8 +5615,15 @@ async function submitArenaProfile(force = false) {
         }
         return data;
     } catch (e) {
+        if (e && e.name === 'AbortError') {
+            return { ok: false, reason: 'aborted_by_newer' };
+        }
         if (DEV_MODE_CHECK()) console.warn('[LiveArena] submit failed:', e);
         return { ok: false, reason: 'network' };
+    } finally {
+        if (_myAbortCtrl && _submitArenaAbortCtrl === _myAbortCtrl) {
+            _submitArenaAbortCtrl = null;
+        }
     }
 }
 
@@ -5546,7 +5642,13 @@ function scheduleLiveArenaSubmit(force = false) {
     }, 180000);
 }
 
+let _rivalsFetchInFlight = false;
+
 async function fetchLiveRivals(count = 2) {
+    // v5.4.04 FIX-RIVALS-FETCH-GUARD: refresh + navigate + tick могли запускать
+    // 2-3 параллельных fetch. Данные те же, но лишние KV-запросы и Layout-чики.
+    if (_rivalsFetchInFlight) return (gState.liveRivalsCache || []);
+    _rivalsFetchInFlight = true;
     const query = getLaunchQuery();
     try {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/rivals`, {
@@ -5563,6 +5665,8 @@ async function fetchLiveRivals(count = 2) {
         }
     } catch (e) {
         if (DEV_MODE_CHECK()) console.warn('[LiveArena] fetch rivals failed:', e);
+    } finally {
+        _rivalsFetchInFlight = false;
     }
     return [];
 }
@@ -5610,6 +5714,10 @@ async function requestSummonLock() {
             signal: _ctrl.signal
         });
         if (_tId) clearTimeout(_tId);
+        // v5.4.06 FIX-SUMMON-LOCK-FAIL-OPEN: серверная ошибка Worker'а не должна
+        // блокировать призыв. 5xx/429 с валидным JSON {ok:false} раньше уходили
+        // в блокировку через resp.json() — игрок видел ложное «игра на другом устройстве».
+        if (resp.status >= 400) return { ok: true, reason: 'http_' + resp.status };
         const data = await resp.json();
         if (data && typeof data.ok === 'boolean') return data;
         return { ok: true, reason: 'bad_response' };
@@ -5619,28 +5727,42 @@ async function requestSummonLock() {
     }
 }
 
-// v5.3.8: обёртка над summonGacha с проверкой лока.
-// Вызывается из кнопок Алтаря вместо summonGacha.
+// v5.4.06 FIX-SUMMON-GUARD: isSummonInProgress закрывает последний entry-point без guard'а.
+// Двойной тап «Призыв x10» через await requestSummonLock запускал 2 ролла параллельно:
+// двойное списание кристаллов + второй openSummonResultModal перезаписывал grid первого.
+let isSummonInProgress = false;
+
 async function summonGachaWithLock(type, count = 1) {
-    // v5.3.13: sync кристаллов из KV убран — конфликтовал с локальными
-    // источниками (демон/промокод/календарь/квесты/кодекс/колесо/левиафан).
-    // Любой источник накапливался локально, KV отставал, sync стирал прогресс.
-    const lock = await requestSummonLock();
-    if (!lock.ok && lock.reason === 'summon_locked') {
-        const retryIn = Math.max(1, Math.ceil((lock.retryIn || 60000) / 1000));
-        return pushToast(currentLang === 'RU'
-            ? `Призыв заблокирован: игра открыта на другом устройстве. Повторите через ${retryIn} сек или закройте её.`
-            : `Summon locked: game is open on another device. Retry in ${retryIn}s or close it.`);
+    if (isSummonInProgress) return;
+    isSummonInProgress = true;
+    try {
+        // v5.3.13: sync кристаллов из KV убран — конфликтовал с локальными
+        // источниками (демон/промокод/календарь/квесты/кодекс/колесо/левиафан).
+        // Любой источник накапливался локально, KV отставал, sync стирал прогресс.
+        const lock = await requestSummonLock();
+        if (!lock.ok && lock.reason === 'summon_locked') {
+            const retryIn = Math.max(1, Math.ceil((lock.retryIn || 60000) / 1000));
+            return pushToast(currentLang === 'RU'
+                ? `Призыв заблокирован: игра открыта на другом устройстве. Повторите через ${retryIn} сек или закройте её.`
+                : `Summon locked: game is open on another device. Retry in ${retryIn}s or close it.`);
+        }
+        summonGacha(type, count);
+    } finally {
+        isSummonInProgress = false;
     }
-    summonGacha(type, count);
 }
+
+let _top10FetchInFlight = false;
 
 async function fetchLiveTop10() {
     if (!canSubmitToLiveArena()) return [];
+    // v5.4.04 FIX-TOP10-FETCH-GUARD: аналогично rivals.
+    if (_top10FetchInFlight) return (gState.liveTopCache || []);
     // Throttle 120 сек, как у fetchLiveRivals — защита от спама при частом открытии модалки
     if (gState.liveTopCacheTs && (Date.now() - gState.liveTopCacheTs) < 120000 && Array.isArray(gState.liveTopCache)) {
         return gState.liveTopCache;
     }
+    _top10FetchInFlight = true;
     const query = getLaunchQuery();
     try {
         const resp = await fetch(`${WORKER_BASE_URL}/arena/top`, {
@@ -5657,6 +5779,8 @@ async function fetchLiveTop10() {
         }
     } catch (e) {
         if (DEV_MODE_CHECK()) console.warn('[LiveArena] fetch top10 failed:', e);
+    } finally {
+        _top10FetchInFlight = false;
     }
     return [];
 }
@@ -5776,7 +5900,7 @@ async function silentInboxSync() {
             _applied++;
         });
         if (_applied > 0) {
-            gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
+            gState.trophies = _clampTrophiesByLeague((gState.trophies || 150) + _deltaSum);
             saveGame();
             renderUI();
             renderArena();
@@ -5820,7 +5944,7 @@ async function checkArenaInbox() {
         _newAttacks.push(atk);
     });
     if (_newAttacks.length > 0) {
-        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 150) + _deltaSum));
+        gState.trophies = _clampTrophiesByLeague((gState.trophies || 150) + _deltaSum);
         if (DEV_MODE_CHECK()) devLog('[LiveArena] inbox applied', _newAttacks.length, 'delta', _deltaSum);
     }
     // Снимаем блок submit — inbox прочитан, кубки актуальны.
@@ -5892,9 +6016,31 @@ function renderArenaInbox() {
 
 async function revengeFromInbox(attackerUid) {
     if (!attackerUid) return;
+    // v5.4.04 FIX-REVENGE-GUARD: реванш минует startArenaCombatByIndex и не проходит
+    // через isArenaCombatStarting. Быстрый двойной тап «ОТОМСТИТЬ» списывал 2 билета
+    // и запускал 2 боя параллельно (второй renderCombatStage перезаписывал первый).
+    if (isArenaCombatStarting) return;
+    isArenaCombatStarting = true;
+    clearTimeout(arenaCombatGuardTimer);
+    arenaCombatGuardTimer = setTimeout(() => {
+        if (isArenaCombatStarting) {
+            console.warn('[Arena] Revenge guard auto-reset (safety-net).');
+            isArenaCombatStarting = false;
+        }
+    }, 5000);
+
     closeArenaInbox();
-    const profile = await fetchPlayerProfile(attackerUid);
+    let profile;
+    try {
+        profile = await fetchPlayerProfile(attackerUid);
+    } catch (e) {
+        isArenaCombatStarting = false;
+        clearTimeout(arenaCombatGuardTimer);
+        return pushToast(currentLang === 'RU' ? 'Ошибка загрузки профиля' : 'Profile load error');
+    }
     if (!profile) {
+        isArenaCombatStarting = false;
+        clearTimeout(arenaCombatGuardTimer);
         return pushToast(currentLang === 'RU' ? 'Игрок недоступен для реванша' : 'Player unavailable for revenge');
     }
     const myAtkCP = calculateCP(gState.attackFormation, null, false);
@@ -5956,6 +6102,22 @@ const ARENA_LEAGUES = [
 function getCurrentLeague() {
     const lId = gState.arenaLeague || 'bronze';
     return ARENA_LEAGUES.find(l => l.id === lId) || ARENA_LEAGUES[0];
+}
+
+// v5.4.04 FIX-TROPHY-CLAMP: единый clamp кубков по границам текущей лиги.
+// Раньше 6 мест использовали разные границы (Math.max(0) и Math.max(150)),
+// и игрок в Серебре после серии поражений мог упасть ниже 800 (визуальный баг).
+function _clampTrophiesByLeague(tr) {
+    ensureTopTenBots();
+    const curLeagueId = gState.arenaLeague || 'bronze';
+    const cfg = {
+        bronze:   { minTr: 150,  maxTr: 800  },
+        silver:   { minTr: 800,  maxTr: 1500 },
+        gold:     { minTr: 1500, maxTr: 2300 },
+        platinum: { minTr: 2300, maxTr: 3000 },
+        diamond:  { minTr: 3000, maxTr: 3700 }
+    }[curLeagueId] || { minTr: 150, maxTr: 3700 };
+    return Math.max(cfg.minTr, Math.min(cfg.maxTr, Math.floor(tr || cfg.minTr)));
 }
 
 function openArenaLadderModal() {
@@ -6061,9 +6223,17 @@ function getMissedWeeksCount(oldWeekId, newWeekId) {
     }
 }
 
+let _lastArenaWeeklyCheckTs = 0;
+
 function checkWeeklyArenaReset() {
     // MAJOR-M2: заморозка недельного ресета Арены при откате часов
     if (isClockRolledBack) return;
+
+    // v5.4.04 FIX-ARENA-WEEKLY-THROTTLE: та же throttle 30с, что и в checkWeeklyRaidReset.
+    // Раньше функция дёргалась каждую секунду из тика и делала Date-манипуляции вхолостую.
+    const _now = Date.now();
+    if (_now - _lastArenaWeeklyCheckTs < 30000) return;
+    _lastArenaWeeklyCheckTs = _now;
 
     const curWeek = getWeekIdentifier();
     if (!gState.arenaSeasonWeekId) {
@@ -6543,7 +6713,10 @@ function generateArenaRivals() {
         let scanAttempts = 0;
         while (occupied.has(candidate) && scanAttempts < 1000) {
             scanAttempts++;
-            candidate++;
+            // v5.4.04 FIX-RANK-OVERFLOW: candidate++ без clamp мог уйти на 1001+ при
+            // myRank в зоне вылета (990-1000). getBotByRank клампил до 1000, и в списке
+            // появлялись два соперника с одинаковым «#1000». Wrap по модулю 1000.
+            candidate = (candidate % 1000) + 1;
         }
         // Fallback: если восходящий скан не нашёл свободный слот (теоретически невозможно
         // при 1000 позициях), пробуем ниже игрока на случай плотного заполнения.
@@ -7081,13 +7254,6 @@ function inspectLadderRank(rank) {
     // v5.3.5: если позиция занята живым — открываем его профиль, а не бота.
     const liveCache = Array.isArray(gState.liveTopCache) ? gState.liveTopCache : [];
     const myUid = (typeof getCurrentVkUserId === 'function') ? getCurrentVkUserId() : '';
-    const liveNames = new Set();
-    for (const lp of liveCache) {
-        if (!lp || !lp.uid || lp.uid === myUid) continue;
-        const lpName = String(lp.name || '').toLowerCase();
-        if (liveNames.has(lpName)) continue;
-        liveNames.add(lpName);
-    }
     const bot = getBotByRank(rank);
     if (!bot) return;
     // Если у бота rank совпадает с живым игроком (по имени) — открываем живого.
@@ -7101,9 +7267,15 @@ function inspectLadderRank(rank) {
 }
 
 // v5.3.5: инспекция живого игрока из таблицы лидеров.
+let _lastInspectLadderUid = '';
+
 async function inspectLiveLadderRival(uid) {
     if (!uid) return;
+    // v5.4.04 FIX-INSPECT-RACE: при быстрых тапах по разным живым игрокам
+    // последним открывался тот, чей fetch завершился позже, а не последний тапнутый.
+    _lastInspectLadderUid = uid;
     const profile = await fetchPlayerProfile(uid);
+    if (_lastInspectLadderUid !== uid) return;
     if (!profile) {
         return pushToast(currentLang === 'RU' ? 'Игрок недоступен' : 'Player unavailable');
     }
@@ -7185,6 +7357,7 @@ function startActualCombatWithRival(rival) {
     }
     trophyLoss = Math.max(10, Math.min(15, trophyLoss));
 
+    try {
     launchVisualCombat(gState.attackFormation, rival, 'arena', (isWin, setClaimHandler) => {
             // MAJOR-M5: снимаем guard сразу на входе в callback — VIP-ветка вызывает его
             // синхронно, визуальная — по завершении боя. В обоих случаях блокировка снята корректно.
@@ -7200,7 +7373,7 @@ function startActualCombatWithRival(rival) {
                     const finalTrophies = trophyGain * (mult > 1 ? 2 : 1);
                     gState.gold += finalGold;
                     gState.lifetimeGold += finalGold;
-                    gState.trophies += finalTrophies;
+                    gState.trophies = _clampTrophiesByLeague((gState.trophies || 0) + finalTrophies);
                     gState.lifetimeWins = (gState.lifetimeWins || 0) + 1;
                     gState.ftueArenaDone = true;
 
@@ -7220,7 +7393,7 @@ function startActualCombatWithRival(rival) {
                                     const serverAwarded = resp.actualDelta * (_multWin > 1 ? 2 : 1);
                                     const diff = serverAwarded - _finalTrophiesWin;
                                     if (diff !== 0) {
-                                        gState.trophies = Math.max(0, Math.min(3700, (gState.trophies || 0) + diff));
+                                        gState.trophies = _clampTrophiesByLeague((gState.trophies || 0) + diff);
                                         saveGame();
                                         renderUI();
                                         renderArena();
@@ -7352,7 +7525,7 @@ function startActualCombatWithRival(rival) {
                 return `+${trophyGain} ${trIcon} | +${formatNumber(baseGold)} ${gI}`;
             } else {
                 setClaimHandler(() => {
-                    gState.trophies = Math.max(0, (gState.trophies || 0) - trophyLoss);
+                    gState.trophies = _clampTrophiesByLeague((gState.trophies || 0) - trophyLoss);
 
                     // v5.3.0 FIX-PVP-ASYNC-ROLLBACK-LOSS: аналогично победной ветке.
                     // При отказе Worker'а — возвращаем потерянные кубки игроку.
@@ -7404,6 +7577,16 @@ function startActualCombatWithRival(rival) {
                 return `-${trophyLoss} ${trIcon}`;
             }
     });
+    } catch (_launchErr) {
+        // v5.4.04 FIX-ARENA-LAUNCH-GUARD: если launchVisualCombat бросит (теоретически —
+        // повреждённый HEROES_CATALOG, отсутствующий DOM), билет уже списан, а guard
+        // залипнет до 5-секундного safety-net. Возвращаем билет и снимаем guard сразу.
+        console.error('[Arena] launchVisualCombat error:', _launchErr);
+        isArenaCombatStarting = false;
+        clearTimeout(arenaCombatGuardTimer);
+        gState.tickets = (gState.tickets || 0) + 1;
+        pushToast(currentLang === 'RU' ? 'Ошибка запуска боя, билет возвращён' : 'Combat launch error, ticket refunded');
+    }
 }
 
 // (Устаревший метод startArenaCombat удален, актуальные бои идут через startArenaCombatByIndex)
@@ -8166,28 +8349,55 @@ function getDungeonFloorData(floor) {
     return result;
 }
 
+// v5.4.11 FIX-DUNGEON-REFILL-GUARD: закрыт последний refill без reentrancy-guard.
+// В VIP showPlatformRewarded вызывает onSuccess синхронно — двойной тап до renderDungeon
+// проходил все проверки дважды, refill-квота тратилась 2/3 вместо 1/3.
+// Watchdog 15с защищает от залипания disabled при сворачивании вкладки во время рекламы
+// (аналог FIX-OFFLINE-MODAL-FROZEN).
+let isDungeonRefillBusy = false;
+
 function refillDungeonStaminaAd() {
-    // Запрет рекламы, если после прибавки +5 энергия превысит максимум 10
+    if (isDungeonRefillBusy) return;
     if ((gState.dungeonStamina || 0) > 5) {
         return pushToast(currentLang === 'RU' ? "Энергии достаточно (максимум 10)!" : "Energy full enough (max 10)!");
     }
     if ((gState.dungeonRefillsToday || 0) >= 3) {
         return pushToast(currentLang === 'RU' ? "Лимит пополнений энергии исчерпан (3/3)!" : "Daily refills limit reached (3/3)!");
     }
+    isDungeonRefillBusy = true;
     const btn = document.getElementById('btn-dung-refill');
     if (btn) btn.disabled = true;
 
-    showPlatformRewarded(() => {
+    const _refillWatchdog = setTimeout(() => {
+        if (isDungeonRefillBusy) {
+            console.warn('[Dungeon] Refill watchdog: reward did not resolve in 15s. Unlocking UI.');
+            isDungeonRefillBusy = false;
+            if (btn) btn.disabled = false;
+        }
+    }, 15000);
+
+    const _onSuccess = () => {
+        clearTimeout(_refillWatchdog);
+        try {
+            gState.dungeonStamina = Math.min(10, (gState.dungeonStamina || 0) + 5);
+            gState.dungeonRefillsToday = (gState.dungeonRefillsToday || 0) + 1;
+            saveGame();
+            renderDungeon();
+            const eI = '<img src="assets/icons/icon_energy.webp" class="res-icon-inline icon-energy-glow" alt="E">';
+            pushToast(currentLang === 'RU' ? `+5 ${eI} (${gState.dungeonRefillsToday}/3)!` : `+5 ${eI} (${gState.dungeonRefillsToday}/3)!`);
+        } finally {
+            isDungeonRefillBusy = false;
+            if (btn) btn.disabled = false;
+        }
+    };
+
+    const _onError = () => {
+        clearTimeout(_refillWatchdog);
+        isDungeonRefillBusy = false;
         if (btn) btn.disabled = false;
-        gState.dungeonStamina = Math.min(10, (gState.dungeonStamina || 0) + 5);
-        gState.dungeonRefillsToday = (gState.dungeonRefillsToday || 0) + 1;
-        saveGame();
-        renderDungeon();
-        const eI = '<img src="assets/icons/icon_energy.webp" class="res-icon-inline icon-energy-glow" alt="E">';
-        pushToast(currentLang === 'RU' ? `+5 ${eI} (${gState.dungeonRefillsToday}/3)!` : `+5 ${eI} (${gState.dungeonRefillsToday}/3)!`);
-    }, () => {
-        if (btn) btn.disabled = false;
-    });
+    };
+
+    showPlatformRewarded(_onSuccess, _onError);
 }
 
 function renderDungeon() {
@@ -8318,6 +8528,10 @@ function startDungeonCombat() {
     renderUI();
 
     const d = getDungeonFloorData(gState.dungeonFloor || 1);
+    // v5.4.11 FIX-DUNGEON-LAUNCH-GUARD: если launchVisualCombat бросит (corrupted save,
+    // отсутствующий DOM, битые данные в HEROES_CATALOG), isDungeonCombatStarting залипал,
+    // кнопка «Штурм» молчала до F5, а стамина была уже списана. Возвращаем стамину и снимаем guard.
+    try {
     launchVisualCombat(gState.attackFormation, d, 'dungeon', (isWin, setClaimHandler) => {
         // Снимаем флаг в самом раннем безопасном месте: на VIP-ветке launchVisualCombat
         // возвращается синхронно, на визуальной — оверлей уже перехватил тачи над кнопкой.
@@ -8381,6 +8595,14 @@ function startDungeonCombat() {
             return currentLang === 'RU' ? 'Поражение в Бездне' : 'Abyss Defeat';
         }
     });
+    } catch (_launchErr) {
+        console.error('[Dungeon] launchVisualCombat error:', _launchErr);
+        isDungeonCombatStarting = false;
+        gState.dungeonStamina = (gState.dungeonStamina || 0) + 1;
+        pushToast(currentLang === 'RU' ? 'Ошибка запуска боя, энергия возвращена' : 'Combat launch error, energy refunded');
+        renderDungeon();
+        renderUI();
+    }
 }
 
 // Быстрый рейд (Sweep): мгновенная зачистка без кулдауна!
@@ -8388,8 +8610,10 @@ let isQuickSweepActive = false;
 function farmDungeonShards() {
     if (isQuickSweepActive) return;
     isQuickSweepActive = true;
+    // v5.4.11 FIX-SWEEP-TRY-FINALLY: любое исключение внутри оставляло
+    // isQuickSweepActive=true навсегда — кнопка «Быстрый рейд» молчала до F5.
+    try {
     if ((gState.dungeonStamina || 0) <= 0) {
-        isQuickSweepActive = false;
         return pushToast(currentLang === 'RU' ? "Закончилась энергия Бездны (10/10)!" : "Abyss energy depleted (10/10)!");
     }
     
@@ -8398,7 +8622,6 @@ function farmDungeonShards() {
         // FIX-QUICK-SWEEP-GUARD v4.7.0: снимаем флаг перед ранним возвратом.
         // Иначе кнопка "Быстрый рейд" молча блокировалась до перезапуска приложения
         // (игрок считал, что кнопка "серая" и не работает).
-        isQuickSweepActive = false;
         return pushToast(currentLang === 'RU' ? "Сначала пройдите 1-й этаж!" : "Clear Floor 1 first!");
     }
 
@@ -8431,7 +8654,9 @@ function farmDungeonShards() {
     saveGame();
     renderDungeon();
     renderUI();
-    isQuickSweepActive = false;
+    } finally {
+        isQuickSweepActive = false;
+    }
 }
 
 /* ==========================================================
@@ -8943,9 +9168,7 @@ function openSummonResultModal(results) {
         }
 
     currentGachaResults = [];
-    window.currentGachaResults = currentGachaResults;
     unrevealedGachaCards = results.length;
-    window.unrevealedGachaCards = unrevealedGachaCards;
 
     results.forEach((res, idx) => {
         const h = res.hero;
@@ -9640,6 +9863,39 @@ function watchAdReward() {
 let isWheelSpinning = false;
 let currentWheelRotation = 0;
 
+// v5.4.10 FIX-WHEEL-MULTITAB: pendingWheelPrize теперь объект { id, type, ts }.
+// Раньше (string) две вкладки могли начислить один приз дважды:
+// вкладка A спиннит → saveGame(pendingWheelPrize='gold_4h') → анимация;
+// вкладка B (open) → loadGame читает pending из localStorage → начисляет → saveGame(null);
+// вкладка A через 4.65с читает СВОЙ in-memory state (pending ещё есть) → начисляет ещё раз.
+// Уникальный id + чтение localStorage перед claim = single-flight между вкладками.
+// Legacy string формат поддерживается без миграции.
+function _wheelPendingId(p) {
+    if (!p) return null;
+    if (typeof p === 'string') return 'legacy_' + p;
+    if (typeof p === 'object' && p.id) return p.id;
+    return null;
+}
+function _wheelPendingType(p) {
+    if (!p) return null;
+    if (typeof p === 'string') return p;
+    if (typeof p === 'object' && p.type) return p.type;
+    return null;
+}
+function _wheelConcurrentSpin() {
+    try {
+        const _storedRaw = localStorage.getItem(SAVE_KEY);
+        if (!_storedRaw) return false;
+        const _stored = JSON.parse(_storedRaw);
+        if (!_stored.pendingWheelPrize) return false;
+        const _p = _stored.pendingWheelPrize;
+        const _ts = (typeof _p === 'object' && _p.ts) ? _p.ts : 0;
+        // Блокируем только свежие (моложе 10с) призы — иначе legacy-orphan заблокирует нормальный спин.
+        const _age = _ts > 0 ? (Date.now() - _ts) : 999999;
+        return _age < 10000;
+    } catch (e) { return false; }
+}
+
 function isFreeWheelReady() {
     return gState.lastFreeWheelDate !== new Date().toDateString();
 }
@@ -9661,9 +9917,17 @@ function closeLuckyWheelModal() {
     if (m) m.style.display = 'none';
 }
 
+// v5.4.10 FIX-WHEEL-SVG-DIRTY: не пересобираем SVG, если язык не менялся.
+// Раньше renderLuckyWheelUI (3-4 раза за открытие) каждый раз пересоздавал
+// 16 SVG-элементов — микрофризы на слабых Android. Плюс смена языка в открытой
+// модалке не обновляла сектора — теперь сброс в applyLanguage + перерисовка.
+let _lastWheelSvgLang = '';
+
 function buildWheelSvg() {
     const svg = document.getElementById('wheel-disc-svg');
     if (!svg) return;
+    if (_lastWheelSvgLang === currentLang) return;
+    _lastWheelSvgLang = currentLang;
     svg.innerHTML = '';
 
     const isRU = currentLang === 'RU';
@@ -9784,6 +10048,14 @@ function spinLuckyWheel() {
 
     if (!isFree && adLeft <= 0) return;
 
+    // v5.4.10 FIX-WHEEL-MULTITAB: не запускаем спин, если свежий pendingWheelPrize
+    // висит в localStorage — его обрабатывает другая вкладка.
+    if (_wheelConcurrentSpin()) {
+        return pushToast(currentLang === 'RU'
+            ? 'Игра открыта в другой вкладке — завершите спин там'
+            : 'Game is open in another tab — finish the spin there');
+    }
+
     // FIX-WHEEL-DOUBLE-SPIN (v4.9.0): guard и списание ДО showPlatformRewarded.
     // Раньше isWheelSpinning ставился внутри executeSpin — между кликом и колбэком рекламы
     // флаг был false, и второй клик/программный вызов запускал параллельный rewarded.
@@ -9797,8 +10069,22 @@ function spinLuckyWheel() {
     }
 
     const _rollbackSpin = () => {
-        gState.lastFreeWheelDate = _prevFreeDate;
-        gState.wheelAdSpinsToday = _prevAdSpins;
+        // v5.4.10 FIX-WHEEL-ROLLBACK-RACE: не откатываем, если другая вкладка
+        // уже провела спин и сдвинула lastFreeWheelDate/wheelAdSpinsToday.
+        let _shouldRollback = true;
+        try {
+            const _storedRaw = localStorage.getItem(SAVE_KEY);
+            if (_storedRaw) {
+                const _stored = JSON.parse(_storedRaw);
+                if (_stored.lastFreeWheelDate !== _prevFreeDate || _stored.wheelAdSpinsToday !== _prevAdSpins) {
+                    _shouldRollback = false;
+                }
+            }
+        } catch (e) {}
+        if (_shouldRollback) {
+            gState.lastFreeWheelDate = _prevFreeDate;
+            gState.wheelAdSpinsToday = _prevAdSpins;
+        }
         isWheelSpinning = false;
         const btn = document.getElementById('btn-wheel-spin');
         if (btn) btn.disabled = false;
@@ -9810,8 +10096,9 @@ function spinLuckyWheel() {
         const btn = document.getElementById('btn-wheel-spin');
         if (btn) btn.disabled = true;
 
-        trackQuestProgress('wheel', 1);
-        gState.lifetimeWheelSpins = (gState.lifetimeWheelSpins || 0) + 1; // v4.9.6: счётчик достижения
+        // v5.4.10: trackQuestProgress('wheel') удалён — ни в dailyQuests, ни в stageQuests
+        // нет типа 'wheel'. Достижение ach_wheel использует lifetimeWheelSpins ниже.
+        gState.lifetimeWheelSpins = (gState.lifetimeWheelSpins || 0) + 1;
         checkNotificationBadges();
         saveGame();
 
@@ -9832,9 +10119,12 @@ function spinLuckyWheel() {
         }
 
         // Античит (MAJOR-M1): фиксируем приз в state ДО анимации.
-        // Если игрок закроет приложение в момент вращения — pendingWheelPrize сохранится
-        // и будет начислен при следующей загрузке (см. loadGame).
-        gState.pendingWheelPrize = prizeType;
+        // v5.4.10: объект с уникальным id — защита от multi-tab двойного начисления.
+        gState.pendingWheelPrize = {
+            id: 'whl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+            type: prizeType,
+            ts: Date.now()
+        };
         saveGame();
 
         const fullTurns = 5 + Math.floor(Math.random() * 2);
@@ -9887,13 +10177,30 @@ function spinLuckyWheel() {
 
         setTimeout(() => {
             isWheelSpinning = false;
-            // Античит (MAJOR-M1): читаем приз ИЗ STATE, а не из локальной переменной.
-            // Обнуляем pending ДО начисления — это гарантирует single-flight даже
-            // при открытой второй вкладке (та увидит pending=null и приз не продублирует).
+            // v5.4.10 FIX-WHEEL-MULTITAB: перед claim читаем localStorage и сверяем id.
+            // Если там pendingWheelPrize отсутствует или принадлежит другому спину —
+            // значит другая вкладка (или loadGame в этой же) уже начислила приз.
             if (gState.pendingWheelPrize) {
-                const pendingPrize = gState.pendingWheelPrize;
-                gState.pendingWheelPrize = null;
-                claimWheelPrize(pendingPrize);
+                const _myPending = gState.pendingWheelPrize;
+                const _myId = _wheelPendingId(_myPending);
+                let _alreadyClaimed = false;
+                try {
+                    const _storedRaw = localStorage.getItem(SAVE_KEY);
+                    if (_storedRaw) {
+                        const _stored = JSON.parse(_storedRaw);
+                        if (_wheelPendingId(_stored.pendingWheelPrize) !== _myId) {
+                            _alreadyClaimed = true;
+                        }
+                    }
+                } catch (e) {}
+                if (_alreadyClaimed) {
+                    console.warn('[Wheel] Prize already claimed in another tab, skipping');
+                    gState.pendingWheelPrize = null;
+                } else {
+                    gState.pendingWheelPrize = null;
+                    saveGame();
+                    try { claimWheelPrize(_wheelPendingType(_myPending)); } catch (e) { console.error('[Wheel] claim error:', e); }
+                }
             }
             saveGame();
             renderLuckyWheelUI();
@@ -9902,6 +10209,10 @@ function spinLuckyWheel() {
     };
 
     if (!isFree && !isVipActive()) {
+        // v5.4.10 FIX-WHEEL-BTN-DISABLED: блокируем кнопку ДО показа рекламы.
+        // Раньше она оставалась визуально активной — игрок думал, что тап не сработал.
+        const _spinBtn = document.getElementById('btn-wheel-spin');
+        if (_spinBtn) _spinBtn.disabled = true;
         showPlatformRewarded(executeSpin, _rollbackSpin);
     } else {
         executeSpin();
@@ -9909,7 +10220,14 @@ function spinLuckyWheel() {
 }
 
 function claimWheelPrize(type) {
-    const rate = getIncomeRate();
+    // v5.4.10 FIX-WHEEL-CLAIM-GUARD: NaN-защита при corrupted save (relics='abc' → getIncomeRate=NaN).
+    // Раньше gState.gold += NaN ломал state, все рендеры показывали NaN.
+    try {
+        const rate = getIncomeRate();
+        if (!Number.isFinite(rate) || rate <= 0) {
+            console.error('[Wheel] Invalid income rate, aborted claim:', type);
+            return;
+        }
     const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
     const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
     const rI = '<img src="assets/icons/relic.webp" class="res-icon-inline" alt="R">';
@@ -9970,6 +10288,9 @@ function claimWheelPrize(type) {
         const heroId = sssPool[Math.floor(Math.random() * sssPool.length)];
         const hero = HEROES_CATALOG[heroId];
         grantWheelHero(heroId, hero, 1500, true);
+    }
+    } catch (e) {
+        console.error('[Wheel] claimWheelPrize error:', e);
     }
 }
 
@@ -10586,18 +10907,35 @@ function openBuyConfirm(itemKey, priceRub) {
     if (itemKey === 'starter_pro' && gState.hasStarterPackBought) {
         return pushToast(currentLang === 'RU' ? "Пак Владыки уже приобретен!" : "Starter Pack already claimed!");
     }
+    // v5.4.07 FIX-PURCHASE-VALIDATE: неизвестный itemKey раньше открывал модалку
+    // (standalone) или улетал в VK/Yandex SDK — ни одна ветка начисления не срабатывала,
+    // но executePurchase всё равно выдавал подарок первой покупки.
+    if (!SHOP_ITEMS_CATALOG[itemKey]) {
+        return pushToast(currentLang === 'RU' ? 'Неизвестный товар' : 'Unknown item');
+    }
 
-    const cfg = SHOP_ITEMS_CATALOG[itemKey] || { title: { RU: itemKey, EN: itemKey } };
+    const cfg = SHOP_ITEMS_CATALOG[itemKey];
     const titleStr = cfg.title[currentLang] || cfg.title['EN'];
     pendingBuyItem = { key: itemKey, title: titleStr, price: priceRub };
 
     // 1. Нативная оплата через PlatformBridge (VK / Яндекс Игры)
     // T-B2: фиксируем itemKey в замыкании — устраняет race с перезаписью pendingBuyItem.
     if (isRunningInsideVK() || isRunningInsideYandex()) {
+        // v5.4.07 FIX-IAP-DOUBLE-TAP: guard от двойного IAP-списания.
+        // Быстрый двойной тап на «Купить» открывал 2 параллельных VKWebAppShowOrderBox /
+        // yandexPayments.purchase. Yandex SDK не блокирует параллельные вызовы
+        // на тот же товар — реальная двойная оплата.
+        if (isPurchaseInProgress) return;
+        isPurchaseInProgress = true;
         const lockedItemKey = itemKey;
         PlatformBridge.purchase(lockedItemKey, priceRub, () => {
             executePurchase(lockedItemKey);
+        }, () => {
+            // Отмена/ошибка IAP — снимаем guard сразу, чтобы игрок мог повторить
+            isPurchaseInProgress = false;
         });
+        // Watchdog: если SDK вообще не ответит (завис) — снимаем через 15с
+        setTimeout(() => { isPurchaseInProgress = false; }, 15000);
         return;
     }
 
@@ -10631,17 +10969,28 @@ function closeBuyModal() {
 // Убирает race при перезаписи глобала между открытием модалки VK/Yandex и её закрытием.
 // Старый вызов без аргумента (кнопка "Оплатить" в standalone) читает pendingBuyItem как fallback.
 let isPurchasing = false;
+// v5.4.07 FIX-IAP-GUARD: флаг конкретно для IAP-flow (VK/Yandex).
+// isPurchasing в executePurchase блокирует начисление, но IAP-платёж уже прошёл
+// к этому моменту. Нужен отдельный guard ДО отправки запроса в VK/Yandex SDK.
+let isPurchaseInProgress = false;
 function executePurchase(itemKeyOverride = null) {
     // T-C (Major): reentrancy-guard — блокирует двойное начисление при дабл-клике на «Оплатить»
     if (isPurchasing) return;
     isPurchasing = true;
-
+    // v5.4.07 FIX-PURCHASE-TRY-FINALLY: guard сбрасывается в finally.
+    // Раньше любое исключение внутри начисления (saveGame, renderCards, corrupted deck)
+    // навсегда оставляло isPurchasing = true — магазин блокировался до F5.
+    try {
     const key = itemKeyOverride || (pendingBuyItem ? pendingBuyItem.key : null);
-    if (!key) {
-        isPurchasing = false;
+    if (!key) return;
+    // v5.4.07 FIX-PURCHASE-VALIDATE: неизвестный itemId (recoverPendingYandexPurchases
+    // после сброса каталога, ручной вызов из консоли) раньше пролетал мимо всех веток,
+    // но выдавал подарок первой покупки (100K gold + 300 C + Lilit). Валидация ДО подарка.
+    if (!SHOP_ITEMS_CATALOG[key]) {
+        if (IS_DEV_MODE) console.warn('[Purchase] Unknown item key:', key);
         return;
     }
-    pendingBuyItem = null; // T-B: обнуляем сразу — блокирует любой повторный вызов
+    pendingBuyItem = null;
     closeBuyModal();
     playCoinSfx();
 
@@ -10659,11 +11008,13 @@ function executePurchase(itemKeyOverride = null) {
         // Флаг ставится ПОСЛЕ начисления. Если краш между saveGame и флагом — игрок получит
         // подарок повторно, но это безопаснее, чем не получить подарок вообще (компания не пострадает).
         gState.hasFirstPurchaseDone = true;
-        const gI = '<img src="assets/icons/gold.webp" class="res-icon-inline" alt="G">';
-        const cI = '<img src="assets/icons/crystal.webp" class="res-icon-inline" alt="C">';
-        const fpPrefix = currentLang === 'RU' ? 'ДАР ПЕРВОГО ПЛАТЕЖА' : 'FIRST PURCHASE GIFT';
-        const heroName = currentLang === 'RU' ? 'ЛИЛИТ' : 'LILITH';
-        setTimeout(() => pushToast(`${fpPrefix}: [S] ${heroName} • +100K ${gI} • +300 ${cI}`), 150);
+        // v5.4.08 FIX-FIRST-PURCHASE-CELEBRATION: полноценная праздничная модалка вместо
+        // тоста в углу. Награды уже в state (saveGame прошёл выше) — даже если игрок
+        // закроет модалку или обновит вкладку, подарок не потеряется (hasFirstPurchaseDone=true).
+        // Задержка 400мс — чтобы VK/Yandex SDK успел закрыть свою платёжную модалку.
+        setTimeout(() => {
+            if (typeof openFirstPurchaseModal === 'function') openFirstPurchaseModal(true);
+        }, 400);
     }
 
     if (!gState.firstDoubleClaimed) gState.firstDoubleClaimed = {};
@@ -10746,21 +11097,50 @@ function executePurchase(itemKeyOverride = null) {
         && canSubmitToLiveArena()) {
         submitArenaProfile(true);
     }
-    // T-C: снимаем guard ПОСЛЕ сохранения — при краше между начислением и saveGame
-    // следующий запуск подберёт незавершённое состояние через T-D (флаг после начисления)
-    isPurchasing = false;
+    } finally {
+        isPurchasing = false;
+        isPurchaseInProgress = false;
+    }
 }
 
-function openFirstPurchaseModal() {
+// v5.4.08 FIX-FIRST-PURCHASE-CELEBRATION: параметр isCelebration.
+//   false (default) — превью перед покупкой (клик по баннеру в магазине).
+//   true  — праздник после первой реальной оплаты: confetti + fanfare + haptic,
+//           другие заголовок/описание/кнопка. Флаг _fpCelebrationActive нужен,
+//           чтобы applyLanguage при смене языка не сбросил режим обратно в превью.
+let _fpCelebrationActive = false;
+
+function openFirstPurchaseModal(isCelebration = false) {
     const modal = document.getElementById('first-purchase-modal');
     if (!modal) return;
+    _fpCelebrationActive = !!isCelebration;
 
     const isRU = currentLang === 'RU';
+    const titleEl = document.getElementById('lbl-first-purchase-title');
+    const descEl = document.getElementById('lbl-first-purchase-desc');
+    const claimBtn = modal.querySelector('[data-i18n="first_purchase_claim_btn"]');
     const tierPill = document.getElementById('lbl-first-purchase-tier');
     const heroName = document.getElementById('lbl-first-purchase-name');
     const roleTag = document.getElementById('lbl-first-purchase-role');
     const cpLine = document.getElementById('lbl-first-purchase-cp');
     const listHeroName = document.getElementById('lbl-first-purchase-hero-name');
+
+    if (isCelebration) {
+        if (titleEl) titleEl.innerText = isRU ? '★ ДАР ПОЛУЧЕН ★' : '★ GIFT RECEIVED ★';
+        if (descEl) descEl.innerText = isRU
+            ? 'Первый платёж в Казну! Все награды зачислены на ваш счёт:'
+            : 'First purchase to the Treasury! All rewards credited to your account:';
+        if (claimBtn) claimBtn.innerText = isRU ? 'ПРИНЯТЬ ДАР' : 'ACCEPT GIFT';
+        try { playTriumphFanfare(false); } catch (e) {}
+        try { triggerHaptic('legendary'); } catch (e) {}
+        try { spawnCelebrationConfetti(); } catch (e) {}
+    } else {
+        if (titleEl) titleEl.innerText = isRU ? 'ДАР ПЕРВОГО ПЛАТЕЖА' : 'FIRST PURCHASE GIFT';
+        if (descEl) descEl.innerText = isRU
+            ? 'Выдается один раз при совершении ЛЮБОЙ покупки в Казне:'
+            : 'Granted once for ANY purchase in the Treasury:';
+        if (claimBtn) claimBtn.innerText = isRU ? 'ПРИНЯТЬ' : 'ACCEPT';
+    }
 
     if (tierPill) tierPill.innerText = isRU ? '[S] РАНГ' : '[S] RANK';
     if (heroName) heroName.innerText = isRU ? 'Лилит, Тень Бездны' : 'Lilith, Void Shade';
@@ -11941,6 +12321,9 @@ function upgrade(b) {
         gState.gold -= cost; 
         gState.buildings[b] = (gState.buildings[b] || 0) + 1;
         if (b === 'keep' && gState.buildings.keep > (gState.highestKeep || 1)) gState.highestKeep = gState.buildings.keep;
+        // v5.4.11 FIX-DUNGEON-CACHE-STALE: goldLoot зависит от getIncomeRate().
+        // Без сброса кэша игрок после апгрейда шахт видел устаревшую добычу на этажах.
+        if (b === 'mine' && typeof _dungeonCache !== 'undefined') _dungeonCache.clear();
         playSfx(520, 'sine', 0.1);
         triggerHaptic('upgrade');
         trackQuestProgress('upgrade', 1);
@@ -12532,7 +12915,7 @@ function checkOfflineArenaDefense() {
 
     const isDefWon = myDefCP >= bot.cp;
     const trophiesChange = isDefWon ? 10 : -12;
-    gState.trophies = Math.max(150, Math.min(3700, (gState.trophies || 150) + trophiesChange));
+    gState.trophies = _clampTrophiesByLeague((gState.trophies || 150) + trophiesChange);
 
     const trIcon = '<img src="assets/icons/trophy.webp" class="res-icon-inline" style="width:12px; height:12px;" alt="Трофеи">';
 
@@ -13545,6 +13928,15 @@ function applyLanguage(lang) {
     if (typeof _synergyCache !== 'undefined') _synergyCache.clear();
     // U1-b: сбрасываем кэш этажей Бездны — имена стражей содержат локализованные название
     if (typeof _dungeonCache !== 'undefined') _dungeonCache.clear();
+    // v5.4.10 FIX-WHEEL-SVG-LANG: сброс dirty-check Колеса + перерисовка,
+    // если модалка сейчас открыта (иначе сектора остаются на старом языке).
+    if (typeof _lastWheelSvgLang !== 'undefined') _lastWheelSvgLang = '';
+    try {
+        const _wheelModal = document.getElementById('lucky-wheel-modal');
+        if (_wheelModal && _wheelModal.style.display === 'flex' && typeof renderLuckyWheelUI === 'function') {
+            renderLuckyWheelUI();
+        }
+    } catch (e) {}
 
     const lBtn = document.getElementById('lang-btn');
     if (lBtn) lBtn.innerText = currentLang;
@@ -13862,7 +14254,8 @@ function applyLanguage(lang) {
     // без этого вызова они остаются на старом языке до закрытия окна.
     const fpModal = document.getElementById('first-purchase-modal');
     if (fpModal && fpModal.style.display === 'flex') {
-        openFirstPurchaseModal();
+        // v5.4.08: сохраняем режим модалки (праздник/превью) при смене языка.
+        openFirstPurchaseModal(_fpCelebrationActive);
     }
 
     // P8-fix: если открыта модалка правового документа — перерисовываем её на новом языке.
@@ -15633,6 +16026,13 @@ document.addEventListener('visibilitychange', () => {
         const _offDouble = document.getElementById('btn-offline-double');
         if (_offClaim) _offClaim.disabled = false;
         if (_offDouble) _offDouble.disabled = false;
+        // v5.4.11 FIX-DUNGEON-REFILL-FROZEN: при возврате во вкладку сбрасываем
+        // залипший refill-флаг (аналог FIX-OFFLINE-MODAL-FROZEN).
+        if (typeof isDungeonRefillBusy !== 'undefined' && isDungeonRefillBusy) {
+            isDungeonRefillBusy = false;
+            const _dungRefillBtn = document.getElementById('btn-dung-refill');
+            if (_dungRefillBtn) _dungRefillBtn.disabled = false;
+        }
         if (!demonActive) scheduleNextDemon();
         // FIX-OFFLINE-DUP: возврат в таб считает offline income ТОЛЬКО если облачный
         // sync за эту сессию уже завершён (или не нужен — standalone). Иначе игрок
@@ -15746,6 +16146,7 @@ const CHRONICLES_LORE = {
 function closeFirstPurchaseModal() {
     const m = document.getElementById('first-purchase-modal');
     if (m) m.style.display = 'none';
+    _fpCelebrationActive = false;
 }
 
 function openChronicleModal(floor, isArchiveView = false) {
@@ -16089,7 +16490,10 @@ const MODAL_CLOSERS_SWIPE = {
     'arena-inbox-modal': () => closeArenaInbox(),
     'arena-live-ladder-modal': () => closeYandexArenaLeaderboard(),
     'admin-panel-modal': () => closeAdminPanel(),
-    'admin-league-modal': () => closeAdminLeaguePicker()
+    'admin-league-modal': () => closeAdminLeaguePicker(),
+    // v5.4.06 FIX-SUMMON-SWIPE: модалка результата призыва теперь закрывается свайпом.
+    // Герои уже в deck (saveGame прошёл до openSummonResultModal) — потери данных нет.
+    'summon-result-modal': () => closeSummonResultModal()
 };
 
 function initSwipeRightClose() {
@@ -16329,7 +16733,9 @@ function initHardwareBackNavigation() {
             { id: 'legal-doc-modal', close: closeLegalDocModal },
             { id: 'chronicles-archive-modal', close: closeChroniclesArchiveModal },
             { id: 'admin-league-modal', close: closeAdminLeaguePicker },
-            { id: 'admin-panel-modal', close: closeAdminPanel }
+            { id: 'admin-panel-modal', close: closeAdminPanel },
+            // v5.4.06 FIX-SUMMON-BACK: аппаратная кнопка «Назад» на Android закрывает модалку призыва.
+            { id: 'summon-result-modal', close: closeSummonResultModal }
         ];
 
         for (let m of activeModals) {
