@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=5.4.16">
+    <link rel="stylesheet" href="style.css?v=5.4.23">
         <!-- MAJOR-M8: VK Bridge грузится статически (не вызывает ошибок в standalone).
          Yandex Games SDK подгружается ДИНАМИЧЕСКИ из engine.js — только когда игра
          запущена внутри реального iframe портала Яндекс.Игр. Это устраняет спам
@@ -78,7 +78,7 @@
 
             <!-- FIX-BUILD-VERSION: маленький индикатор сборки в углу предзагрузки.
                  По дате сразу видно, применился ли последний патч из GitHub. -->
-            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.16 · 22.10.2026</div>
+            <div class="preloader-build-tag" id="ui-build-version-preloader">v5.4.23 · 22.10.2026</div>
         </div>
 
         <!-- ==========================================================
@@ -570,6 +570,16 @@
                     <div class="trail-status-bar" id="trail-status-bar"></div>
                     <div class="trail-party-row" id="trail-party-row"></div>
                     <div id="trail-content-panel"></div>
+                </div>
+                <div id="trail-tutorial-shield" style="display: none; position: absolute; inset: 0; z-index: 900; background: rgba(0,0,0,0.75); backdrop-filter: blur(2px);"></div>
+                <div id="trail-tutorial-card" class="ftue-advisor-card" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; width: 90%; max-width: 340px; pointer-events: auto; flex-direction: column; align-items: stretch; gap: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.9), 0 0 15px var(--gold);">
+                    <div class="ftue-advisor-header" style="border-bottom: 1px solid rgba(245,176,65,0.35); padding-bottom: 4px; display: flex; justify-content: center;">
+                        <span class="ftue-chapter-tag" style="color: var(--gold); font-weight: 800; font-family: 'Cinzel', serif;">ОБУЧЕНИЕ ТРОПЫ</span>
+                    </div>
+                    <div class="ftue-advisor-body" style="padding: 6px 0;">
+                        <div class="ftue-lore-text" id="trail-tutorial-text" style="font-size: 12px; line-height: 1.45; color: #f1f5f9; text-align: center; padding: 0 10px;"></div>
+                    </div>
+                    <button class="btn-action ftue-btn-claim ready" id="trail-tutorial-btn" onclick="advanceTrailTutorial()" style="margin-top: 4px; width: 100%;">ПОНЯТНО</button>
                 </div>
             </div>
 
@@ -1524,6 +1534,10 @@
                         </div>
 
                         <div class="building-card settings-row-card" style="padding:7px 10px;">
+                            <span style="font-weight:700;" data-i18n="settings_replay_ftue">Повторить обучение</span>
+                            <button class="btn-action" style="padding:4px 10px;" onclick="startFtueReplay()" data-i18n="settings_btn_replay">ЗАПУСТИТЬ</button>
+                        </div>
+                        <div class="building-card settings-row-card" style="padding:7px 10px;">
                                 <span style="font-weight:700;" data-i18n="settings_fullscreen_lbl">Полноэкранный режим</span>
                                 <button class="btn-action" id="btn-settings-fullscreen" style="padding:4px 10px;" onclick="toggleFullscreenFromSettings()" data-i18n="settings_fullscreen_btn">⛶ Экран</button>
                             </div>
@@ -1598,7 +1612,7 @@
                 <button class="btn-action modal-full-btn" style="margin-top:4px;" onclick="saveAndCloseSettings()" data-i18n="settings_btn_save">СОХРАНИТЬ И ЗАКРЫТЬ</button>
                 <div style="text-align: center; color: var(--border-metal-light); font-size: 11px; font-weight: 800; margin-top: 8px; letter-spacing: 0.5px;">DEVELOPED BY VANDER BOR</div>
                 <!-- FIX-BUILD-VERSION: версия сборки для QA — сразу видно, применился ли патч из репо. -->
-                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.16 · 22.10.2026</div>
+                <div style="text-align: center; color: #64748b; font-size: 10.5px; font-weight: 700; margin-top: 2px; letter-spacing: 0.3px;" id="ui-build-version-settings">СБОРКА v5.4.23 · 22.10.2026</div>
             </div>
         </div>
 
@@ -1839,7 +1853,7 @@
                     </button>
 
                     <!-- Индикатор сборки: по дате видно, применился ли последний патч -->
-                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.16 · 22.10.2026</div>
+                    <div class="mm-build-footer" id="mm-build-footer">СБОРКА v5.4.23 · 22.10.2026</div>
                 </div>
             </div>
         </div>
@@ -1879,7 +1893,8 @@
                 <div class="admin-section-label">ПРОГРЕСС</div>
                 <div class="admin-btn-grid">
                     <button class="btn-action admin-btn" onclick="adminSkipFtue()">Пропустить обучение</button>
-                    <button class="btn-action admin-btn" onclick="adminResetFtue()">Сбросить обучение</button>
+                    <button class="btn-action admin-btn" onclick="adminResetFtue()">Сбросить обучение (Режим)</button>
+                    <button class="btn-action admin-btn" onclick="adminResetTrailTutorial()">Сброс туториала Тропы</button>
                     <button class="btn-action admin-btn" onclick="adminMaxBuildings()">Здания на максимум</button>
                     <button class="btn-action admin-btn" onclick="adminTeleportPrompt()">Этаж Бездны</button>
                     <button class="btn-action admin-btn" onclick="openAdminLeaguePicker()">Установить лигу</button>
@@ -2149,11 +2164,11 @@
     </div>
 </div>
 
-<script src="data-i18n.js?v=5.4.16"></script>
-<script src="data-heroes.js?v=5.4.16"></script>
-<script src="data-legal.js?v=5.4.16"></script>
-<script src="data-promo.js?v=5.4.16"></script>
-<script src="data-admin.js?v=5.4.16"></script>
-<script src="engine.js?v=5.4.16"></script>
+<script src="data-i18n.js?v=5.4.23"></script>
+<script src="data-heroes.js?v=5.4.23"></script>
+<script src="data-legal.js?v=5.4.23"></script>
+<script src="data-promo.js?v=5.4.23"></script>
+<script src="data-admin.js?v=5.4.23"></script>
+<script src="engine.js?v=5.4.23"></script>
 </body>
 </html>

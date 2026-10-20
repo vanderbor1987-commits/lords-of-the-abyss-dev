@@ -72,6 +72,7 @@ function registerAdminAPI() {
         maxBuildings: adminMaxBuildings,
         skipFtue: adminSkipFtue,
         resetFtue: adminResetFtue,
+        resetTrailTutorial: adminResetTrailTutorial,
         teleport: adminTeleport,
         setLeague: adminSetLeague,
         addVip: adminAddVip,
@@ -219,11 +220,24 @@ function adminSkipFtue() {
     }
 }
 
+function adminResetTrailTutorial() {
+    if (!isAdminSession) return;
+    gState.trailTutorialStep = 1;
+    gState.trailReplayMode = true;
+    saveGame();
+    adminToast('Trail tutorial reset (Replay)');
+    if (document.querySelector('.view-tab.active')?.id === 'trail-view') {
+        if (typeof renderTrailUI === 'function') renderTrailUI();
+    }
+}
+
 function adminResetFtue() {
     if (!isAdminSession) return;
     if (typeof resetFtue === 'function') {
+        gState.ftueReplayMode = true;
+        gState.ftueRewardsGranted = true;
         resetFtue(false);
-        adminToast('FTUE reset');
+        adminToast('FTUE reset (Replay Mode)');
     }
 }
 

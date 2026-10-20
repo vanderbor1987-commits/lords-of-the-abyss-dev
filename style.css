@@ -668,6 +668,15 @@ html, body {
     font-weight: 900;
     cursor: pointer;
 }
+.trail-tutorial-highlight {
+    position: relative !important;
+    z-index: 950 !important;
+    box-shadow: 0 0 15px var(--gold), 0 0 25px #ffffff !important;
+    border-color: #ffffff !important;
+    animation: ftueBadgePulse 1.6s infinite ease-in-out !important;
+    pointer-events: auto !important;
+}
+
 .trail-help-body {
     font-size: 12px;
     line-height: 1.5;

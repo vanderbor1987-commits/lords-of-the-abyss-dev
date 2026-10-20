@@ -72,7 +72,7 @@ function devLog(...args) {
 // применился ли свежий build из GitHub во встроенном VK-браузере.
 // Формат: BUILD_VERSION — мажорная.минорная (совпадает с бампом sw.js CACHE_NAME),
 //         BUILD_DATE    — ISO-дата сборки.
-const BUILD_VERSION = '5.4.16';
+const BUILD_VERSION = '5.4.23';
 const BUILD_DATE = '22.10.2026';
 
 // ==========================================================
@@ -176,6 +176,10 @@ let gState = {
 
     // Action-Based FTUE
     ftueStep: 0,
+    ftueReplayMode: false,
+    ftueRewardsGranted: false,
+    trailTutorialStep: 0,
+    trailReplayMode: false,
     ftueTaps: 0,
     ftueSummonDone: false,
     ftueEquipDone: false,
@@ -1825,6 +1829,7 @@ function loadGame() {
     gState.attackFormation = sanitizeFormation(gState.attackFormation);
     gState.defenseFormation = sanitizeFormation(gState.defenseFormation);
 
+    if (typeof gState.trailTutorialStep !== 'number') gState.trailTutorialStep = 0;
     if (!gState.trailMeta) gState.trailMeta = {};
     if (typeof gState.trailMeta.extraLifeLvl !== 'number') gState.trailMeta.extraLifeLvl = 0;
     if (typeof gState.trailMeta.startHpBuffLvl !== 'number') gState.trailMeta.startHpBuffLvl = 0;
@@ -2121,6 +2126,23 @@ function isFtueCompleted() { return (gState.ftueStep || 0) >= 12; }
 
 // DEV/QA: пропуск обучения одной командой из консоли или URL-параметром ?skipftue=1.
 // Не влияет на обычных игроков — FTUE запускается штатно, пока флаг не выставлен вручную.
+function grantAllFtueRewards() {
+    if (gState.ftueRewardsGranted) return;
+    let totalGold = 0;
+    let totalCryst = 0;
+    FTUE_STEPS_CONFIG.forEach(cfg => {
+        if (cfg.rewardGold) totalGold += cfg.rewardGold;
+        if (cfg.rewardCryst) totalCryst += cfg.rewardCryst;
+    });
+    gState.gold += totalGold;
+    gState.lifetimeGold += totalGold;
+    gState.crystals += totalCryst;
+    if (!gState.deck['d_und_v']) gState.deck['d_und_v'] = { stars: 1, lvl: 1 };
+    gState.tickets = (gState.tickets || 0) + 2;
+    gState.selectedTitleId = 't_overlord';
+    gState.ftueRewardsGranted = true;
+}
+
 function skipFtue(silent = false) {
     // FIX-ADMIN-SKIPFTUE-FROZEN: защита изнутри. Пропускаем только в dev-режиме
     // (localhost / ?debug=1) или при активной админ-сессии (?admin=1 + vk_user_id).
@@ -2129,7 +2151,9 @@ function skipFtue(silent = false) {
         console.warn('[Dev] skipFtue недоступна. Требуется dev-режим или админ-сессия.');
         return;
     }
+    if (!gState.ftueReplayMode) grantAllFtueRewards();
     gState.ftueStep = 12;
+    gState.ftueReplayMode = false;
     gState.ftueTaps = Math.max(15, gState.ftueTaps || 0);
     gState.ftueSummonDone = true;
     gState.ftueEquipDone = true;
@@ -2144,6 +2168,29 @@ function skipFtue(silent = false) {
     if (typeof renderFtue === 'function') renderFtue();
     if (typeof updateFtueFocus === 'function') updateFtueFocus();
     if (!silent) pushToast('FTUE SKIPPED');
+}
+
+function startFtueReplay() {
+    if (gState.ftueStep >= 12) {
+        gState.ftueStep = 0;
+        gState.ftueTaps = 0;
+        gState.ftueSummonDone = false;
+        gState.ftueEquipDone = false;
+        gState.ftueHeroLvlDone = false;
+        gState.ftueDungeonDone = false;
+        gState.ftueExpDone = false;
+        gState.ftueArenaDone = false;
+        gState.ftueRaidDone = false;
+        gState.ftueAutoSpendDone = false;
+        gState.ftueAscendDone = false;
+        gState.ftueReplayMode = true;
+        gState.ftueRewardsGranted = true;
+        saveGame();
+        closeSettingsModal();
+        navigate('citadel-view');
+        renderFtue();
+        pushToast(currentLang === 'RU' ? 'Обучение запущено заново (без наград)' : 'Tutorial restarted (no rewards)');
+    }
 }
 
 function resetFtue(silent = false) {
@@ -2501,7 +2548,13 @@ function renderFtue() {
         sTask.innerText = taskDesc;
     }
     const rText = typeof cfg.rewardText === 'function' ? cfg.rewardText() : cfg.rewardText;
-    if (sReward) sReward.innerHTML = `${currentLang === 'RU' ? 'Награда' : 'Reward'}: ${rText}`;
+    if (sReward) {
+        if (gState.ftueReplayMode) {
+            sReward.innerHTML = currentLang === 'RU' ? '<span style="color:var(--text-muted);">Режим повторения: награды не выдаются</span>' : '<span style="color:var(--text-muted);">Replay mode: no rewards</span>';
+        } else {
+            sReward.innerHTML = `${currentLang === 'RU' ? 'Награда' : 'Reward'}: ${rText}`;
+        }
+    }
 
     // FIX-FTUE-SUBVIEW-HEIGHT: после замены текста лора/задачи высота карточки
     // изменилась. Пересчитываем позицию подэкранов через rAF — гарантирует, что
@@ -2509,6 +2562,21 @@ function renderFtue() {
     recalcFtueSubviewTop();
 
     const isReady = cfg.req();
+    let btnSkip = document.getElementById('btn-ftue-skip');
+    if (!btnSkip) {
+        btnSkip = document.createElement('button');
+        btnSkip.id = 'btn-ftue-skip';
+        btnSkip.className = 'btn-action';
+        btnSkip.style.cssText = 'margin-top: 4px; width: 100%; background: #273347; border-color: var(--border-metal); font-size: 11px; padding: 6px;';
+        btnSkip.onclick = skipFtueStep;
+        const taskBox = document.querySelector('.ftue-task-box');
+        if (taskBox) taskBox.parentElement.appendChild(btnSkip);
+    }
+    if (btnSkip) {
+        btnSkip.style.display = gState.ftueReplayMode ? 'block' : 'none';
+        btnSkip.innerText = currentLang === 'RU' ? 'ПРОПУСТИТЬ ШАГ (Реплей)' : 'SKIP STEP (Replay)';
+    }
+
     if (btnClaim) {
         btnClaim.disabled = false;
         if (isReady) {
@@ -2644,10 +2712,35 @@ function grantFtueExtraFHeroes() {
     }
 }
 
+function skipFtueStep() {
+    if (!gState.ftueReplayMode) return;
+    const step = gState.ftueStep || 0;
+    if (step >= 12) return;
+    gState.ftueStep = step + 1;
+    if (step === 11) {
+        gState.ftueReplayMode = false;
+        pushToast(currentLang === 'RU' ? 'Обучение завершено (без наград)' : 'Tutorial complete (no rewards)');
+    }
+    saveGame();
+    renderFtue();
+}
+
 function claimFtueReward() {
     const step = gState.ftueStep || 0;
     const cfg = FTUE_STEPS_CONFIG[step];
     if (!cfg) return;
+
+    if (gState.ftueReplayMode) {
+        playCoinSfx();
+        if (step === 11) {
+            gState.ftueReplayMode = false;
+            pushToast(currentLang === 'RU' ? 'Обучение завершено (без наград)' : 'Tutorial complete (no rewards)');
+        }
+        gState.ftueStep = step + 1;
+        saveGame();
+        renderFtue();
+        return;
+    }
 
     // Если задание ещё выполняется — мягко направляем игрока к цели вместо тишины
     if (!cfg.req()) {
@@ -5250,7 +5343,8 @@ function _getTrailRenderSig() {
         _arts,
         _buffs,
         gState.trailPoints || 0,
-        currentLang
+        currentLang,
+        gState.trailTutorialStep
     ].join('#');
 }
 
@@ -5468,7 +5562,11 @@ function getLaunchQuery() {
 // Строгая проверка — submit разрешён только в VK (там есть sign).
 // На GH Pages / Yandex — работает только чтение списка живых.
 function canSubmitToLiveArena() {
-    return isRunningInsideVK() && !!getLaunchQuery();
+    if (!isRunningInsideVK()) return false;
+    const q = getLaunchQuery();
+    if (!q) return false;
+    if (q.indexOf('sign=') === -1) return false;
+    return true;
 }
 
 async function submitArenaProfile(force = false) {
@@ -13488,7 +13586,15 @@ async function executeHardReset() {
     // localStorage всё равно чистится, но тогда arbitration при следующей
     // загрузке накатит старое облако. Игрок повторит — и сработает.
     try {
-        localStorage.removeItem(SAVE_KEY);
+        const _fresh = {
+            saveVersion: 31, hasAcceptedTerms: false, playerName: 'Duke Valdor', gold: 1000, crystals: 30, relics: 0, relicsFromAscend: 0, army: 0, trophies: 150, tickets: 10, lastTicketDate: '', adTicketsClaimedToday: 0, lastFreeWheelDate: '', wheelAdSpinsToday: 0, lifetimeWheelSpins: 0, hasBookmarked: false, hasAddedToHome: false, lastWallPostDate: '', lastTickTime: Date.now(), vipUntil: 0, isAudioMuted: false, isMusicMuted: false, isHapticsMuted: false, hideBuildingBadges: false, musicVolume: 0.35, sfxVolume: 0.8, hasFirstPurchaseDone: false, hasStarterPackBought: false, firstDoubleClaimed: {}, claimedReferralBonus: false, lastInviteDate: '', claimedChronicles: [], vipShowAds: false, dailyFreebieClaimedToday: false, quickSummonEnabled: false, usedPromoCodes: [], trailPoints: 0, trailDailyClaimedDate: '', heroShards: {}, trailRecords: [], trailMeta: { extraLifeLvl: 0, startCardBought: false, startHpBuffLvl: 0, fourthSlotBought: false, goldBoostLvl: 0, shardBoostLvl: 0 }, codexClaimed: { light: [], undead: [], chaos: [], demon: [] }, abyssPassXp: 0, abyssPassFreeClaimed: [], abyssPassVipClaimed: [], pendingWheelPrize: null, maxKnownTimestamp: 0, masteryAwakened: {}, ftueStep: 12, ftueReplayMode: false, ftueRewardsGranted: true, trailTutorialStep: 99, trailReplayMode: false, ftueTaps: 15, ftueSummonDone: true, ftueEquipDone: true, buildings: { keep: 1, mine: 1, barracks: 0 }, deck: { 'f_und_v': { stars: 1, lvl: 1 }, 'f_und_c': { stars: 1, lvl: 1 }, 'f_und_r': { stars: 1, lvl: 1 }, 'd_und_v': { stars: 1, lvl: 1 } }, attackFormation: ['f_und_v', 'f_und_c', 'f_und_r'], defenseFormation: ['f_und_v', 'f_und_c', 'f_und_r'], expeditions: {}, battleHistory: [], dungeonFloor: 1, dungeonStamina: 10, calendarDay: 1, lastCalendarClaimDate: '', demonCatches: 0, worldBossHp: 5000000, worldBossMaxHp: 5000000, overdriveUntil: 0, dungeonRefillsToday: 0, raidSpeedupUsed: false, arenaSeasonWeekId: '', lifetimeGold: 1000, highestKeep: 1, maxCpEver: 0, lifetimeWins: 0, maxArmyEver: 0, achieveStages: { ach_g: 0, ach_a: 0, ach_k: 0, ach_ar: 0, ach_c: 0, ach_asc: 0, ach_dem: 0, ach_dung: 0, ach_wheel: 0 }, stageQuests: { tap: { stage: 1, curr: 0, target: 50, rewardGold: 150 }, arena: { stage: 1, curr: 0, target: 2, rewardGold: 250 }, upgrade: { stage: 1, curr: 0, target: 2, rewardGold: 300 }, summon: { stage: 1, curr: 0, target: 5, rewardGold: 400 }, demon: { stage: 1, curr: 0, target: 1, rewardGold: 500 }, expedition: { stage: 1, curr: 0, target: 1, rewardGold: 350 }, hero_lvl: { stage: 1, curr: 0, target: 2, rewardGold: 300 }, dungeon: { stage: 1, curr: 0, target: 2, rewardGold: 400 }, raid: { stage: 1, curr: 0, target: 1, rewardGold: 500 } }
+        };
+        let _fg = 0, _fc = 0;
+        if (typeof FTUE_STEPS_CONFIG !== 'undefined') {
+            FTUE_STEPS_CONFIG.forEach(c => { _fg += (c.rewardGold || 0); _fc += (c.rewardCryst || 0); });
+        }
+        _fresh.gold += _fg; _fresh.lifetimeGold += _fg; _fresh.crystals += _fc; _fresh.tickets += 2; _fresh.selectedTitleId = 't_overlord';
+        localStorage.setItem(SAVE_KEY, JSON.stringify(_fresh));
         localStorage.removeItem('lords_saved_language');
         localStorage.removeItem('lota_p9_result');
     } catch (e) {}
@@ -14558,6 +14664,7 @@ function buyTrailMeta(kind) {
     const cost = getTrailMetaNextCost(kind);
     if (cost === null) return pushToast(currentLang === 'RU' ? 'Уже максимальный уровень' : 'Already maxed');
     if ((gState.trailPoints || 0) < cost) return pushToast(currentLang === 'RU' ? 'Недостаточно очков Тропы' : 'Not enough Trail points');
+    if (typeof gState.trailTutorialStep !== 'number') gState.trailTutorialStep = 0;
     if (!gState.trailMeta) gState.trailMeta = {};
     if (typeof gState.trailMeta.extraLifeLvl !== 'number') gState.trailMeta.extraLifeLvl = 0;
     if (typeof gState.trailMeta.startHpBuffLvl !== 'number') gState.trailMeta.startHpBuffLvl = 0;
@@ -15088,6 +15195,7 @@ function startTrailRun() {
     }
     const existing = gState.trailRun;
     if (existing && existing.active && existing.phase !== 'gameover') {
+        if (!gState.trailTutorialStep) gState.trailTutorialStep = 1;
         navigate('trail-view');
         renderTrailUI();
         return;
@@ -15120,6 +15228,9 @@ function startTrailRun() {
             const _pick = _startPool[Math.floor(Math.random() * _startPool.length)];
             _startRoster[0] = _pick.id;
         }
+    }
+    if (!gState.trailTutorialStep) {
+        gState.trailTutorialStep = 1;
     }
     gState.trailRun = {
         active: true,
@@ -15335,6 +15446,10 @@ function skipTrailPicks() {
 function startTrailFight() {
     const run = gState.trailRun;
     if (!run || run.phase !== 'fighting') return;
+    if (gState.trailTutorialStep === 3) {
+        gState.trailTutorialStep = 99;
+        saveGame();
+    }
     const syn = trailSynergyMult(run.roster);
     const baseCp = run.roster.reduce((sum, id) => sum + (id ? getTrailHeroCp(id) : 0), 0);
     // v5.3.49: 7/3/3 вместо 10/5/5 + артефакты.
@@ -15574,6 +15689,89 @@ function renderTrailUI() {
     else if (run.phase === 'gameover') renderTrailGameover(panel, run, L, I);
     // v5.3.67: post-render навешивание title на CP-цифры.
     applyTrailTooltips();
+    updateTrailTutorial();
+}
+
+function updateTrailTutorial() {
+    const card = document.getElementById('trail-tutorial-card');
+    const shield = document.getElementById('trail-tutorial-shield');
+    if (!card || !shield) return;
+
+    const run = gState.trailRun;
+    
+    document.querySelectorAll('.trail-tutorial-highlight').forEach(el => el.classList.remove('trail-tutorial-highlight'));
+
+    if (!run || !run.active || gState.trailTutorialStep === 99 || !gState.trailTutorialStep) {
+        card.style.display = 'none';
+        shield.style.display = 'none';
+        return;
+    }
+
+    let step = gState.trailTutorialStep;
+    const isRU = currentLang === 'RU';
+    let text = '';
+
+    if (step === 1) {
+        text = isRU ? '<b>Тропа Бездны</b><br>Бесконечный рогалик. Собери отряд из своих героев и пройди как можно глубже.<br>• Волна: выбор из 3 карт, затем бой.<br>• Каждые 5 волн — босс (×1.6 мощи).<br>• 5 жизней: поражение отнимает одну.<br>За забег получишь очки Тропы и осколки героев.' : '<b>Trail of the Abyss</b><br>Endless roguelike. Build a squad from your heroes and go as deep as you can.<br>• Wave: pick from 3 cards, then fight.<br>• Every 5 waves — a boss (×1.6 power).<br>• 5 lives: each loss costs one.<br>The run rewards Trail Points and hero shards.';
+    } else if (step === 2) {
+        if (run.phase === 'choosing') {
+            text = isRU ? '<b>Выбор карт</b><br>80% карт — герои из твоей колоды (уровень и звёзды переносятся). 20% — эликсиры с постоянными бонусами. Редко — артефакты.<br>3 героя одной стихии дают <b>+75% мощи</b>. Отряд сохраняется между волнами.' : '<b>Card picks</b><br>80% of cards — heroes from your deck (level and stars carry over). 20% — elixirs with permanent buffs. Artifacts appear rarely.<br>3 heroes of the same faction give <b>+75% power</b>. The squad persists between waves.';
+            document.querySelectorAll('.trail-card').forEach(el => el.classList.add('trail-tutorial-highlight'));
+        } else {
+            step = 3;
+            gState.trailTutorialStep = 3;
+            saveGame();
+        }
+    }
+
+    if (step === 3) {
+        if (run.phase === 'fighting') {
+            text = isRU ? '<b>Бой</b><br>Жми «В БОЙ».<br><b>Победа</b> откроет следующую волну.<br><b>Поражение</b> отнимет одну жизнь — попробуешь эту же волну снова.<br>Когда жизни кончатся, забег завершится.' : '<b>Fight</b><br>Press «FIGHT».<br><b>Victory</b> opens the next wave.<br><b>Defeat</b> costs one life — you retry the same wave.<br>When lives run out, the run ends.';
+            const btn = document.getElementById('btn-trail-fight');
+            if (btn) btn.classList.add('trail-tutorial-highlight');
+        } else {
+            card.style.display = 'none';
+            shield.style.display = 'none';
+            return;
+        }
+    }
+
+    if (!text) {
+        card.style.display = 'none';
+        shield.style.display = 'none';
+        return;
+    }
+
+    if (step === 2) {
+        card.style.top = 'auto';
+        card.style.bottom = '90px';
+        card.style.transform = 'translateX(-50%)';
+    } else if (step === 3) {
+        card.style.top = '80px';
+        card.style.bottom = 'auto';
+        card.style.transform = 'translateX(-50%)';
+    } else {
+        card.style.top = '50%';
+        card.style.bottom = 'auto';
+        card.style.transform = 'translate(-50%, -50%)';
+    }
+
+    shield.style.display = 'block';
+    card.style.display = 'flex';
+    const textEl = document.getElementById('trail-tutorial-text');
+    const btnEl = document.getElementById('trail-tutorial-btn');
+    if (textEl) textEl.innerHTML = text;
+    if (btnEl) {
+        btnEl.style.display = (step === 1) ? 'block' : 'none';
+    }
+}
+
+function advanceTrailTutorial() {
+    if (gState.trailTutorialStep === 1) {
+        gState.trailTutorialStep = 2;
+        saveGame();
+        renderTrailUI();
+    }
 }
 
 function renderTrailChoosing(panel, run, L, I) {
@@ -15705,7 +15903,7 @@ function renderTrailFighting(panel, run, L, I) {
             '<div class="trail-fight-stats-row player"><span>' + (I.trail_result_synergy || 'Синергия') + '</span><b>+' + synPct + '%</b></div>' +
             '<div class="trail-fight-stats-row enemy"><span>' + (I.trail_result_enemy_cp || 'CP врага') + '</span><b>' + formatNumber(run.enemyCp) + '</b></div>' +
         '</div>';
-    html += '<button class="btn-action modal-full-btn" style="margin-top:6px; background:linear-gradient(180deg,#dc2626 0%,#991b1b 100%); border-color:#ef4444;" onclick="startTrailFight()">' + (I.trail_fight_btn || 'В БОЙ') + '</button>';
+    html += '<button class="btn-action modal-full-btn" id="btn-trail-fight" style="margin-top:6px; background:linear-gradient(180deg,#dc2626 0%,#991b1b 100%); border-color:#ef4444;" onclick="startTrailFight()">' + (I.trail_fight_btn || 'В БОЙ') + '</button>';
     panel.innerHTML = html;
 }
 
@@ -16945,6 +17143,7 @@ async function validateLaunchParams() {
         : '';
 
     if (!rawQuery) return { valid: true, reason: 'empty_query' };
+    if (rawQuery.indexOf('sign=') === -1) return { valid: true, reason: 'no_sign_local' };
 
     let controller = null;
     let timeoutId = null;
@@ -17034,14 +17233,12 @@ try {
     // FIX-P9-RACE: IIFE здесь НЕ закрываем — init должен идти ПОСЛЕ loadGame().
     // Закрытие перенесено в самый конец try-блока (после всех render*-вызовов).
     applyLanguage(currentLang);
-    // v5.3.66: актуальные правила Тропы + подсказка про CP.
-    // i18n в data-i18n.js содержит устаревший текст (51-я волна, «от медианы»,
-    // «3 героя» без 4-го слота). Перезаписываем поверх — идемпотентно.
+        // v5.4.16: Актуальные правила Тропы (80/20 карты, точная синергия 3/4 слота, эликсиры, осколки, 4-й слот 8000)
     (function refreshTrailRules() {
-        const RULES_RU = '<b>Задача</b><br>Собери отряд и пройди как можно глубже. Каждая волна — 3-4 карты, потом бой. Каждые 5 волн — босс (×1.6 БМ).<br><br><b>Карты</b><br>70% — герой из колоды (реальные уровень и звёзды), 25% — эликсир, 5% — артефакт. Стартовый ростер — 3 героя. 4-й слот открывается в мета-дереве за 6000 очков.<br><br><b>Синергия</b><br>3 героя одной стихии: +75%. 4 героя одной стихии: +100%. Трио + одиночка: +60%. Две пары: +50%.<br><br><b>Жизни</b><br>Старт — 5. Проиграл бой — минус жизнь. Жизни копятся без предела.<br><br><b>Враг</b><br>Сила врага растёт по тир-окну глубины — на 50-й идут A/S, на 80-й появляются SSS. Прокачивай героев — иначе упрёшься в стену.<br><br><b>Тир-окно</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>БМ в Тропе</b><br>Мягче, чем в Штабе: (уровень × 3%) × звёзды. Цифры БМ в Тропе не совпадают с БМ в картотеке — это осознанно для баланса забега.<br><br><b>Артефакты</b><br>Кровавый пакт: +15% БМ, −1 жизнь. Печать пустоты: эликсиры ×2. Печать охоты: 4 карты в пуле. Монета судьбы: 1 пропуск тройки за волну.<br><br><b>Пропуск</b><br>С Монетой судьбы — 1 раз за волну взять новые карты без потери права выбора.';
-        const RULES_EN = '<b>Goal</b><br>Build a squad and go as deep as possible. Each wave — 3-4 cards, then a fight. Every 5th wave — a boss (×1.6 CP).<br><br><b>Cards</b><br>70% — hero from deck (real level and stars), 25% — elixir, 5% — artifact. Starting roster — 3 heroes. 4th slot unlocks in meta-tree for 6000 points.<br><br><b>Synergy</b><br>3 same-faction heroes: +75%. 4 same-faction: +100%. Trio + single: +60%. Two pairs: +50%.<br><br><b>Lives</b><br>Start with 5. Lose a fight — lose a life. Lives stack without limit.<br><br><b>Enemy</b><br>Enemy power scales with the tier window of the depth — wave 50+ is A/S, wave 80+ has SSS. Upgrade heroes or hit a wall.<br><br><b>Tier window</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>Trail CP</b><br>Softer than HQ: (level × 3%) × stars. Trail CP is lower than Codex CP by design — the run is balanced for gradual growth.<br><br><b>Artifacts</b><br>Blood Pact: +15% CP, −1 life. Void Seal: elixirs ×2. Hunt Seal: 4 cards per pool. Coin of Fate: 1 skip per wave.<br><br><b>Skip</b><br>With Coin of Fate — 1 skip per wave to draw new cards without losing a pick.';
-        const CP_RU = 'БМ в Тропе считается по мягкой формуле (уровень × 3% × звёзды) — ниже, чем в картотеке. Так балансируется забег.';
-        const CP_EN = 'Trail CP uses a softer formula (level × 3% × stars) — lower than Codex CP. Balanced for the run.';
+        const RULES_RU = '<b>Задача</b><br>Собери отряд и пройди как можно глубже. Каждая волна — 3-4 карты на выбор, затем бой. Каждые 5 волн — босс (×1.6 БМ).<br><br><b>Карты</b><br>80% — герой из твоей колоды (реальные уровень и звёзды). 20% — эликсир. Отдельно 5% шанс выпадения артефакта. Стартовый ростер — 3 героя. 4-й слот открывается в Лавке Тропы за 8000 очков.<br><br><b>Синергия</b><br>Отряд 3 героя: 3 одной стихии = +75%, 2+1 = +30%.<br>Отряд 4 героя (с 4-м слотом): 4 одной стихии = +100%, 3+1 = +60%, 2+2 = +50%, 2+1+1 = +30%.<br><br><b>Жизни</b><br>Старт — 5 жизней. Проиграл бой — минус 1 жизнь. Жизни копятся без предела.<br><br><b>Эликсиры</b><br>Стакаются до 10 раз. Дают +3% Здоровья, +3% Атаки, +7% БМ или +1 жизнь. При достижении капа (10) выпадают только герои.<br><br><b>Осколки</b><br>Герои в отряде получают именные осколки за каждую пройденную волну. 100 осколков героя = +1★ к его звёздам навсегда.<br><br><b>Враг</b><br>Сила врага растёт по тир-окну глубины — на 50-й идут A/S, на 80-й появляются SSS. Прокачивай героев — иначе упрёшься в стену.<br><br><b>Тир-окно</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>БМ в Тропе</b><br>Считается мягче, чем в Штабе: (1 + (уровень - 1) × 3%) × звёзды. Цифры не совпадают с картотекой — это баланс забега.<br><br><b>Артефакты</b><br>Кровавый пакт: +15% БМ, −1 жизнь. Печать пустоты: эликсиры ×2. Печать охоты: 4 карты в пуле. Монета судьбы: 1 пропуск тройки за волну.<br><br><b>Пропуск</b><br>С Монетой судьбы — 1 раз за волну взять новые карты без потери права выбора.';
+        const RULES_EN = '<b>Goal</b><br>Build a squad and go as deep as possible. Each wave — 3-4 cards to choose, then a fight. Every 5th wave — a boss (×1.6 CP).<br><br><b>Cards</b><br>80% — hero from your deck (real level and stars). 20% — elixir. A separate 5% chance for an artifact. Starting roster — 3 heroes. 4th slot unlocks in the Trail Shop for 8000 points.<br><br><b>Synergy</b><br>Squad of 3: 3 same-faction = +75%, 2+1 = +30%.<br>Squad of 4 (with 4th slot): 4 same-faction = +100%, 3+1 = +60%, 2+2 = +50%, 2+1+1 = +30%.<br><br><b>Lives</b><br>Start with 5 lives. Lose a fight — minus 1 life. Lives stack without limit.<br><br><b>Elixirs</b><br>Stack up to 10 times. Grant +3% HP, +3% ATK, +7% CP, or +1 Life. When maxed (10), only heroes will drop.<br><br><b>Shards</b><br>Heroes in the squad earn named shards for each wave cleared. 100 shards = +1★ to the hero permanently.<br><br><b>Enemy</b><br>Enemy power scales with the tier window of the depth — wave 50+ is A/S, wave 80+ has SSS. Upgrade heroes or hit a wall.<br><br><b>Tier window</b><br>W1-4: F. W5-9: F+E. W10-19: E+D. W20-29: D+C. W30-39: C+B. W40-49: B+A. W50-59: A+S. W60-79: S+SS. W80+: S+SS+SSS.<br><br><b>Trail CP</b><br>Softer than HQ: (1 + (level - 1) × 3%) × stars. Trail CP is lower than Codex CP by design — the run is balanced for gradual growth.<br><br><b>Artifacts</b><br>Blood Pact: +15% CP, −1 life. Void Seal: elixirs ×2. Hunt Seal: 4 cards per pool. Coin of Fate: 1 skip per wave.<br><br><b>Skip</b><br>With Coin of Fate — 1 skip per wave to draw new cards without losing a pick.';
+        const CP_RU = 'БМ в Тропе считается по мягкой формуле ((1 + (уровень - 1) × 3%) × звёзды) — ниже, чем в картотеке. Так балансируется забег.';
+        const CP_EN = 'Trail CP uses a softer formula ((1 + (level - 1) × 3%) × stars) — lower than Codex CP. Balanced for the run.';
         if (typeof I18N !== 'undefined' && I18N.RU) {
             I18N.RU.trail_help_body = RULES_RU;
             I18N.RU.trail_cp_hint = CP_RU;
