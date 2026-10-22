@@ -3071,7 +3071,7 @@ function buildCombatUnit(id, isPlayer, slotIndex, baseTeamCP, combatType = 'aren
         cardData = gState.deck[id] || { stars: 1, lvl: 1 };
     } else if (realCardMeta && realCardMeta[id]) {
         cardData = {
-            stars: Math.max(1, Math.min(10, realCardMeta[id].stars || 1)),
+            stars: Math.max(1, Math.min(100, realCardMeta[id].stars || 1)),
             lvl: Math.max(1, Math.min(300, realCardMeta[id].lvl || 1))
         };
     } else {
@@ -16377,13 +16377,22 @@ async function checkPendingGrants() {
     _liveGrantInProgress = true;
     try {
         const query = getLaunchQuery();
-        const fetchPromise = fetch(`${WORKER_BASE_URL}/grant/check`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query })
-        });
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
-        const resp = await Promise.race([fetchPromise, timeoutPromise]);
+        const _ctrl = new AbortController();
+        const _tId = setTimeout(() => _ctrl.abort(), 8000);
+        let resp;
+        try {
+            resp = await fetch(`${WORKER_BASE_URL}/grant/check`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query }),
+                signal: _ctrl.signal
+            });
+        } catch(e) {
+            if (e.name === 'AbortError') return;
+            throw e;
+        } finally {
+            clearTimeout(_tId);
+        }
         if (!resp.ok) {
             if (DEV_MODE_CHECK()) console.warn('[LiveGrant] Worker HTTP', resp.status);
             return;

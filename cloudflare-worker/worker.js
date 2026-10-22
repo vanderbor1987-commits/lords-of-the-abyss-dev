@@ -287,7 +287,7 @@ async function handleTrailSubmit(request, env) {
     if (!Number.isFinite(score) || score < 0 || !Number.isFinite(depth) || depth < 1) {
         return json({ ok: false, reason: 'invalid_score' }, 400);
     }
-    if (score > depth * 200 + 500) {
+    if (score > depth * 500 + 1000) {
         return json({ ok: false, reason: 'invalid_score' }, 400);
     }
 
