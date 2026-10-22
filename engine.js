@@ -1668,7 +1668,9 @@ function saveGame(immediateCloud = false) {
         const payload = JSON.stringify(gState);
         localStorage.setItem(SAVE_KEY, payload);
         PlatformBridge.queueCloudSave(immediateCloud);
-    } catch(e) {}
+    } catch(e) {
+        console.error('[Save] Ошибка записи в localStorage:', e);
+    }
 
     // LIVE-ARENA (v4.7.6): debounced submit профиля на Cloudflare Worker.
     // Отправляется не чаще 1 раза в 30 сек. Работает только в VK (там sign).
@@ -5584,7 +5586,7 @@ async function submitArenaProfile(force = false) {
         const card = gState.deck[realId] || { stars: 1, lvl: 1 };
         return {
             id: realId,
-            stars: Math.max(1, Math.min(10, card.stars || 1)),
+            stars: Math.max(1, Math.min(100, card.stars || 1)),
             lvl: Math.max(1, Math.min(300, card.lvl || 1))
         };
     });
@@ -16388,6 +16390,16 @@ async function checkPendingGrants() {
         }
         const data = await resp.json();
         if (!data || data.ok !== true || !Array.isArray(data.grants) || data.grants.length === 0) return;
+        if (!gState._seenGrants) gState._seenGrants = [];
+        const _newGrants = [];
+        for (const grant of data.grants) {
+            if (!grant || typeof grant !== 'object' || !grant.rewards) continue;
+            if (grant.id && gState._seenGrants.includes(grant.id)) continue;
+            if (grant.id) gState._seenGrants.push(grant.id);
+            _newGrants.push(grant);
+        }
+        if (_newGrants.length === 0) return;
+        data.grants = _newGrants;
         const _validGrants = [];
         for (const grant of data.grants) {
             if (!grant || typeof grant !== 'object' || !grant.rewards) continue;

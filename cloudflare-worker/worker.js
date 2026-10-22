@@ -83,7 +83,7 @@ export default {
 
         // v2.2: live-выдача
         if (path === '/admin/grant') return handleAdminGrant(request, env);
-        if (path === '/grant/check') return handleGrantCheck(request, env, ctx);
+        if (path === '/grant/check') return handleGrantCheck(request, env);
 
         return json({ valid: false, reason: 'not_found' }, 404);
     }
@@ -245,7 +245,7 @@ async function handleAdminGrant(request, env) {
     return json({ ok: true, grantId, targetUid, rewards: safeRewards, ttlDays });
 }
 
-async function handleGrantCheck(request, env, ctx) {
+async function handleGrantCheck(request, env) {
     const body = await readBody(request);
     if (!body) return json({ ok: false, reason: 'bad_json' }, 400);
     const rawQuery = typeof body.query === 'string' ? body.query : '';
@@ -265,8 +265,7 @@ async function handleGrantCheck(request, env, ctx) {
     if (!Array.isArray(grants)) grants = [];
 
     // Удаляем ПОСЛЕ возврата через ctx.waitUntil — если сеть оборвётся, награда не сгорит.
-    if (ctx && ctx.waitUntil) ctx.waitUntil(env.LOTA_LADDER.delete(key));
-    else await env.LOTA_LADDER.delete(key);
+    await env.LOTA_LADDER.delete(key);
 
     console.log('[LiveGrant] Sent grants to:', uid, 'count:', grants.length);
     return json({ ok: true, grants });
@@ -286,6 +285,9 @@ async function handleTrailSubmit(request, env) {
     const score = parseInt(body.score, 10);
     const depth = parseInt(body.depth, 10);
     if (!Number.isFinite(score) || score < 0 || !Number.isFinite(depth) || depth < 1) {
+        return json({ ok: false, reason: 'invalid_score' }, 400);
+    }
+    if (score > depth * 200 + 500) {
         return json({ ok: false, reason: 'invalid_score' }, 400);
     }
 
@@ -360,6 +362,14 @@ async function handleArenaSubmit(request, env) {
     if (!Number.isFinite(trophies) || trophies < TROPHIES_MIN || trophies > TROPHIES_MAX) {
         return json({ ok: false, reason: 'invalid_trophies' }, 400);
     }
+    const oldRaw = await env.LOTA_LADDER.get(`player:${uid}`);
+    let oldTrophies = 150, oldTs = 0;
+    if (oldRaw) { try { const od = JSON.parse(oldRaw); oldTrophies = od.trophies || 150; oldTs = od.updatedAt || 0; } catch(e) {} }
+    const timeDiffHours = (now - oldTs) / 3600000;
+    const maxJump = Math.max(100, timeDiffHours * 50);
+    if (trophies > oldTrophies && (trophies - oldTrophies) > maxJump) {
+        return json({ ok: false, reason: 'suspicious_trophy_jump' }, 400);
+    }
     const cp = parseInt(body.cp, 10);
     if (!Number.isFinite(cp) || cp < CP_MIN || cp > CP_MAX) {
         return json({ ok: false, reason: 'invalid_cp' }, 400);
@@ -372,7 +382,7 @@ async function handleArenaSubmit(request, env) {
         if (el && typeof el === 'object') {
             if (typeof el.id !== 'string' || el.id.length === 0 || el.id.length > 40) return false;
             const s = parseInt(el.stars, 10), l = parseInt(el.lvl, 10);
-            if (!Number.isFinite(s) || s < 1 || s > 10) return false;
+            if (!Number.isFinite(s) || s < 1 || s > 100) return false;
             if (!Number.isFinite(l) || l < 1 || l > 300) return false;
             return true;
         }
@@ -497,9 +507,13 @@ async function handleArenaAttack(request, env) {
     }
     const trophyChange = _serverTrophyChange;
 
-    const _attackPairKey = attackerUid + '|' + targetUid;
-    const rlAttackCheck = checkRateLimit(attackRateLimits, _attackPairKey, ATTACK_COOLDOWN_MS);
-    if (!rlAttackCheck.ok) return json({ ok: false, reason: 'rate_limited', retryIn: rlAttackCheck.retryIn }, 429);
+    const _cdKey = 'attack_cd:' + attackerUid + '_' + targetUid;
+    const _cdRaw = await env.LOTA_LADDER.get(_cdKey);
+    const _now = Date.now();
+    if (_cdRaw && _now - parseInt(_cdRaw, 10) < ATTACK_COOLDOWN_MS) {
+        return json({ ok: false, reason: 'rate_limited', retryIn: ATTACK_COOLDOWN_MS - (_now - parseInt(_cdRaw, 10)) }, 429);
+    }
+    await env.LOTA_LADDER.put(_cdKey, String(_now), { expirationTtl: 60 });
 
     const now = Date.now();
     const attackerRaw = await env.LOTA_LADDER.get(`player:${attackerUid}`);
