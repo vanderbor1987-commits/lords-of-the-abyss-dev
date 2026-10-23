@@ -323,6 +323,7 @@ const PlatformBridge = {
     isCloudDirty: false,
     syncDebounceTimer: null,
     lastCloudSaveTime: 0,
+    isArbitrationDone: false,
     canShowYandexShortcut: false,
     isLoadingReadyCalled: false,
     // Кэш промиса динамической загрузки Yandex SDK v2 (защита от двойной инжекции)
@@ -524,6 +525,8 @@ const PlatformBridge = {
         if (isRunningInsideVK() && window.vkBridge) {
             this.initVKCloudSync();
             this.checkReferralArrival();
+        } else if (!isRunningInsideYandex()) {
+            this.isArbitrationDone = true;
         }
 
         // Yandex Games SDK подгружается ДИНАМИЧЕСКИ и ТОЛЬКО внутри реального портала Яндекс.Игр.
@@ -720,10 +723,15 @@ const PlatformBridge = {
                 if (data && data[SAVE_KEY]) {
                     this.performSafeArbitration(data[SAVE_KEY]);
                 } else {
+                    this.isArbitrationDone = true;
                     // Первичное наполнение облака локальным сейвом
                     this.queueCloudSave(true);
                 }
-            }).catch(e => console.warn('[PlatformBridge] Yandex getData error:', e));
+            }).catch(e => {
+                console.warn('[PlatformBridge] Yandex getData error:', e);
+                this.isArbitrationDone = true;
+                if (this.isCloudDirty) this.flushCloudSave();
+            });
         }).catch(err => {
             console.log('[PlatformBridge] Игрок не авторизован в Яндекс Играх (гостевой режим):', err);
         });
@@ -734,9 +742,23 @@ const PlatformBridge = {
     // и мы добираем их вторым запросом VKWebAppStorageGet. VK возвращает ключи
     // в произвольном порядке, поэтому собираем строго по индексу.
     initVKCloudSync() {
-        if (!isRunningInsideVK() || !window.vkBridge) return;
+        if (!isRunningInsideVK() || !window.vkBridge) {
+            this.isArbitrationDone = true;
+            return;
+        }
+        const _arbTimeout = setTimeout(() => {
+            if (!this.isArbitrationDone) {
+                this.isArbitrationDone = true;
+                if (this.isCloudDirty) this.flushCloudSave();
+            }
+        }, 6000);
         window.vkBridge.send('VKWebAppStorageGet', { keys: [SAVE_KEY] }).then(res => {
-            if (!res || !res.keys || !res.keys[0] || !res.keys[0].value) return;
+            clearTimeout(_arbTimeout);
+            if (!res || !res.keys || !res.keys[0] || !res.keys[0].value) {
+                this.isArbitrationDone = true;
+                if (this.isCloudDirty) this.flushCloudSave();
+                return;
+            }
             const rawValue = res.keys[0].value;
 
             const chunkedMatch = rawValue.match(/^__CHUNKED__:(\d+)$/);
@@ -759,7 +781,11 @@ const PlatformBridge = {
             }
 
             window.vkBridge.send('VKWebAppStorageGet', { keys: chunkKeys }).then(chunkRes => {
-                if (!chunkRes || !Array.isArray(chunkRes.keys)) return;
+                if (!chunkRes || !Array.isArray(chunkRes.keys)) {
+                    this.isArbitrationDone = true;
+                    if (this.isCloudDirty) this.flushCloudSave();
+                    return;
+                }
                 // VK не гарантирует порядок — раскладываем по key, собираем строго по индексу.
                 const byKey = {};
                 chunkRes.keys.forEach(k => { if (k && k.key) byKey[k.key] = k.value || ''; });
@@ -769,8 +795,15 @@ const PlatformBridge = {
                     assembled += byKey[`${SAVE_KEY}_chunk_${i}`] || '';
                 }
                 this.performSafeArbitration(assembled);
-            }).catch(() => {});
-        }).catch(() => {});
+            }).catch(() => {
+                this.isArbitrationDone = true;
+                if (this.isCloudDirty) this.flushCloudSave();
+            });
+        }).catch(() => {
+            clearTimeout(_arbTimeout);
+            this.isArbitrationDone = true;
+            if (this.isCloudDirty) this.flushCloudSave();
+        });
     },
 
     // Безопасный арбитраж версий: исключает перезапись более нового прогресса.
@@ -855,6 +888,8 @@ const PlatformBridge = {
         } catch(e) {
             console.error('[Cloud Sync] Ошибка парсинга облачных данных:', e);
         } finally {
+            this.isArbitrationDone = true;
+            if (this.isCloudDirty) this.flushCloudSave();
             // FIX-OFFLINE-DUP: облако подтянулось (успех, битый JSON или пусто) —
             // теперь lastTickTime канонический, можно считать offline income.
             // finalizeOfflineIncome single-shot: если таймаут в loadGame уже
@@ -866,6 +901,7 @@ const PlatformBridge = {
     // Очередь сетевой отправки с дебаунсом 15 секунд (защита от rate limit)
     queueCloudSave(immediate = false) {
         this.isCloudDirty = true;
+        if (!this.isArbitrationDone) return;
         if (immediate) {
             // MAJOR-M9: при форсированном flush отменяем отложенный debounce-таймер,
             // чтобы не было дублирующего сетевого вызова через 15 секунд после immediate.
@@ -886,6 +922,7 @@ const PlatformBridge = {
     // Принудительный сброс буфера в сеть
     flushCloudSave() {
         if (!this.isCloudDirty) return;
+        if (!this.isArbitrationDone) return;
         const now = Date.now();
         if (now - this.lastCloudSaveTime < 10000) {
             if (!this.syncDebounceTimer) {
