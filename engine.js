@@ -17172,7 +17172,9 @@ function initStageScaler() {
         const winW = window.innerWidth;
         const winH = window.innerHeight;
         // FIX-STAGE-PC: базовый масштаб — вписываем сцену в окно без обрезки
-        let scale = Math.min(winW / targetW, winH / targetH);
+        let availW = winW;
+                if (winW >= 1100) availW = winW - Math.min(900, winW * 0.4);
+                let scale = Math.min(availW / targetW, winH / targetH);
         // FIX-STAGE-PC: раньше на десктопе scale жёстко фиксировался в 1.0 — игра оставалась
         // 460×860 в центре огромного монитора. Теперь разрешаем увеличение до 1.55x —
         // комфортно для Full HD / QHD, но не мылит текст на Retina/4K (растр сцены 460×860).

@@ -100,14 +100,205 @@ html, body {
     width: 100vw;
     height: 100vh;
     height: 100dvh;
-    background: radial-gradient(circle at 50% 50%, #151b26 0%, #050608 100%);
+    background: #050608;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: stretch;
     position: relative;
     overflow: hidden;
     box-sizing: border-box;
+    padding: 0;
 }
+
+/* Полная десктопная адаптация */
+@media (min-width: 99999px) {
+    #desktop-backdrop {
+        align-items: flex-start;
+    }
+    #app-viewport {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        transform: none !important;
+        margin: 0 !important;
+    }
+    
+    /* Шапка: ресурсы вправо-вверх */
+    .app-header {
+        position: absolute !important;
+        top: 20px;
+        right: 20px;
+        width: 400px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px;
+        padding: 10px !important;
+        z-index: 2000 !important;
+    }
+    .header-profile-row {
+        display: flex !important;
+    }
+
+    /* Меню: вертикально слева */
+    .main-nav {
+        display: flex !important;
+        flex-direction: column;
+        position: absolute !important;
+        top: 120px;
+        left: 20px;
+        width: 100px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px;
+        padding: 10px 5px !important;
+        gap: 8px !important;
+        z-index: 2000 !important;
+    }
+    .nav-btn {
+        flex-direction: column !important;
+        padding: 12px 5px !important;
+        border-radius: 8px;
+        border: 1px solid transparent !important;
+    }
+    .nav-btn.active {
+        background: rgba(245, 176, 65, 0.15) !important;
+        border-color: var(--gold) !important;
+    }
+    .nav-text { font-size: 11px !important; }
+    .nav-icon { font-size: 20px !important; margin-bottom: 4px; }
+
+    /* Контентная зона */
+    .content-viewport {
+        padding-left: 140px !important;
+        padding-right: 20px !important;
+        padding-top: 20px !important;
+        padding-bottom: 90px !important;
+        overflow: hidden !important;
+    }
+
+    /* Кнопка тапа: вправо-вниз */
+    .citadel-bottom-tap-zone {
+        position: absolute !important;
+        bottom: 20px !important;
+        right: 20px !important;
+        width: 400px !important;
+        left: auto !important;
+        z-index: 2000 !important;
+    }
+
+    /* Реклама: слева-вниз */
+    .app-footer {
+        position: absolute !important;
+        bottom: 20px !important;
+        left: 20px !important;
+        width: 250px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px;
+        z-index: 2000 !important;
+        border-top: 1.5px solid var(--border-metal) !important;
+    }
+
+    /* Растягиваем фон-арт */
+    #citadel-view {
+        background-size: cover !important;
+        background-position: center !important;
+    }
+    
+    /* Убираем вырвиглазный hover, возвращаем тултипы */
+    .btn-action:hover, .main-menu-item:hover, .shop-tile-btn:hover {
+        border-color: var(--gold) !important;
+        box-shadow: 0 0 10px rgba(245, 176, 65, 0.3) !important;
+        filter: brightness(1.1);
+        transform: none !important;
+    }
+    .district-badge:hover, .slot-target:hover, .tcg-card:hover {
+        border-color: var(--gold) !important;
+        box-shadow: 0 0 15px var(--gold-glow) !important;
+        transform: none !important;
+    }
+}
+
+#app-viewport {
+    flex-shrink: 0;
+    margin: auto 0;
+    border-radius: 0 !important;
+    border-left: 1.5px solid rgba(245, 176, 65, 0.15);
+    border-right: 1.5px solid rgba(245, 176, 65, 0.15);
+    box-shadow: none !important;
+}
+
+.desktop-side-panel {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    background: radial-gradient(circle at 50% 50%, #10141d 0%, #07090d 100%);
+    padding: 40px 20px;
+    box-sizing: border-box;
+    border-right: 1.5px solid rgba(245, 176, 65, 0.15);
+    min-width: 250px;
+    overflow-y: auto;
+}
+
+.dsp-inner {
+    width: 100%;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+}
+#desktop-right-panel {
+    border-right: none;
+    border-left: 1px solid var(--border-metal);
+}
+
+@media (min-width: 1100px) {
+    .desktop-side-panel { display: flex; }
+    #app-viewport {
+        border-radius: 0 !important;
+        border-left: 1px solid rgba(245, 176, 65, 0.2);
+        border-right: 1px solid rgba(245, 176, 65, 0.2);
+        box-shadow: none !important;
+    }
+}
+
+.dsp-logo { text-align: center; margin-bottom: 24px; filter: drop-shadow(0 0 25px rgba(245, 176, 65, 0.6)); }
+.dsp-title { font-family: 'Cinzel', serif; font-size: 26px; font-weight: 900; color: var(--gold); text-align: center; line-height: 1.2; text-shadow: 0 0 15px var(--gold-glow); margin-bottom: 12px; letter-spacing: 2px; }
+.dsp-version { text-align: center; font-size: 13px; color: var(--text-muted); font-weight: 700; letter-spacing: 1.5px; }
+.dsp-divider { height: 1px; background: rgba(245, 176, 65, 0.2); margin: 24px 0; }
+.dsp-card { background: rgba(16, 20, 29, 0.7); border: 1px solid var(--border-metal); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.dsp-card-title { font-family: 'Cinzel', serif; font-size: 13px; font-weight: 800; color: var(--text-muted); margin-bottom: 12px; letter-spacing: 0.5px; text-transform: uppercase; }
+.dsp-card-row { display: flex; justify-content: space-between; font-size: 13px; color: #cbd5e1; margin-bottom: 8px; }
+
+.desktop-side-panel {
+    display: none;
+    flex-direction: column;
+    width: 220px;
+    height: 860px;
+    background: linear-gradient(180deg, rgba(20, 26, 38, 0.95) 0%, rgba(10, 14, 22, 0.98) 100%);
+    border: 1.5px solid var(--border-metal);
+    border-radius: 12px;
+    padding: 20px 16px;
+    box-sizing: border-box;
+    box-shadow: 0 0 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.5);
+}
+
+@media (min-width: 1000px) and (hover: hover) and (pointer: fine) {
+    .desktop-side-panel { display: flex; }
+}
+
+.dsp-logo { text-align: center; margin-bottom: 12px; filter: drop-shadow(0 0 15px rgba(245, 176, 65, 0.5)); }
+.dsp-title { font-family: 'Cinzel', serif; font-size: 18px; font-weight: 900; color: var(--gold); text-align: center; line-height: 1.2; text-shadow: 0 0 10px var(--gold-glow); margin-bottom: 8px; }
+.dsp-version { text-align: center; font-size: 11px; color: var(--text-muted); font-weight: 700; letter-spacing: 1px; }
+.dsp-divider { height: 1px; background: rgba(245, 176, 65, 0.2); margin: 16px 0; }
+.dsp-card { background: rgba(16, 20, 29, 0.9); border: 1px solid var(--border-metal); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.dsp-card-title { font-family: 'Cinzel', serif; font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px; }
+.dsp-card-row { display: flex; justify-content: space-between; font-size: 11.5px; color: #cbd5e1; margin-bottom: 4px; }
 
 /* Виртуальная сцена: монолитный эталон 460×860px с динамическим скейлом */
 #app-viewport {
@@ -1497,6 +1688,31 @@ html, body {
     font-size: 12.5px;
     color: var(--gold);
     font-weight: 800;
+}
+
+/* ==========================================================
+   ДЕСКТОПНЫЕ ОПТИМИЗАЦИИ (Hover, Меньшие кнопки)
+   ========================================================== */
+@media (hover: hover) and (pointer: fine) {
+    .btn-action, .main-menu-item, .shop-tile-btn {
+        min-height: 32px;
+        padding: 6px 12px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+    .btn-action:hover, .main-menu-item:hover, .shop-tile-btn:hover {
+        border-color: #fff !important;
+        box-shadow: 0 0 12px var(--gold-glow) !important;
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+    }
+    .district-badge:hover, .slot-target:hover, .tcg-card:hover {
+        border-color: #fff !important;
+        box-shadow: 0 0 15px var(--gold-glow) !important;
+        transform: translateY(-2px) scale(1.02);
+        cursor: pointer;
+    }
 }
 
 /* ==========================================================
@@ -7091,6 +7307,121 @@ img[src*="trophy.webp"] {
     background: var(--gold) !important;
     color: #0b0f17 !important;
     font-weight: 900 !important;
+}
+
+/* ==========================================================
+   НАСТОЯЩИЙ ДЕСКТОПНЫЙ FULL-SCREEN LAYOUT
+   ========================================================== */
+@media (min-width: 99999px) {
+    #desktop-backdrop {
+        display: block !important;
+        background: #050608 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+    #app-viewport {
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: 100vw !important;
+        max-height: 100vh !important;
+        transform: none !important;
+        border-radius: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        background-size: cover !important;
+        background-position: center !important;
+    }
+    
+    /* Шапка: ресурсы вправо-вверх */
+    .app-header {
+        position: absolute !important;
+        top: 20px !important;
+        right: 20px !important;
+        width: 440px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        z-index: 2000 !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    .top-header-strip { flex-direction: row-reverse !important; justify-content: space-between !important; }
+    .res-row { width: 100% !important; }
+    .header-profile-row { margin-top: 8px; display: flex !important; }
+
+    /* Меню: вертикально слева */
+    .main-nav {
+        display: flex !important;
+        flex-direction: column !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 20px !important;
+        transform: translateY(-50%) !important;
+        width: 90px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px !important;
+        padding: 10px 6px !important;
+        gap: 8px !important;
+        z-index: 2000 !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    .nav-btn {
+        flex-direction: column !important;
+        padding: 12px 5px !important;
+        border-radius: 8px !important;
+        border: 1px solid transparent !important;
+        width: 100% !important;
+    }
+    .nav-btn.active {
+        background: rgba(245, 176, 65, 0.15) !important;
+        border-color: var(--gold) !important;
+    }
+    .nav-text { font-size: 11px !important; }
+    .nav-icon { font-size: 22px !important; margin-bottom: 4px; }
+
+    /* Контентная зона */
+    .content-viewport {
+        padding-left: 130px !important;
+        padding-right: 20px !important;
+        padding-top: 20px !important;
+        padding-bottom: 20px !important;
+        overflow: hidden !important;
+    }
+
+    /* Кнопка тапа: вправо-вниз */
+    .citadel-bottom-tap-zone {
+        position: absolute !important;
+        bottom: 20px !important;
+        right: 20px !important;
+        width: 440px !important;
+        left: auto !important;
+        z-index: 2000 !important;
+    }
+
+    /* Реклама: слева-вниз */
+    .app-footer {
+        position: absolute !important;
+        bottom: 20px !important;
+        left: 20px !important;
+        width: 280px !important;
+        background: rgba(10, 14, 22, 0.85) !important;
+        border: 1.5px solid var(--border-metal) !important;
+        border-radius: 12px !important;
+        z-index: 2000 !important;
+        border-top: 1.5px solid var(--border-metal) !important;
+        padding: 10px !important;
+        backdrop-filter: blur(10px) !important;
+    }
+
+    /* Фикс тултипов (убираем сдвиг кнопок при наведении) */
+    .btn-action:hover, .main-menu-item:hover, .shop-tile-btn:hover, .district-badge:hover, .slot-target:hover, .tcg-card:hover {
+        transform: none !important;
+        border-color: var(--gold) !important;
+        box-shadow: 0 0 15px var(--gold-glow) !important;
+        filter: brightness(1.1);
+    }
 }
 
 @keyframes ftueBadgePulse {
