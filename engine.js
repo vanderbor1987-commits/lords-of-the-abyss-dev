@@ -8350,7 +8350,8 @@ function getDungeonFloorData(floor) {
 
     const isBoss = (floor % 10 === 0);
     const isElite = (floor % 5 === 0 && !isBoss);
-    const isApex100 = (floor >= 100);
+    const isApex100 = (floor === 100);
+    const isEndless = (floor > 100);
 
     // Плавная 5-секторная кривая мощи.
     // Секторы 1-4 (1..100F): от 500 БМ до 55.3M БМ — каноничная прогрессия.
@@ -8390,8 +8391,8 @@ function getDungeonFloorData(floor) {
 
     let squad = [];
 
-    if (isApex100) {
-        // Финал 100 этажа: «Свита Первородного Бога» с чистой моносинергией 3/3 (+75%)
+    if (floor >= 100) {
+        // Свита Первородного Бога (100F и бесконечный режим)
         const divineCourts = [
             ['sss_und_v', 's_und_c', 'ss_und_r'], // Культ Танатоса (Нежить 3/3)
             ['ss_dem_v', 's_dem_c', 'sss_dem_v'],  // Пламя Бахамута (Демоны 3/3)
@@ -8452,6 +8453,7 @@ function getDungeonFloorData(floor) {
     if (bossHero) {
         let titlePrefix = currentLang === 'RU' ? 'Страж' : 'Guardian';
         if (isApex100) titlePrefix = currentLang === 'RU' ? 'ПЕРВОРОДНЫЙ БОГ' : 'PRIMORDIAL GOD';
+        else if (isEndless) titlePrefix = currentLang === 'RU' ? 'ВЕЧНЫЙ СТРАЖ' : 'ETERNAL GUARDIAN';
         else if (isBoss) titlePrefix = currentLang === 'RU' ? 'Владыка' : 'Monarch';
         else if (isElite) titlePrefix = currentLang === 'RU' ? 'Каратель' : 'Punisher';
 
